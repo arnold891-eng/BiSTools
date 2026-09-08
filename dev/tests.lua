@@ -958,6 +958,39 @@ say("Druid", "1|SUMMON|REQ|0")
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 S("summon show")
 
+-- freshness: walking off a known stone pushes a WHERE; a summoner re-asks when a fact goes stale
+S("summon show")
+dbs.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
+W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
+local wh0 = W.sentCount("CORE|WHERE")
+SM.selfAtStone = nil SM.SelfWatch(dbs)              -- first look just remembers
+ok(W.sentCount("CORE|WHERE") == wh0 and SM.selfAtStone == true, "first look: at the stone, nothing sent")
+SM.SelfWatch(dbs)
+ok(W.sentCount("CORE|WHERE") == wh0, "still there: nothing sent")
+W.me.x = 1500 SM.SelfWatch(dbs)                       -- 2500 yd off
+ok(W.sentCount("CORE|WHERE") == wh0 + 1 and SM.selfAtStone == false, "walked off the stone -> one WHERE")
+SM.SelfWatch(dbs) SM.SelfWatch(dbs)
+ok(W.sentCount("CORE|WHERE") == wh0 + 1, "standing away: nothing more")
+W.me.x = 1000 SM.SelfWatch(dbs)
+ok(W.sentCount("CORE|WHERE") == wh0 + 2, "back on it -> one more")
+ok(SM.selfTicker and SM.selfTicker.iv == 3, "self-watch ticks every 3 s from load")
+-- re-ask: a fact older than 30 s while the window is up
+local ask0 = W.sentCount("ASK")
+for _, p in pairs(lib:Peers()) do if p.where then p.where.at = W.now end end
+SM.lastReask = nil SM.Reask(dbs)
+ok(W.sentCount("ASK") == ask0, "all facts fresh -> no ask")
+lib:Peer("Druid").where.at = W.now - 40
+SM.Reask(dbs)
+ok(W.sentCount("ASK") == ask0 + 1, "a 40 s old fact -> one ask")
+SM.Reask(dbs)
+ok(W.sentCount("ASK") == ask0 + 1, "throttled to one per 15 s")
+W.now = W.now + 16 SM.Reask(dbs)
+ok(W.sentCount("ASK") == ask0 + 2, "asks again after 15 s if still stale")
+lib:Peer("Druid").where.at = W.now
+S("summon hide") SM.Reask(dbs) W.now = W.now + 16
+ok(W.sentCount("ASK") == ask0 + 2, "window hidden -> never asks")
+dbs.stones = {} W.me.x = 1000 SM.selfAtStone = nil
+
 -- the interact key over the window: press 1 targets the top name, press 2 is the real interact
 S("summon show") SM.Refresh(dbs)
 local kb = SM.KeyButton()

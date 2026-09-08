@@ -33,6 +33,8 @@
 - **Spam the key**: stand at the stone, mouse on the summon window, press Interact With
   Target: first press targets the top name, next press is the real interact - the stone. The
   top changes, the key targets the next one. `/bt summon key off` to disable.
+- Positions stay fresh: stepping on or off a known stone pushes your position to the raid,
+  and an open summon window re-asks when a name's position is older than 30 s.
 - Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.
