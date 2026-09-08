@@ -1,5 +1,8 @@
 # zips the release script drops here by accident
 *.zip
+# old hand-built releases, scratch copies
+release/
+*.bak
 # editor / OS noise
 .DS_Store
 Thumbs.db
