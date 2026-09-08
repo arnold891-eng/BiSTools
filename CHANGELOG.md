@@ -38,9 +38,14 @@
 - Two people at a stone: the summon window opens on every BiSTools client in the raid. Far
   from the stone it is compact - `N at the stone` and the request button; `all` unrolls the
   list. At the stone you get the full list.
-- The summon window talks like a shell: a `BiS> _` prompt at the bottom, and lines that print
-  and fade - `2 at the stone - request now`, `X asks for a summon`, `X accepted`, `no summons
-  - hiding`. Nothing of that goes to chat any more.
+- The summon window talks like a shell, in its header: the title is a `BiS> _` prompt with a
+  blinking cursor that cycles what matters - `Summon`, `2 at stone` (green, you counted),
+  `1 asking`, `requesting...`, `summon incoming` - and says events over it for a few seconds:
+  `X asks`, `X accepted`, `X declined`, `request now`, `no summons`. Nothing of that goes to
+  chat any more. The prompt is `BiSTheme.Console`, shared by every BiS window from here on
+  (a copy ships in `Libs/BiSTheme/Console.lua`, so it works without BiSTheme installed).
+- Pin button dropped: the window opens itself when summons are available; `/bt summon
+  show|auto|hide` is the manual way. Logo dropped too - the prompt is the brand.
 - Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.

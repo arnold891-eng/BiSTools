@@ -49,9 +49,8 @@ SM.ROW_H, SM.W       = 14, 170
 SM.FOOT_H            = 16
 SM.ALL_W             = 44        -- the "all" button on the footer's right
 SM.STATUS_H          = 12        -- the "N at stone - M in" line under the rows
-SM.CON_LINES         = 3         -- console strip: this many lines, newest at the bottom
-SM.CON_H             = 11        -- per line
-SM.CON_HOLD, SM.CON_FADE = 4, 2  -- seconds a line stays solid, then seconds it fades
+-- the "BiS> _" prompt lives in the header title (BiSTheme.Console); it cycles the
+-- addon name and the state slots and says events. SM.Log / SM.PaintConsole wrap it.
 SM.REQ_TTL           = 600       -- a request nobody answered dies after 10 min
 SM.NAG_EVERY         = 20
 SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
@@ -330,7 +329,7 @@ function SM.LearnStone(db, broadcast)
   else
     st = { map = pinst, zone = zone, x = px, y = py }
     db.stones[key] = st
-    SM.Log("stone learned: " .. zone, "ink2")
+    SM.Log("stone learned", "ink2")
   end
   if broadcast then
     local lib = SM.Lib()
@@ -402,21 +401,13 @@ function SM.Request(db, on)
     lib:Send("SUMMON", "REQ", on and 1 or 0)
     if on then lib:SendWhere(true) end   -- and where I am, so the row scores right
   end
-  SM.Log(on and "requested - you are on top" or "request cancelled", on and "gold" or "muted")
+  SM.Log(on and "requested" or "request off", on and "gold" or "muted")
+  SM.PaintSlots()
 end
 
--- a label must fit its box: shrink with an ellipsis until GetStringWidth says so.
--- (Arn, 8 Sep: "summon requested - click to cancel" ran into the "all" button.)
-function SM.Fit(fs, text, width)
-  fs:SetText(text)
-  if not fs.GetStringWidth then return text end
-  local t = text
-  while fs:GetStringWidth() > width and #t > 1 do
-    t = t:sub(1, -2)
-    fs:SetText(t .. "...")
-  end
-  return fs:GetText()
-end
+-- a label must fit its box (BiSTheme.Fit; Arn, 8 Sep: "summon requested - click
+-- to cancel" ran into the "all" button)
+function SM.Fit(fs, text, width) return BiSTheme.Fit(fs, text, width) end
 
 function SM.SetUnrolled(db, on)
   SM.unrolled = on and true or false
@@ -447,7 +438,7 @@ function SM.OnRequest(sender, flag)
     local fresh = SM.requests[sender] == nil
     SM.requests[sender] = GetTime()
     if fresh then
-      SM.Log(sender .. " asks for a summon", "gold")
+      SM.Log(sender .. " asks", "gold")
       local db0 = SM.db
       if db0 and db0.jeck then
         -- the summoner: this is his job tonight, it should reach him mid-fight
@@ -528,12 +519,12 @@ function SM.SelfWatch(db)
     SM.ApplyVisible(true)
     if not SM.popped then
       SM.popped = true
-      SM.Log(n .. " at the stone - request now", "good")
+      SM.Log("request now", "good")
     end
   elseif SM.popped then
     SM.popped = false
     if SM.shown and (db.mode or "auto") == "auto" then
-      SM.Log("no summons - hiding", "muted")
+      SM.Log("no summons", "muted")
       -- let the linger run out in ~5 s instead of the full 8
       SM.seenAt = GetTime() - (db.linger or SM.DEFAULT_LINGER) + 5
     end
@@ -597,61 +588,35 @@ function SM.ArmKey(db)
 end
 
 -- ---------------------------------------------------------------- console
--- Arn (8 Sep): "like a powershell line ... not in chat, keep chat clear ...
--- fading out after a couple of seconds". A strip between the rows and the
--- footer. SM.Log pushes a line; the watcher ages and fades them.
-SM.con = { lines = {} }
-
+-- Arn (8 Sep): "prompt `BiS> _` blinking should be in the header and cycle
+-- relevant messages: addon name, summoners at the stone, receiving summon,
+-- requesting summon". The title FontString is a BiSTheme.Console: standing
+-- slots rotate, SM.Log says an event over them, chat stays clean.
 function SM.Log(text, colour)
-  local L = SM.con.lines
-  L[#L + 1] = { text = text, colour = colour or "ink2", at = GetTime() }
-  while #L > SM.CON_LINES do table.remove(L, 1) end
-  SM.PaintConsole()
+  if SM.con then SM.con:Say(text, colour) else NS.Print("%s", text) end
+end
+
+-- the standing slots, in rotation order: name, at stone, asking, mine, incoming
+function SM.PaintSlots()
+  local c = SM.con
+  if not c then return end
+  local n = SM.stoneCount or 0
+  c:Set("stone", n > 0 and (SM.TITLE_ICON .. n .. " at stone") or nil, "good")
+  local asks, now = 0, GetTime()
+  for name in pairs(SM.requests) do if SM.Asked(name, now) then asks = asks + 1 end end
+  c:Set("asks", asks > 0 and (asks .. " asking") or nil, "gold")
+  c:Set("mine", SM.myRequest and "requesting..." or nil, "gold")
+  c:Set("offer", SM.nag.active and "summon incoming" or nil, "good")
 end
 
 function SM.PaintConsole()
-  if not SM.frame or not SM.conFrame then return end
-  local now = GetTime()
-  local L = SM.con.lines
-  -- drop the dead ones
-  local i = 1
-  while i <= #L do
-    if (now - L[i].at) >= (SM.CON_HOLD + SM.CON_FADE) then table.remove(L, i) else i = i + 1 end
-  end
-  for n = 1, SM.CON_LINES do
-    local fs = SM.conFS[n]
-    local line = L[n]
-    if line then
-      local age = now - line.at
-      local a = 1
-      if age > SM.CON_HOLD then a = 1 - (age - SM.CON_HOLD) / SM.CON_FADE end
-      if a < 0 then a = 0 end
-      SM.Fit(fs, T.text("accent", "> ") .. line.text, SM.W - 12)
-      local r, g, b = K.color(line.colour)
-      fs:SetTextColor(r, g, b, 1)
-      fs:SetAlpha(a)
-      fs:Show()
-    else
-      fs:Hide()
-    end
-  end
-  -- the prompt: always there, cursor blinking, like a shell waiting on you
-  local blink = math.floor(now * 2) % 2 == 0
-  SM.promptFS:SetText(T.text("accent", "BiS> ") .. (blink and "_" or " "))
-  SM.promptFS:ClearAllPoints()
-  SM.promptFS:SetPoint("TOPLEFT", SM.conFrame, "TOPLEFT", 6, -(#L) * SM.CON_H - 2)
-  local h = (#L + 1) * SM.CON_H + 3
-  if SM.conH ~= h then
-    SM.conH = h
-    SM.conFrame:SetHeight(math.max(h, 1))
-    SM.Relayout()
-  end
+  if SM.con then SM.con:Paint() end
 end
 
 -- one place computes the frame height: header + body + console + footer
 function SM.Relayout()
   if not SM.frame then return end
-  SM.frame:SetHeight(K.HEADER + (SM.bodyH or 1) + (SM.conH or 0) + SM.FOOT_H)
+  SM.frame:SetHeight(K.HEADER + (SM.bodyH or 1) + SM.FOOT_H)
 end
 
 -- ---------------------------------------------------------------- window
@@ -682,18 +647,17 @@ function SM.Build(db)
   local hair = head:CreateTexture(nil, "BORDER")
   hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
   do local r, g, b = K.color("edge") hair:SetColorTexture(r, g, b, 1) end
-  local logo = head:CreateTexture(nil, "ARTWORK")
-  logo:SetSize(11, 11)
-  logo:SetPoint("LEFT", head, "LEFT", 4, 0)
-  logo:SetTexture("Interface\\Icons\\Spell_Shadow_Twilight")
-  if logo.SetTexCoord then logo:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
-  SM.title = K.fs(head, "|cffb980ffSummon|r", 9, "ink")
-  SM.title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
-  -- header budget, left to right: 4 + logo 11 + 4 + title (<= W-56-19 = 95 px, the
-  -- widest title is the green "N at stone" count) ... buttons from the right:
-  -- x(12)@-3, ?(12)@-17, J(18)@-38 -> J's left edge sits 56 px from the right.
-  -- Nothing else goes in the header. (No pin button: Arn, 8 Sep - "confusing";
-  -- auto-open on summons covers it, /bt summon show|auto|hide is the manual way.)
+  -- the title is the prompt: "BiS> Summon_", cycling the state slots
+  SM.title = K.fs(head, "", 8, "ink")
+  SM.title:SetPoint("LEFT", head, "LEFT", 4, 0)
+  -- header budget, left to right: 4 + prompt (<= W-56-8 = 106 px: "BiS> " + ~16
+  -- characters + cursor) ... buttons from the right: x(12)@-3, ?(12)@-17,
+  -- J(18)@-38 -> J's left edge sits 56 px from the right. Nothing else goes in
+  -- the header. (No logo: the prompt is the brand. No pin button: Arn, 8 Sep -
+  -- "confusing"; auto-open on summons covers it, /bt summon show|auto|hide is
+  -- the manual way.)
+  SM.con = BiSTheme.Console(SM.title, { width = SM.W - 56 - 8 })
+  SM.con:Set("name", "Summon", "accent")
   SM.closeBtn = K.HeaderButton(head, -3, "x", "Close", "Auto mode brings it back on a summoning stone.",
     function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
   SM.askBtn = K.HeaderButton(head, -17, "?", "Ask the raid", "Every BiS client answers with where it stands.",
@@ -715,26 +679,9 @@ function SM.Build(db)
     SM.seenAt = GetTime()
   end)
 
-  -- console strip right under the header (Arn: "on the top now"), rows below it
-  local con = CreateFrame("Frame", nil, f)
-  con:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
-  con:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
-  con:SetHeight(1)
-  SM.conFrame, SM.conFS = con, {}
-  for n = 1, SM.CON_LINES do
-    local fs = K.fs(con, "", 8, "ink2")
-    fs:SetPoint("TOPLEFT", con, "TOPLEFT", 6, -(n - 1) * SM.CON_H - 2)
-    fs:Hide()
-    SM.conFS[n] = fs
-  end
-  SM.promptFS = K.fs(con, "", 8, "ink2")
-  local conHair = con:CreateTexture(nil, "BORDER")
-  conHair:SetPoint("BOTTOMLEFT") conHair:SetPoint("BOTTOMRIGHT") conHair:SetHeight(1)
-  do local r, g, b = K.color("hair") conHair:SetColorTexture(r, g, b, 1) end
-
   local body = CreateFrame("Frame", nil, f)
-  body:SetPoint("TOPLEFT", con, "BOTTOMLEFT")
-  body:SetPoint("TOPRIGHT", con, "BOTTOMRIGHT")
+  body:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+  body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
   body:SetHeight(1)
   SM.body = body
   SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
@@ -745,8 +692,6 @@ function SM.Build(db)
 
   -- footer: the peer's one button. "request a summon" puts you on top of every
   -- summoner's list with "asks"; click again to take it back.
-  SM.PaintConsole()
-
   -- footer budget, 170 wide: request 0..126 | all 126..170
   local foot = CreateFrame("Button", "BiSToolsSummonRequest", f)
   foot:SetPoint("BOTTOMLEFT")
@@ -932,16 +877,12 @@ function SM.PaintRows(db, list)
   SM.Relayout()
 end
 
--- the title is the count, Innervate-style: green triangle + "2 at stone" while
--- anyone (me included) stands at a stone, the plain name otherwise
+-- the at-stone slot, Innervate-style: green triangle + "2 at stone" while anyone
+-- (me included) stands at a stone; the prompt cycles it with the addon name
 SM.TITLE_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_4:11:11:0:0|t"
 function SM.PaintTitle(n)
-  if not SM.title then return end
-  if n and n > 0 then
-    SM.title:SetText(SM.TITLE_ICON .. T.text("good", n .. " at stone"))
-  else
-    SM.title:SetText("|cffb980ffSummon|r")
-  end
+  SM.stoneCount = n
+  SM.PaintSlots()
 end
 
 function SM.Refresh(db)
@@ -1021,7 +962,7 @@ function SM.Watch(db, dt)
   if not want then SM.seenAt = nil end
   SM.ApplyVisible(want)
   SM.ArmKey(db)
-  if SM.shown then SM.PaintConsole() end   -- ages the lines, blinks the cursor
+  if SM.shown then SM.PaintConsole() end   -- rotates the slots, blinks the cursor
 end
 
 -- ---------------------------------------------------------------- the nag
@@ -1048,6 +989,7 @@ end
 function SM.NagStart(db)
   if db and db.nag == false then return end
   SM.nag.active = true
+  SM.PaintSlots()
   SM.NagOnce()
   local lib = SM.Lib()
   local left = (lib and lib.summon and lib.summon.left) or SM.DEFAULT_RETRY
@@ -1063,6 +1005,7 @@ end
 
 function SM.NagStop()
   SM.nag.active = false
+  SM.PaintSlots()
   if SM.nag.ticker then SM.nag.ticker:Cancel() SM.nag.ticker = nil end
 end
 
