@@ -254,7 +254,7 @@ end
 -- ------------------------------------------------------------ load
 local before = {} for k in pairs(_G) do before[k] = true end
 local NS = {}
-local files = { "Libs/LibBiSComm-1.0/LibBiSComm-1.0.lua", "Core/Init.lua", "Core/Registry.lua", "Core/Slash.lua", "Tools/TargetFarming.lua", "Tools/FarmSpots.lua", "Tools/Summon.lua" }
+local files = { "Libs/BiSTheme/Console.lua", "Libs/LibBiSComm-1.0/LibBiSComm-1.0.lua", "Core/Init.lua", "Core/Registry.lua", "Core/Slash.lua", "Tools/TargetFarming.lua", "Tools/FarmSpots.lua", "Tools/Summon.lua" }
 local handlers = {}
 local realCF = _G.CreateFrame
 _G.CreateFrame = function(...)
@@ -787,7 +787,7 @@ ok(not SM.unrolled and #SM.list == 4, "rolled back up")
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
 ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid7", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
-ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + (SM.conH or 0) + 16, "four rows tall, status line (1 in), console, request footer")
+ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + 16, "four rows tall, status line (1 in), request footer - the prompt lives in the header, no strip")
 ok(BiSToolsSummonRequest.w + BiSToolsSummonAll.w == BiSToolsSummon.w, "footer: request + all fill the width exactly")
 -- every label fits its box, both states of the footer
 local function fits(fs, w) return fs:GetStringWidth() <= w end
@@ -797,16 +797,37 @@ ok(fits(BiSToolsSummonRequest.label, BiSToolsSummonRequest.w - 8), "footer label
 ok(BiSToolsSummonRequest.label.text:find("cancel"), "and still says cancel")
 BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
 ok(fits(BiSToolsSummonAll.label, BiSToolsSummonAll.w - 8), "all label fits")
--- header budget: W minus the button strip (70) minus logo+gaps (19)
-ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (idle)")
--- Arn (8 Sep): Innervate-style count in the title - green triangle + "N at stone"
+-- header budget: W minus the button strip (56) minus the left pad (4); the title
+-- is the BiS> prompt (Arn, 8 Sep: "prompt BiS> _ blinking should be in the header
+-- and cycle relevant messages: addon name, summoners at the stone ...")
+local BUDGET = SM.W - 56 - 8
+local function plain(fs) return (tostring(fs:GetText()):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+ok(SM.con and SM.con.fs == SM.title, "the title FontString is the BiSTheme console")
+ok(plain(SM.title):find("^BiS> ") and (plain(SM.title):find("_$") or plain(SM.title):find(" $")), "prompt: BiS> ... cursor", SM.title:GetText())
+ok(fits(SM.title, BUDGET), "title fits the header's left budget (idle)")
+-- the two footer clicks above said "requested" / "request off": events jump the
+-- rotation and hold 3 s each, then the slots come back
+ok(plain(SM.title):find("requested", 1, true), "an event line takes the prompt first", SM.title:GetText())
+W.now = W.now + 3 SM.PaintConsole()
+ok(plain(SM.title):find("request off", 1, true), "queued events show one after the other", SM.title:GetText())
+W.now = W.now + 3 SM.PaintConsole()
 SM.PaintTitle(0)
-ok(SM.title:GetText() == "|cffb980ffSummon|r", "no one at a stone: plain title")
+ok(SM.con.slots.stone == nil and plain(SM.title):find("Summon", 1, true), "no one at a stone: only the name slot", SM.title:GetText())
 SM.PaintTitle(2)
-ok(SM.title:GetText():find("UI%-RaidTargetingIcon_4") and SM.title:GetText():find("2 at stone", 1, true), "2 at stone: triangle + green count in the title", SM.title:GetText())
-ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (counting)")
-SM.PaintTitle(12)
-ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (12 at stone)")
+ok(SM.con.slots.stone and SM.con.slots.stone.text:find("UI%-RaidTargetingIcon_4") and SM.con.slots.stone.text:find("2 at stone", 1, true), "2 at stone: triangle + green count slot")
+-- the slots rotate: name now, stone after a cycle, name again after another
+W.now = W.now + 3 SM.PaintConsole()
+ok(plain(SM.title):find("2 at stone", 1, true), "after a cycle the prompt shows the stone slot", SM.title:GetText())
+ok(fits(SM.title, BUDGET), "title fits the header's left budget (counting)")
+local back
+for _ = 1, 4 do W.now = W.now + 3 SM.PaintConsole() if plain(SM.title):find("Summon", 1, true) then back = true break end end
+ok(back, "then round to the name again", SM.title:GetText())
+SM.PaintTitle(12) W.now = W.now + 3 SM.PaintConsole()
+ok(fits(SM.title, BUDGET), "title fits the header's left budget (12 at stone)")
+-- the cursor blinks at 2 Hz and is never trimmed away
+W.now = W.now + 0.5 SM.PaintConsole() local c1 = plain(SM.title):sub(-1)
+W.now = W.now + 0.5 SM.PaintConsole() local c2 = plain(SM.title):sub(-1)
+ok((c1 == "_" and c2 == " ") or (c1 == " " and c2 == "_"), "cursor blinks", c1, c2)
 ok(SM.count:GetText() == nil or not tostring(SM.count:GetText()):find("at stone", 1, true), "status line no longer repeats the at-stone count")
 SM.PaintTitle(0)
 -- the status line gets its own row: body height grows by STATUS_H when it has text
@@ -930,7 +951,7 @@ SM.Refresh(dbs)
 local names = {}
 for _, e in ipairs(SM.list) do names[e.name] = true end
 ok(not names.Druid and SM.atStone == 2, "Druid within 80 y of the stone -> at stone, not a candidate (Toolsy too)")
-ok(SM.title:GetText():find("at stone", 1, true), "the title counts them (green, Innervate-style)", SM.title:GetText())
+ok(SM.con.slots.stone and SM.con.slots.stone.text:find("3 at stone", 1, true), "the prompt's stone slot counts them, me included (green, Innervate-style)", SM.con.slots.stone and SM.con.slots.stone.text)
 ok(not (SM.count:GetText() or ""):find("at stone", 1, true), "and the status line does not repeat it")
 -- I am at the stone: yards show now (Farzone stays far)
 local fz
@@ -1049,56 +1070,69 @@ ok(not BiSToolsSummon:IsShown(), "then it hides")
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
 dbs.stones = {} S("summon show")
 
--- console strip: powershell lines that fade, a prompt that blinks, chat stays clean
+-- the prompt in the header: events show over the slots, hold 3 s, chat stays clean
 S("summon show")
 local chat0 = 0
 local oldAdd = DEFAULT_CHAT_FRAME.AddMessage
 DEFAULT_CHAT_FRAME.AddMessage = function(_, m) chat0 = chat0 + 1 W.lastMsg = m end
-SM.con.lines = {} SM.PaintConsole()
-ok(SM.promptFS.text:find("BiS> "), "prompt line always there")
-ok(SM.conH == 11 + 3, "console = prompt only when quiet")
+local function shown() return (tostring(SM.title:GetText()):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+SM.con:Clear() W.now = W.now + 4 SM.PaintConsole()
+ok(shown():find("^BiS> "), "prompt always there")
 local h0 = BiSToolsSummon.h
-SM.Log("2 at the stone - request now", "good")
-ok(#SM.con.lines == 1 and SM.conFS[1].shown and SM.conFS[1].text:find("request now") and not SM.conFS[1].text:find("%.%.%.") and SM.conFS[1].alpha == 1, "line printed solid, whole")
-ok(SM.conH == 2 * 11 + 3 and BiSToolsSummon.h == h0 + 11, "window grew by one line")
-ok(SM.conFS[1]:GetStringWidth() <= SM.W - 12, "line fits the width")
-W.now = W.now + 5 SM.Watch(dbs, 0.2)
-ok(SM.conFS[1].alpha > 0 and SM.conFS[1].alpha < 1, "after the hold it fades")
-W.now = W.now + 2 SM.Watch(dbs, 0.2)
-ok(#SM.con.lines == 0 and not SM.conFS[1].shown and BiSToolsSummon.h == h0, "gone after hold + fade, window shrank back")
-for i = 1, 5 do SM.Log("line " .. i) end
-ok(#SM.con.lines == 3 and SM.conFS[3].text:find("line 5") and SM.conFS[1].text:find("line 3"), "keeps the newest 3")
-ok(SM.promptFS.y == -(3 * 11) - 2, "prompt sits under the lines")
-W.now = W.now + 0.5 SM.Watch(dbs, 0.2) local c1 = SM.promptFS.text
-W.now = W.now + 0.5 SM.Watch(dbs, 0.2) local c2 = SM.promptFS.text
-ok(c1 ~= c2, "cursor blinks")
--- the everyday events go to the console, not chat
+SM.Log("request now", "good")
+ok(shown():find("request now", 1, true) and not shown():find("%.%.%."), "event printed whole in the prompt", shown())
+ok(BiSToolsSummon.h == h0, "the window did not grow: no strip")
+ok(SM.title:GetStringWidth() <= SM.W - 56 - 8, "prompt fits the header budget")
+ok(SM.con.line and SM.con.line.colour == "good", "coloured as asked")
+W.now = W.now + 3 SM.Watch(dbs, 0.2)
+ok(not shown():find("request now", 1, true), "gone after the hold, back to the slots", shown())
+for i = 1, 3 do SM.Log("line " .. i) end
+ok(shown():find("line 1", 1, true) and #SM.con.queue == 2, "several events queue up, first one showing")
+W.now = W.now + 3 SM.Watch(dbs, 0.2) ok(shown():find("line 2", 1, true), "second after the hold")
+W.now = W.now + 3 SM.Watch(dbs, 0.2) ok(shown():find("line 3", 1, true), "third after the next")
+W.now = W.now + 3 SM.Watch(dbs, 0.2) ok(not shown():find("line", 1, true), "then the slots again")
+-- a long event is trimmed with an ellipsis, the cursor survives the trim
+SM.Log("Verylongdruidname accepted the thing", "good")
+ok(shown():find("%.%.%.[_ ]$") and SM.title:GetStringWidth() <= SM.W - 56 - 8, "long line trimmed, cursor kept, fits", shown())
+W.now = W.now + 3 SM.Watch(dbs, 0.2)
+-- the everyday events go to the prompt, not chat
 chat0 = 0
 say("Druid", "1|SUMMON|REQ|1")
-ok(chat0 == 0 and SM.conFS[#SM.con.lines].text:find("Druid asks"), "a request prints in the window, not chat")
-say("Druid", "1|SUMMON|REQ|0")
+ok(chat0 == 0 and shown():find("Druid asks", 1, true), "a request prints in the prompt, not chat", shown())
+ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "and the asking slot counts it")
+say("Druid", "1|SUMMON|REQ|0") SM.Refresh(dbs)
+ok(SM.con.slots.asks == nil, "asking slot clears with the request")
+W.now = W.now + 3 SM.Watch(dbs, 0.2)
 say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60")
-ok(SM.conFS[#SM.con.lines].text:find("Druid offered"), "offer line")
+ok(shown():find("Druid offered", 1, true), "offer line", shown())
+W.now = W.now + 3 SM.Watch(dbs, 0.2)
 say("Druid", "1|CORE|SUM|NO|||")
-ok(SM.conFS[#SM.con.lines].text:find("Druid declined"), "decline line")
+ok(shown():find("Druid declined", 1, true), "decline line", shown())
 ok(chat0 == 0, "still nothing in chat")
 DEFAULT_CHAT_FRAME.AddMessage = oldAdd
+-- my own request is a standing slot while it lasts
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(SM.con.slots.mine and SM.con.slots.mine.text == "requesting...", "requesting slot while my request stands")
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(SM.con.slots.mine == nil, "cleared when I take it back")
 -- pop and leave narrate themselves
-S("summon auto") SM.con.lines = {} SM.popped = false
+S("summon auto") SM.con:Clear() SM.popped = false
 dbs.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
 W.me = { zone = "Netherstorm", x = 5000, y = 5000, inst = 530 }
 say("Druid",  "1|CORE|WHERE|0|none||Netherstorm|1010.0|1000.0|530")
 say("Toolsy", "1|CORE|WHERE|0|none||Netherstorm|1005.0|1000.0|530")
 W.now = W.now + 20 SM.selfAtStone = nil SM.SelfWatch(dbs)
-ok(BiSToolsSummon:IsShown() and SM.conFS[1].text:find("2 at the stone %- request now") and not SM.conFS[1].text:find("%.%.%."), "pop narrates, whole line")
-SM.SelfWatch(dbs) ok(#SM.con.lines == 1, "said once")
+ok(BiSToolsSummon:IsShown() and shown():find("request now", 1, true), "pop narrates: request now", shown())
+ok(SM.con.slots.stone and SM.con.slots.stone.text:find("2 at stone", 1, true), "and the stone slot says 2 at stone")
+local q0 = #SM.con.queue
+SM.SelfWatch(dbs) ok(#SM.con.queue == q0, "said once")
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
-W.now = W.now + 1 SM.SelfWatch(dbs)
-ok(SM.conFS[#SM.con.lines].text:find("no summons %- hiding"), "leave narrates: no summons - hiding")
+W.now = W.now + 3 SM.PaintConsole() SM.SelfWatch(dbs)
+ok(shown():find("no summons", 1, true), "leave narrates: no summons", shown())
 W.now = W.now + 4 SM.Watch(dbs, 0.2) ok(BiSToolsSummon:IsShown(), "still up 4 s later")
 W.now = W.now + 2 SM.Watch(dbs, 0.2) ok(not BiSToolsSummon:IsShown(), "hidden ~5 s after the line")
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
-dbs.stones = {} SM.con.lines = {} S("summon show")
+dbs.stones = {} SM.con:Clear() S("summon show")
 
 -- the interact key over the window: press 1 targets the top name, press 2 is the real interact
 S("summon show") SM.Refresh(dbs)
@@ -1219,7 +1253,8 @@ ok(db.pos[1] == "TOPLEFT" and db.pos[4] == "CENTER" and db.pos[2] == 12, "drag s
 
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
-  LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true }
+  LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true,
+  BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
 for k in pairs(_G) do
   if not before[k] and not allowed[k] and not frames[k] then error("leaked global: " .. k) end
 end
