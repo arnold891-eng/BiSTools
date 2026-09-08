@@ -48,6 +48,12 @@
   addon message back to the sender; minor 2 took it and made you your own peer, so a summoner
   at the stone counted himself twice (`2 at stone` with one person there) and a requester saw
   his own `1 asking`. `N asking` now shows only to summoners (at a stone, or Summoner mode).
+- 25-man rehearsal (`_bisdev/comm/raid25.lua`, 41 checks; Tools harness gained a 25-man block):
+  forming a raid is one HI per client; a zone line is one WHERE and never a HI; a roster tick
+  that changes nobody costs nothing; only the man who joined says HI and only the people he is
+  short of answer him (minor 2 had 8 people zoning into Karazhan turn into 30 HIs and every
+  promote into 22); a throttled answer now waits instead of being dropped (a reload right
+  after a join lost a third of the raid). Whole simulated night: ~140 messages, ~4 KB.
 - Pin button dropped: the window opens itself when summons are available; `/bt summon
   show|auto|hide` is the manual way. Logo dropped too - the prompt is the brand.
 - Summon window header drags without shift now.

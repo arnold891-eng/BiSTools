@@ -334,20 +334,27 @@ lib._core.HI = function(sender, minor, blob, known)
     end
     fire("PEER", sender, pr)
 
-    -- Answer every HI, throttled -- not only a stranger's. A client that lost
-    -- its table (a reload, a zone-in) says HI again and needs the whole group to
-    -- answer, or it never sees anybody again.
+    -- Answer a HI only when the sender is SHORT: it knows fewer of us than
+    -- there are (a reload, a fresh join, a lost HI). A client that knows
+    -- everybody already needs no answer - answering every HI "once per 5 s"
+    -- (minor 2) turned 8 people zoning into Karazhan into 30 HIs on a 25-man
+    -- (raid25.lua). HI_THROTTLE still spaces my own answers.
     local theyKnow = tonumber(known or "") or 0
     local short = theyKnow < (lib:Count() - 1)
-    local throttled = (Now() - (lib._lastHi or 0)) <= HI_THROTTLE
-    if not lib._hiPending and (short or not throttled) then
+    if not lib._hiPending and short then
         lib._hiPending = true
         local send = function()
             lib._hiPending = false
             lib._lastHi = Now()
             lib:Hi()
         end
-        if not After(ANSWER_MIN + math.random() * ANSWER_JITTER, send) then send() end
+        -- jittered like every answer; if my last HI is inside the throttle the
+        -- answer waits it out instead of being dropped (a reload right after a
+        -- join lost 7 of 21 peers that way - raid25.lua)
+        local delay = ANSWER_MIN + math.random() * ANSWER_JITTER
+        local wait = HI_THROTTLE - (Now() - (lib._lastHi or 0))
+        if wait > delay then delay = wait end
+        if not After(delay, send) then send() end
     end
 end
 
@@ -537,9 +544,15 @@ function lib:Boot()
             lib:OnCancelSummon()
         elseif event == "GROUP_ROSTER_UPDATE" then
             lib:OnRoster()
-        else
+        elseif event == "PLAYER_ENTERING_WORLD" then
+            -- login / reload: my table may be empty, say HI and let the short
+            -- rule fill it
             lib:SendWhere(true)
             if not After(1 + math.random() * 2, function() lib:Hi() end) then lib:Hi() end
+        else
+            -- ZONE_CHANGED_NEW_AREA: a zone line is news about WHERE, not who
+            -- I am; peers survive zoning (the blip rule), so no HI here
+            lib:SendWhere(true)
         end
     end)
 
@@ -555,9 +568,16 @@ end
 function lib:OnRoster()
     local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
     if n > 0 then
+        -- HI only when *I* just arrived (0 -> n). Somebody else joining is his
+        -- HI to say, and everyone short-answers it; a leave is a purge, not a
+        -- conversation. Minor 2 said HI on every roster tick - 22 messages per
+        -- join / leave / promote on a 25-man (raid25.lua).
+        local arrived = (self._lastN or 0) == 0
         self._lastN, self._emptySince = n, nil
         self:PurgeAbsent()
-        if not After(1 + math.random() * 2, function() lib:Hi() end) then self:Hi() end
+        if arrived then
+            if not After(1 + math.random() * 2, function() lib:Hi() end) then self:Hi() end
+        end
         return
     end
     if (self._lastN or 0) == 0 then return end
