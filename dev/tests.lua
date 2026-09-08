@@ -715,7 +715,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 2 and lib._booted, "LibBiSComm 1.0 minor 2 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 3 and lib._booted, "LibBiSComm 1.0 minor 3 loaded and booted from Core/Init")
 ok(lib.addons.BiSTools == "test", "BiSTools registered itself with the lib")
 ok(lib:Enabled() and BiSToolsDB.comm == nil, "comm on by default, nothing persisted yet")
 ok(NS.Registry:Get("summon") and NS.Registry:Enabled("summon"), "summon tool registered and on")
@@ -1113,9 +1113,22 @@ adv(3)
 chat0 = 0
 say("Druid", "1|SUMMON|REQ|1") adv(0)
 ok(chat0 == 0 and shown():find("Druid asks", 1, true), "a request prints in the prompt, not chat", shown())
-ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "and the asking slot counts it")
+-- "N asking" is for summoners only (Arn, 8 Sep: "a random person should not see 1 asking")
+ok(SM.con.slots.asks == nil, "far from any stone, not Summoner: no asking slot for me")
+dbs.summoner = true SM.Refresh(dbs)
+ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "Summoner (the summoner) sees the asking slot")
+dbs.summoner = false SM.Refresh(dbs)
+ok(SM.con.slots.asks == nil, "Summoner off: gone again")
+SM.stoneSeen = W.now SM.Refresh(dbs)
+ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "standing at a stone: the asking slot shows")
+SM.stoneSeen = nil
 say("Druid", "1|SUMMON|REQ|0") SM.Refresh(dbs)
 ok(SM.con.slots.asks == nil, "asking slot clears with the request")
+-- my own echo: the client hands my REQ back to me; the lib (minor 3) drops it
+local lib3 = SM.Lib()
+lib3:OnMessage("BiS", "1|SUMMON|REQ|1", "RAID", "Me")
+lib3:OnMessage("BiS", "1|CORE|WHERE|0|none||Netherstorm|1000.0|1000.0|530", "RAID", "Me")
+ok(SM.requests.Me == nil and lib3:Peer("Me") == nil, "my own REQ / WHERE echo never makes me a peer or a requester")
 adv(3)
 say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60") adv(0)
 ok(shown():find("Druid offered", 1, true), "offer line", shown())
