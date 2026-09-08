@@ -602,8 +602,14 @@ function SM.PaintSlots()
   if not c then return end
   local n = SM.stoneCount or 0
   c:Set("stone", n > 0 and (SM.TITLE_ICON .. n .. " at stone") or nil, "good")
+  -- "N asking" is the summoner's slot: at the stone or in Jeck mode. A random
+  -- raid member far away does not need it (Arn, 8 Sep).
+  local db = SM.db
   local asks, now = 0, GetTime()
-  for name in pairs(SM.requests) do if SM.Asked(name, now) then asks = asks + 1 end end
+  local summoner = db and (db.jeck or SM.MeAtStone(db))
+  if summoner then
+    for name in pairs(SM.requests) do if SM.Asked(name, now) then asks = asks + 1 end end
+  end
   c:Set("asks", asks > 0 and (asks .. " asking") or nil, "gold")
   c:Set("mine", SM.myRequest and "requesting..." or nil, "gold")
   c:Set("offer", SM.nag.active and "summon incoming" or nil, "good")
