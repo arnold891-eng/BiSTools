@@ -1,0 +1,5 @@
+# zips the release script drops here by accident
+*.zip
+# editor / OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,640 @@
+-- BiSTools / Tools / Summon.lua
+-- The summoner's window: who still needs a summon, furthest first, one click
+-- to target. SummonScan v0.4 folded onto the Registry, with its guesses swapped
+-- for facts wherever the other client carries LibBiSComm.
+--
+--   fact   the peer runs a BiS addon: THEY say whether they are inside an
+--          instance, where they stand, and what happened to the offer
+--   guess  everyone else: roster zone string, UnitPosition (nil across an
+--          instance line), the instance-name blacklist, and a park timer
+--
+-- The two never look alike on screen. A guess row is muted with a "?".
+--
+-- Two things in this file are NOT gated by /bt off summon:
+--   * the lib itself (booted in Core/Init.lua, never touched here)
+--   * the NAG - the reward for the peer who installed and configured nothing:
+--     a summon offer makes noise until they answer it. /bt summon nag off is
+--     its own switch. The tool toggle only kills the summoner's window.
+local ADDON, NS = ...
+local T = NS.T
+local K = NS.Farm                -- the Innervate-style kit: tex / fs / border / HeaderButton / color
+
+local SM = { rows = {} }
+NS.Summon = SM
+
+SM.SCORE_OTHER_ZONE  = 1e9
+SM.SCORE_UNKNOWN_POS = 5e8
+SM.DEFAULT_NEAR      = 80        -- visible inside this = already at the stone
+SM.DEFAULT_LINGER    = 8
+SM.DEFAULT_RETRY     = 120       -- park for a guess (no word back)
+SM.FACT_PARK         = 15        -- park for a fact: their client reports the offer inside the cast
+SM.DEFAULT_ROWS      = 6
+SM.MAX_ROWS          = 10
+SM.ROW_H, SM.W       = 14, 150
+SM.NAG_EVERY         = 20
+SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
+
+-- Zones nobody gets summoned out of. Only a GUESS needs this: a fact peer says
+-- inInstance itself. enUS; "/bt summon ban" adds the rest.
+SM.INSTANCE_ZONES = {}
+for _, z in ipairs({
+  "Karazhan", "Zul'Aman", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern",
+  "Tempest Keep", "The Eye", "Hyjal Summit", "The Battle for Mount Hyjal", "Black Temple",
+  "Sunwell Plateau", "Hellfire Ramparts", "The Blood Furnace", "The Shattered Halls",
+  "Mana-Tombs", "Auchenai Crypts", "Sethekk Halls", "Shadow Labyrinth", "The Slave Pens",
+  "The Underbog", "The Steamvault", "Old Hillsbrad Foothills", "The Black Morass",
+  "The Arcatraz", "The Botanica", "The Mechanar", "Magisters' Terrace", "Molten Core",
+  "Onyxia's Lair", "Blackwing Lair", "Zul'Gurub", "Ruins of Ahn'Qiraj", "Temple of Ahn'Qiraj",
+  "Ahn'Qiraj", "Naxxramas", "Ragefire Chasm", "Wailing Caverns", "The Deadmines",
+  "Shadowfang Keep", "Blackfathom Deeps", "The Stockade", "Gnomeregan", "Razorfen Kraul",
+  "Razorfen Downs", "Scarlet Monastery", "Uldaman", "Zul'Farrak", "Maraudon",
+  "The Temple of Atal'Hakkar", "Blackrock Depths", "Blackrock Spire", "Lower Blackrock Spire",
+  "Upper Blackrock Spire", "Dire Maul", "Stratholme", "Scholomance",
+}) do SM.INSTANCE_ZONES[z:lower()] = z end
+
+-- ---------------------------------------------------------------- pure logic
+-- entry = { unit, name, zone, online, visible, x, y, instanceID, index,
+--           fact = bool, where = peer.where or nil, summon = peer.summon or nil }
+-- me    = { zone, x, y, instanceID }
+
+function SM.IsBannedZone(zone, ban, allow)
+  if type(zone) ~= "string" or zone == "" then return false end
+  local z = zone:lower()
+  if allow and allow[z] then return false end
+  if ban and ban[z] then return true end
+  return SM.INSTANCE_ZONES[z] ~= nil
+end
+
+local function dist(ax, ay, bx, by)
+  local dx, dy = ax - bx, ay - by
+  return math.sqrt(dx * dx + dy * dy)
+end
+
+-- nil = not a candidate (inside). A fact peer is scored from what it SAID.
+function SM.Score(e, me)
+  if not e.online then return nil end
+  if e.fact and e.where then
+    local w = e.where
+    if w.inInstance then return nil end
+    if w.x and w.y and me.x and me.y and tostring(w.mapId) == tostring(me.instanceID or "") then
+      return dist(w.x, w.y, me.x, me.y)
+    end
+    if w.zone ~= "" and me.zone and w.zone ~= me.zone then return SM.SCORE_OTHER_ZONE end
+    return SM.SCORE_UNKNOWN_POS
+  end
+  if e.zone and me.zone and e.zone ~= me.zone then return SM.SCORE_OTHER_ZONE end
+  local samePlace = e.instanceID and me.instanceID and e.instanceID == me.instanceID
+  if samePlace and e.x and e.y and me.x and me.y then return dist(e.x, e.y, me.x, me.y) end
+  return SM.SCORE_UNKNOWN_POS
+end
+
+-- what the row says about a summon already in flight, or nil
+--   fact: OFFER -> seconds their client says are left; OK -> 0 ("ok", they took it)
+--   guess: the park timer we set when the summoner clicked them
+function SM.Waiting(e, tried, now)
+  if e.fact and e.summon then
+    if e.summon.state == "OK" then return 0, "ok" end
+    if e.summon.state == "OFFER" then
+      local left = (e.summon.at or now) + (e.summon.left or SM.DEFAULT_RETRY) - now
+      if left > 0 then return left, "offer" end
+      return nil
+    end
+  end
+  local until_ = tried and tried[e.name]
+  if until_ and until_ > now then return until_ - now, "park" end
+  return nil
+end
+
+-- opts = { near, ban, allow, tried, now }
+-- Returns ranked list + how many were skipped for being inside.
+function SM.Rank(entries, me, opts)
+  opts = opts or {}
+  local nearYards = opts.near or SM.DEFAULT_NEAR
+  local now = opts.now or 0
+  local out, inside = {}, 0
+  for _, e in ipairs(entries) do
+    if not e.online then
+      -- offline: not listed, not counted
+    elseif e.fact and e.where and e.where.inInstance then
+      inside = inside + 1
+    elseif not e.fact and SM.IsBannedZone(e.zone, opts.ban, opts.allow) then
+      inside = inside + 1
+    else
+      local score = SM.Score(e, me)
+      if score and not (score < nearYards and e.visible) then
+        local waiting, why = SM.Waiting(e, opts.tried, now)
+        out[#out + 1] = {
+          unit = e.unit, name = e.name, score = score, index = e.index or 0,
+          fact = e.fact and true or false, waiting = waiting, why = why,
+        }
+      end
+    end
+  end
+  table.sort(out, function(a, b)
+    local aw, bw = a.waiting ~= nil, b.waiting ~= nil
+    if aw ~= bw then return bw end                       -- in-flight sink
+    if aw and a.waiting ~= b.waiting then return a.waiting < b.waiting end
+    if a.score ~= b.score then return a.score > b.score end
+    if a.fact ~= b.fact then return a.fact end           -- a fact outranks a guess at equal score
+    if a.name ~= b.name then return a.name < b.name end
+    return a.index < b.index
+  end)
+  return out, inside
+end
+
+function SM.ClockText(secs)
+  secs = math.floor(secs or 0)
+  if secs < 0 then secs = 0 end
+  return ("%d:%02d"):format(math.floor(secs / 60), secs % 60)
+end
+
+function SM.IsStoneText(text, custom)
+  if type(text) ~= "string" or text == "" then return false end
+  local t = text:lower()
+  if type(custom) == "string" and custom ~= "" and t:find(custom:lower(), 1, true) then return true end
+  for _, p in ipairs(SM.STONE_PATTERNS) do
+    if t:find(p, 1, true) then return true end
+  end
+  return false
+end
+
+-- mode: "on" (pinned) | "off" | "auto" (stone mouseover, then linger)
+function SM.ShouldShow(mode, seenAt, now, linger)
+  if mode == "on" then return true end
+  if mode == "off" then return false end
+  if type(seenAt) ~= "number" then return false end
+  return (now - seenAt) < (linger or SM.DEFAULT_LINGER)
+end
+
+function SM.InfoText(e)
+  if e.why == "ok" then return "ok" end
+  if e.waiting then return SM.ClockText(e.waiting) end
+  if e.score >= SM.SCORE_UNKNOWN_POS then return "far" end
+  return math.floor(e.score) .. "y"
+end
+
+-- ---------------------------------------------------------------- gather
+function SM.Lib() return _G.LibBiSComm end
+
+function SM.Gather()
+  local entries = {}
+  local lib = SM.Lib()
+  local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+  local function add(unit, name, zone, online, visible, x, y, inst, i)
+    local e = { unit = unit, name = name, zone = zone, online = online, visible = visible,
+      x = x, y = y, instanceID = inst, index = i }
+    if lib and lib:HasLib(name) then
+      e.fact = true
+      local p = lib:Peer(name)
+      if p then e.where, e.summon = p.where, p.summon end
+    end
+    entries[#entries + 1] = e
+  end
+  if IsInRaid and IsInRaid() then
+    for i = 1, n do
+      local name, _, _, _, _, _, zone, online = GetRaidRosterInfo(i)
+      local unit = "raid" .. i
+      if name and not UnitIsUnit(unit, "player") then
+        local y, x, _, inst = UnitPosition(unit)
+        add(unit, lib and lib.Short(name) or name, zone, online and true or false,
+          UnitIsVisible(unit) and true or false, x, y, inst, i)
+      end
+    end
+  elseif n > 0 then
+    for i = 1, n - 1 do
+      local unit = "party" .. i
+      if UnitExists(unit) then
+        local y, x, _, inst = UnitPosition(unit)
+        local name = UnitName(unit)
+        add(unit, lib and lib.Short(name) or name, nil, UnitIsConnected(unit) and true or false,
+          UnitIsVisible(unit) and true or false, x, y, inst, i)
+      end
+    end
+  end
+  local py, px, _, pinst = UnitPosition("player")
+  local me = { zone = (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText()),
+    x = px, y = py, instanceID = pinst }
+  return entries, me
+end
+
+-- ---------------------------------------------------------------- state
+SM.tried = {}          -- name -> GetTime() the park lapses (session only)
+SM.pending = {}        -- combat queue: units / visibility / rows
+
+function SM.Park(db, name, secs)
+  if not name then return end
+  local lib = SM.Lib()
+  local fact = lib and lib:HasLib(name)
+  SM.tried[name] = GetTime() + (secs or (fact and SM.FACT_PARK) or db.retry or SM.DEFAULT_RETRY)
+  SM.Refresh(db)
+end
+
+function SM.Unpark(db, name)
+  if name then SM.tried[name] = nil else wipe(SM.tried) end
+  SM.Refresh(db)
+end
+
+-- ---------------------------------------------------------------- window
+function SM.Build(db)
+  if SM.frame then return SM.frame end
+  local f = CreateFrame("Frame", "BiSToolsSummon", UIParent)
+  SM.frame = f
+  f:SetSize(SM.W, K.HEADER)
+  f:SetFrameStrata("MEDIUM")
+  f:SetMovable(true)
+  f:EnableMouse(true)
+  f:SetClampedToScreen(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) if not InCombatLockdown() then self:StartMoving() end end)
+  f:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, rel, x, y = self:GetPoint(1)
+    db.pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+    SM.seenAt = GetTime()
+  end)
+  K.tex(f, "BACKGROUND", "frame", K.BODY_A)
+  K.border(f, "edge", 0.35)
+
+  local head = CreateFrame("Frame", nil, f)
+  head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
+  head:SetHeight(K.HEADER)
+  K.tex(head, "BACKGROUND", "header", K.HEAD_A)
+  local hair = head:CreateTexture(nil, "BORDER")
+  hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
+  do local r, g, b = K.color("edge") hair:SetColorTexture(r, g, b, 1) end
+  local logo = head:CreateTexture(nil, "ARTWORK")
+  logo:SetSize(11, 11)
+  logo:SetPoint("LEFT", head, "LEFT", 4, 0)
+  logo:SetTexture("Interface\\Icons\\Spell_Shadow_Twilight")
+  if logo.SetTexCoord then logo:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+  SM.title = K.fs(head, "|cffb980ffSummon|r", 9, "ink")
+  SM.title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
+  SM.count = K.fs(head, "", 8, "muted")
+  SM.count:SetPoint("LEFT", SM.title, "RIGHT", 6, 0)
+  SM.closeBtn = K.HeaderButton(head, -3, "x", "Close", "Auto mode brings it back on a summoning stone.",
+    function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
+  SM.pinBtn = K.HeaderButton(head, -17, "p", "Pin", "Keep it open. /bt summon show | auto | hide",
+    function() SM.SetMode(db, db.mode == "on" and "auto" or "on") end)
+  SM.askBtn = K.HeaderButton(head, -31, "?", "Ask the raid", "Every BiS client answers with where it stands.",
+    function() SM.Ask() end)
+  head:SetScript("OnEnter", function() SM.seenAt = GetTime() end)
+
+  local body = CreateFrame("Frame", nil, f)
+  body:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+  body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
+  body:SetHeight(1)
+  SM.body = body
+  SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
+  SM.empty:SetPoint("TOPLEFT", 6, -4)
+
+  local pos = db.pos
+  f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
+  f:Hide()
+  SM.shown = false
+  SM.PaintPin(db)
+  return f
+end
+
+function SM.PaintPin(db)
+  if not SM.pinBtn then return end
+  local on = db.mode == "on"
+  SM.pinBtn.edge:set(on and "accent" or "edge", 1)
+  local r, g, b = K.color(on and "accent" or "muted")
+  SM.pinBtn.label:SetTextColor(r, g, b, 1)
+end
+
+-- a secure row: left-click targets, right-click parks, shift-drag moves
+function SM.Row(i, db)
+  local r = SM.rows[i]
+  if r then return r end
+  r = CreateFrame("Button", "BiSToolsSummonRow" .. i, SM.body, "SecureActionButtonTemplate")
+  r:SetHeight(SM.ROW_H)
+  r:SetPoint("TOPLEFT", 0, -(i - 1) * SM.ROW_H)
+  r:SetPoint("TOPRIGHT", 0, -(i - 1) * SM.ROW_H)
+  r:RegisterForClicks("AnyDown")
+  r:RegisterForDrag("LeftButton")
+  r:SetAttribute("*type1", "target")
+  -- shift is the drag handle; the modifier form is checked before "*", and an
+  -- empty type resolves to no handler. Never a type2: right-click then does
+  -- nothing secure and only our PostClick runs. That is the park.
+  for _, prefix in ipairs({ "shift-", "ctrl-shift-", "alt-shift-", "alt-ctrl-shift-" }) do
+    r:SetAttribute(prefix .. "type1", "")
+  end
+  r.bg = K.tex(r, "BACKGROUND", "surface", 0)
+  r.name = K.fs(r, "", 9, "ink")
+  r.name:SetPoint("LEFT", 6, 0)
+  r.info = K.fs(r, "", 8, "ink2")
+  r.info:SetPoint("RIGHT", -6, 0)
+  r:SetScript("PostClick", function(self)
+    if IsShiftKeyDown() then return end
+    if self.pname then SM.Park(db, self.pname) end
+  end)
+  r:SetScript("OnDragStart", function()
+    if not IsShiftKeyDown() or InCombatLockdown() then return end
+    SM.frame:StartMoving()
+  end)
+  r:SetScript("OnDragStop", function()
+    SM.frame:StopMovingOrSizing()
+    local point, _, rel, x, y = SM.frame:GetPoint(1)
+    db.pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+  end)
+  r:SetScript("OnEnter", function(self)
+    SM.seenAt = GetTime()
+    local rr, g, b = K.color("sunken") self.bg:SetColorTexture(rr, g, b, 1)
+    if GameTooltip and self.pname then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.pname)
+      GameTooltip:AddLine(self.fact and "says so itself (BiS addon)" or "guessed from the roster - no BiS addon", 1, 1, 1, true)
+      GameTooltip:AddLine("click: target   right-click: skip   shift-drag: move", 0.6, 0.6, 0.6, true)
+      GameTooltip:Show()
+    end
+  end)
+  r:SetScript("OnLeave", function(self)
+    local rr, g, b = K.color("surface") self.bg:SetColorTexture(rr, g, b, 0)
+    if GameTooltip then GameTooltip:Hide() end
+  end)
+  r:Hide()
+  SM.rows[i] = r
+  return r
+end
+
+function SM.PaintRows(db, list)
+  local want = math.min(db.rows or SM.DEFAULT_ROWS, SM.MAX_ROWS)
+  if InCombatLockdown() then SM.pending.rows = true return end
+  SM.pending.rows = nil
+  local shown = 0
+  for i = 1, math.max(want, #SM.rows) do
+    local r = SM.Row(i, db)
+    local e = list[i]
+    if i <= want and e then
+      r.pname, r.fact = e.name, e.fact
+      r:SetAttribute("unit", e.unit)
+      r:SetAttribute("*unit1", e.unit)
+      -- fact: plain name. guess: muted, with the question mark it deserves.
+      r.name:SetText(e.fact and e.name or (e.name .. " ?"))
+      local colour
+      if e.waiting then colour = "dim"
+      elseif i == 1 then colour = "accent"
+      elseif not e.fact then colour = "muted"
+      elseif e.score >= SM.SCORE_OTHER_ZONE then colour = "warn"
+      else colour = "gold" end
+      local cr, cg, cb = K.color(colour)
+      r.name:SetTextColor(cr, cg, cb, 1)
+      r.info:SetText(SM.InfoText(e))
+      cr, cg, cb = K.color(e.waiting and "muted" or "ink2")
+      r.info:SetTextColor(cr, cg, cb, 1)
+      r:Show()
+      shown = shown + 1
+    else
+      r.pname = nil
+      r:SetAttribute("unit", nil)
+      r:SetAttribute("*unit1", nil)
+      r:Hide()
+    end
+  end
+  if shown == 0 then SM.empty:Show() else SM.empty:Hide() end
+  local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
+  SM.body:SetHeight(h)
+  SM.frame:SetHeight(K.HEADER + h)
+end
+
+function SM.Refresh(db)
+  if not SM.frame then return end
+  local now = GetTime()
+  local entries, me = SM.Gather()
+  local list, inside = SM.Rank(entries, me, {
+    near = db.near, ban = db.ban, allow = db.allow, tried = SM.tried, now = now,
+  })
+  SM.list, SM.inside = list, inside
+  local live = {}
+  for _, e in ipairs(list) do live[e.name] = true end
+  for name, until_ in pairs(SM.tried) do
+    if not live[name] or until_ <= now then SM.tried[name] = nil end
+  end
+  SM.count:SetText(inside > 0 and (T.text("muted", inside .. " in")) or "")
+  SM.PaintRows(db, list)
+end
+
+function SM.ApplyVisible(v)
+  if not SM.frame then return end
+  if v == SM.shown then return end
+  if InCombatLockdown() then SM.pending.visible = v return end
+  SM.pending.visible = nil
+  SM.shown = v
+  if v then SM.frame:Show() else SM.frame:Hide() end
+end
+
+function SM.SetMode(db, mode)
+  db.mode = mode
+  SM.PaintPin(db)
+  if mode == "on" then SM.ApplyVisible(true) SM.Refresh(db) SM.Ask()
+  elseif mode == "off" then SM.seenAt = nil SM.ApplyVisible(false)
+  else SM.seenAt = nil SM.ApplyVisible(false) end
+end
+
+-- ask the raid where everyone is. Only when the window comes up, never on a
+-- ticker: answers are jittered and coalesced in the lib, standing still is free.
+function SM.Ask()
+  local lib = SM.Lib()
+  if lib and lib.Ask then lib:Ask() end
+end
+
+-- ---------------------------------------------------------------- stone watcher
+function SM.LookingAtStone(db)
+  if not GameTooltip or not GameTooltip:IsShown() then return false end
+  if UnitExists("mouseover") then return false end
+  local owner = GameTooltip.GetOwner and GameTooltip:GetOwner()
+  if owner and SM.frame and (owner == SM.frame or (owner.GetParent and owner:GetParent() == SM.body)) then return false end
+  local line = _G["GameTooltipTextLeft1"]
+  return SM.IsStoneText(line and line:GetText(), db.stone)
+end
+
+function SM.Watch(db, dt)
+  SM.elapsed = (SM.elapsed or 0) + dt
+  if SM.elapsed < 0.1 then return end
+  SM.elapsed = 0
+  local mode = db.mode or "auto"
+  if mode == "auto" then
+    if SM.LookingAtStone(db) or (SM.frame and SM.frame:IsMouseOver()) then
+      if not SM.seenAt then SM.Refresh(db) SM.Ask() end
+      SM.seenAt = GetTime()
+    end
+  end
+  local want = SM.ShouldShow(mode, SM.seenAt, GetTime(), db.linger)
+  if not want then SM.seenAt = nil end
+  SM.ApplyVisible(want)
+end
+
+-- ---------------------------------------------------------------- the nag
+-- Fires on the person BEING summoned. Not gated by the tool toggle: it is the
+-- reward for installing and touching nothing. Own switch: /bt summon nag off.
+SM.nag = {}
+function SM.NagText()
+  local lib = SM.Lib()
+  local s = lib and lib.summon
+  local who = s and s.summoner ~= "" and s.summoner or (GetSummonConfirmSummoner and GetSummonConfirmSummoner()) or "someone"
+  local area = s and s.area ~= "" and s.area or (GetSummonConfirmAreaName and GetSummonConfirmAreaName()) or ""
+  return ("SUMMON from %s%s"):format(who, area ~= "" and (" to " .. area) or "")
+end
+
+function SM.NagOnce()
+  local text = SM.NagText()
+  if RaidNotice_AddMessage and RaidWarningFrame then
+    RaidNotice_AddMessage(RaidWarningFrame, text, ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.5, b = 0 })
+  end
+  if PlaySound then PlaySound(8959, "Master") end          -- RAID_WARNING
+  if K and K.Speak then K.Speak("Summon") end                -- FojjiCore pack / TTS / ping
+end
+
+function SM.NagStart(db)
+  if db and db.nag == false then return end
+  SM.nag.active = true
+  SM.NagOnce()
+  local lib = SM.Lib()
+  local left = (lib and lib.summon and lib.summon.left) or SM.DEFAULT_RETRY
+  local ends = GetTime() + left
+  if SM.nag.ticker then SM.nag.ticker:Cancel() end
+  SM.nag.ticker = C_Timer.NewTicker(SM.NAG_EVERY, function()
+    local l = SM.Lib()
+    local still = l and l.summon and l.summon.state == "OFFER"
+    if not SM.nag.active or not still or GetTime() > ends then return SM.NagStop() end
+    SM.NagOnce()
+  end)
+end
+
+function SM.NagStop()
+  SM.nag.active = false
+  if SM.nag.ticker then SM.nag.ticker:Cancel() SM.nag.ticker = nil end
+end
+
+-- registered at load, on purpose: the nag outlives /bt off summon
+SM.nagFrame = CreateFrame("Frame")
+SM.nagFrame:RegisterEvent("CONFIRM_SUMMON")
+SM.nagFrame:RegisterEvent("CANCEL_SUMMON")
+SM.nagFrame:SetScript("OnEvent", function(_, ev)
+  local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
+  if ev == "CONFIRM_SUMMON" then
+    -- the lib's own CONFIRM_SUMMON handler runs too; order between frames is
+    -- not promised, so give it a beat before reading lib.summon
+    C_Timer.After(0.2, function() SM.NagStart(db) end)
+  else
+    SM.NagStop()
+  end
+end)
+if hooksecurefunc and type(_G.ConfirmSummon) == "function" then
+  hooksecurefunc("ConfirmSummon", function() SM.NagStop() end)
+end
+
+-- ---------------------------------------------------------------- events
+function SM.OnEvent(db, event)
+  if event == "PLAYER_REGEN_ENABLED" then
+    if SM.pending.visible ~= nil then SM.ApplyVisible(SM.pending.visible) end
+    SM.Refresh(db)
+  else
+    SM.Refresh(db)
+  end
+end
+
+function SM.Hook(db)
+  SM.Build(db)
+  SM.events:RegisterEvent("GROUP_ROSTER_UPDATE")
+  SM.events:RegisterEvent("PLAYER_REGEN_ENABLED")
+  if not SM.ticker then SM.ticker = C_Timer.NewTicker(2, function() if SM.shown then SM.Refresh(db) end end) end
+  SM.events:SetScript("OnUpdate", function(_, dt) SM.Watch(db, dt) end)
+  local lib = SM.Lib()
+  if lib and not SM.hooked then
+    SM.hooked = true
+    -- a peer's word lands: repaint now, not on the next 2s tick. NO pops the
+    -- name straight back up, which is the bug that started all this.
+    local function bump(name)
+      if name then SM.tried[name] = nil end
+      if SM.frame and SM.shown then SM.Refresh(db) end
+    end
+    lib:RegisterCallback("SUM", function(name) bump(name) end)
+    lib:RegisterCallback("WHERE", function() bump() end)
+    lib:RegisterCallback("PEER", function() bump() end)
+  end
+  SM.Refresh(db)
+  SM.ApplyVisible(db.mode == "on")
+end
+
+function SM.Unhook()
+  SM.events:UnregisterAllEvents()
+  SM.events:SetScript("OnUpdate", nil)
+  if SM.ticker then SM.ticker:Cancel() SM.ticker = nil end
+  SM.seenAt = nil
+  if SM.frame and not InCombatLockdown() then SM.frame:Hide() SM.shown = false end
+end
+
+-- ---------------------------------------------------------------- slash
+function SM.Slash(db, args)
+  local raw = args:match("^%s*(.-)%s*$")
+  local cmd, rest = raw:match("^(%S*)%s*(.-)$")
+  cmd = cmd:lower()
+  local lib = SM.Lib()
+  if cmd == "" then
+    if db.mode == "on" then SM.SetMode(db, "auto") NS.Print("summon: auto (stone mouseover)")
+    else SM.SetMode(db, "on") NS.Print("summon: pinned") end
+  elseif cmd == "show" or cmd == "on" then SM.SetMode(db, "on") NS.Print("summon: pinned")
+  elseif cmd == "auto" then SM.SetMode(db, "auto") NS.Print("summon: auto (stone mouseover)")
+  elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
+  elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
+  elseif cmd == "near" then db.near = tonumber(rest) or db.near SM.Refresh(db) NS.Print("near: %s y", T.text("accent", db.near or SM.DEFAULT_NEAR))
+  elseif cmd == "linger" then db.linger = tonumber(rest) or db.linger NS.Print("linger: %s s", T.text("accent", db.linger or SM.DEFAULT_LINGER))
+  elseif cmd == "retry" then db.retry = tonumber(rest) or db.retry NS.Print("guess park: %s s", T.text("accent", db.retry or SM.DEFAULT_RETRY))
+  elseif cmd == "rows" then db.rows = math.min(tonumber(rest) or db.rows or SM.DEFAULT_ROWS, SM.MAX_ROWS) SM.Refresh(db) NS.Print("rows: %s", T.text("accent", db.rows))
+  elseif cmd == "clear" then SM.Unpark(db) NS.Print("parked names released")
+  elseif cmd == "reset" then db.pos = { "CENTER", 0, 0, "CENTER" } if SM.frame then SM.frame:ClearAllPoints() SM.frame:SetPoint("CENTER") end
+  elseif cmd == "nag" then
+    if rest:lower() == "off" then db.nag = false elseif rest:lower() == "on" then db.nag = true end
+    NS.Print("summon nag: %s", db.nag == false and T.text("warn", "off") or T.text("good", "on"))
+  elseif cmd == "stone" then
+    if rest:lower() == "clear" then db.stone = nil return NS.Print("custom stone name cleared") end
+    local line = _G["GameTooltipTextLeft1"]
+    local text = GameTooltip and GameTooltip:IsShown() and line and line:GetText()
+    if text and text ~= "" then db.stone = text NS.Print('stone name: "%s"', text)
+    else NS.Print("hover the stone first, then /bt summon stone") end
+  elseif cmd == "ban" or cmd == "unban" then
+    local zone = rest ~= "" and rest or (GetRealZoneText and GetRealZoneText())
+    if zone and zone ~= "" then
+      db.ban, db.allow = db.ban or {}, db.allow or {}
+      if cmd == "ban" then db.ban[zone:lower()] = zone db.allow[zone:lower()] = nil
+      else db.ban[zone:lower()] = nil db.allow[zone:lower()] = zone end
+      SM.Refresh(db)
+      NS.Print('"%s" %s (guesses only - a BiS client says itself whether it is inside)', zone, cmd == "ban" and "banned" or "allowed")
+    end
+  elseif cmd == "peers" then
+    if not lib then return NS.Print("no comm lib loaded") end
+    NS.Print("comm %s, %d peer(s)", lib:Enabled() and T.text("good", "on") or T.text("warn", "off"), lib:Count())
+    for name, p in pairs(lib:Peers()) do
+      local w = p.where
+      DEFAULT_CHAT_FRAME:AddMessage(("  %s  %s  %s"):format(T.text("accent", name),
+        w and (w.inInstance and ("in " .. w.instName) or w.zone) or "?",
+        p.summon and (p.summon.state) or ""))
+    end
+  elseif cmd == "testaccept" then
+    -- live unknown: does ConfirmSummon() need a hardware event? A timer is the
+    -- opposite of one. Run this with an offer pending and see if you land.
+    C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
+    NS.Print("calling ConfirmSummon() from a timer in 1 s")
+  else
+    NS.Print("/bt summon [show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+  end
+end
+
+NS.Registry:Register({
+  name = "summon",
+  slashWhenOff = true,   -- "/bt summon nag off" must work with the window tool off
+  desc = "who still needs a summon, furthest first; click to target",
+  usage = "/bt summon [show|auto|hide|...]",
+  defaults = { mode = "auto", near = SM.DEFAULT_NEAR, linger = SM.DEFAULT_LINGER, retry = SM.DEFAULT_RETRY,
+    rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil },
+  OnInit = function(self, db)
+    SM.events = CreateFrame("Frame")
+    SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
+  end,
+  OnLogin = function(self, db) SM.Hook(db) end,
+  OnEnable = function(self, db) SM.Hook(db) end,
+  OnDisable = function(self, db) SM.Unhook() end,   -- window only. The lib and the nag keep going.
+  OnSlash = function(self, db, args) SM.Slash(db, args) end,
+})

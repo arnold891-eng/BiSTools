@@ -1,0 +1,16 @@
+## Interface: 20506
+## Title: |cffb980ffBiS|r Tools
+## Notes: Bundle of small BiS utilities. /bt for the list.
+## Author: Arn
+## Version: 0.2.0
+## OptionalDeps: BiSTheme, FojjiCore
+## SavedVariables: BiSToolsDB
+## X-Curse-Project-ID: 1686340
+
+Libs\LibBiSComm-1.0\LibBiSComm-1.0.lua
+Core\Init.lua
+Core\Registry.lua
+Core\Slash.lua
+Tools\TargetFarming.lua
+Tools\FarmSpots.lua
+Tools\Summon.lua

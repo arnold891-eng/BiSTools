@@ -1,0 +1,42 @@
+## 0.2.0
+
+- **LibBiSComm** embedded (`Libs/LibBiSComm-1.0`): the shared BiS raid channel. Just having
+  BiSTools installed makes you answer "where are you" and "did the summon go through" to any
+  BiS summoner, with nothing to configure. `/bis` shows status; `/bis off` is the only mute
+  and is remembered across sessions.
+- `summon` tool: SummonScan folded in. `/bt summon` pins the window, auto mode brings it up
+  when you mouse over a summoning stone. Furthest first; click a name to target, right-click
+  to skip, shift-drag to move. Raid members with any BiS addon are shown as fact (they say
+  where they are and whether they accepted); everyone else is a guess with a `?`. A decline
+  pops the name back to the top the second it happens.
+- Summon nag: when someone summons YOU, a raid-warning line, the raid-warning sound and a
+  voice line, every 20 s until you answer. Works even with the summon tool switched off;
+  `/bt summon nag off` is its switch.
+- `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
+  for whether an addon may accept a summon without a click.
+
+## 0.1.0
+
+- `farm` (Target Farming): small Innervate-style window showing your last kill. Click it once and a 0.5s scanner
+  marks every free copy nearby: the nameplate scanner deals star..cross (1-7) one per mob and
+  respects marks already on them, skull is for whatever you mouse over (works from the air, never overwrites a mark);
+  skips dead / in-combat / tapped. Click
+  again to stop. Type any mob name in the box to farm that instead. `/bt farm key <KEY>` binds a key that
+  targets the skulled mob. Voice line (FojjiCore pack or client TTS) on the first find, whisper
+  ping after; `/bt farm sound first|always|off`. `/bt farm` toggles, `/bt farm clear`, `/bt farm add <name>`.
+- `farm` lock: once you are farming a mob, kills of anything else do not swap the row; the
+  farmed mob keeps counting. Click it again to unlock and the last-kill tracker resumes.
+- `farm` spawn timers, two levels: a **zone** is where a cluster lives (radius = the option,
+  default 20 yd, `/bt farm radius 5-60`) and owns one raid mark for good from the first kill
+  there. Its **spots** (radius 35% of the zone) sit indented under it on the shelf; each gets a
+  mark while you are in the zone - the zone's own first, then marks no zone owns - and gives
+  it back when you leave. Skull is never used; it is the cursor's. A kill is matched by the
+  mark the mob died wearing first, then by distance, then to the nearest zone with a spot that
+  is up. Kills within 60 s of each other at one spot (`/bt farm burst 5-300`) are
+  different mobs and get their own spots, as is a kill on a spot still counting down. Up to 16
+  zones and 12 spots each; past 7 marks they show as numbers. A spot that sits up for 10 min
+  with no kill folds into its neighbour (`/bt farm prune 60-3600|off`). A second kill at a spot teaches its respawn; 15 s before it is due the mark is called
+  out. `t` on the header (or `/bt farm spots`) opens the shelf: arrow from where you stand,
+  mark, countdown, yards; a zone's timer is its soonest spot; the zone you stand in is tinted. `r` resets this mob; `/bt farm
+  spots clear` wipes every mob.
+- Skeleton: tool registry, `/bt` dispatcher, per-tool saved settings, BiSTheme palette with fallback.

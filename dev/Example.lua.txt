@@ -1,0 +1,14 @@
+-- BiSTools / Tools / Example.lua
+-- Template tool. Copy, rename, add to the TOC. Delete when real tools exist.
+local _, NS = ...
+
+NS.Registry:Register({
+  name = "ping",
+  desc = "says pong",
+  usage = "/bt ping [text]",
+  defaults = { count = 0 },
+  OnSlash = function(self, db, args)
+    db.count = db.count + 1
+    NS.Print("pong %s (#%d)", args ~= "" and args or "", db.count)
+  end,
+})
