@@ -22,16 +22,32 @@ local K = NS.Farm                -- the Innervate-style kit: tex / fs / border /
 local SM = { rows = {} }
 NS.Summon = SM
 
-SM.SCORE_OTHER_ZONE  = 1e9
-SM.SCORE_UNKNOWN_POS = 5e8
+SM.SCORE_OTHER_WORLD = 2e9       -- Azeroth <-> Outland: summon first, always
+SM.SCORE_OTHER_ZONE  = 1e9       -- same world, other zone
+SM.SCORE_UNKNOWN_POS = 5e8       -- same zone, cannot place them
+-- which world a zone string lives in; everything not listed is Azeroth
+SM.OUTLAND_ZONES = {}
+for _, z in ipairs({ "Hellfire Peninsula", "Zangarmarsh", "Terokkar Forest", "Nagrand",
+  "Blade's Edge Mountains", "Netherstorm", "Shadowmoon Valley", "Shattrath City" }) do
+  SM.OUTLAND_ZONES[z:lower()] = true
+end
+function SM.WorldOf(mapId, zone)
+  local id = tonumber(mapId)
+  if id == 530 then return "Outland" end
+  if id == 0 or id == 1 then return "Azeroth" end
+  if type(zone) == "string" and SM.OUTLAND_ZONES[zone:lower()] then return "Outland" end
+  if type(zone) == "string" and zone ~= "" then return "Azeroth" end
+  return nil
+end
 SM.DEFAULT_NEAR      = 80        -- visible inside this = already at the stone
 SM.DEFAULT_LINGER    = 8
 SM.DEFAULT_RETRY     = 120       -- park for a guess (no word back)
 SM.FACT_PARK         = 15        -- park for a fact: their client reports the offer inside the cast
 SM.DEFAULT_ROWS      = 6
 SM.MAX_ROWS          = 10
-SM.ROW_H, SM.W       = 14, 150
+SM.ROW_H, SM.W       = 14, 170
 SM.FOOT_H            = 16
+SM.ALL_W             = 44        -- the "all" button on the footer's right
 SM.STATUS_H          = 12        -- the "N at stone - M in" line under the rows
 SM.REQ_TTL           = 600       -- a request nobody answered dies after 10 min
 SM.NAG_EVERY         = 20
@@ -74,26 +90,33 @@ local function dist(ax, ay, bx, by)
 end
 
 -- nil = not a candidate (inside). A fact peer is scored from what it SAID.
+-- Arn's order (8 Sep): other world first, then same world other zone, then
+-- same zone by yards, furthest first. Returns score, and the world they are in.
 function SM.Score(e, me)
   if not e.online then return nil end
+  local myWorld = SM.WorldOf(me.instanceID, me.zone)
   if e.fact and e.where then
     local w = e.where
     if w.inInstance then return nil end
+    local theirWorld = SM.WorldOf(w.mapId, w.zone)
+    if theirWorld and myWorld and theirWorld ~= myWorld then return SM.SCORE_OTHER_WORLD, theirWorld end
     if w.x and w.y and me.x and me.y and tostring(w.mapId) == tostring(me.instanceID or "") then
-      return dist(w.x, w.y, me.x, me.y)
+      return dist(w.x, w.y, me.x, me.y), theirWorld
     end
     -- their WHERE cannot be placed against mine (lib 1 sent no mapId outdoors),
     -- but the client can see them: UnitPosition is good enough for yards
     if e.x and e.y and me.x and me.y and e.instanceID and e.instanceID == me.instanceID then
-      return dist(e.x, e.y, me.x, me.y)
+      return dist(e.x, e.y, me.x, me.y), theirWorld
     end
-    if w.zone ~= "" and me.zone and w.zone ~= me.zone then return SM.SCORE_OTHER_ZONE end
-    return SM.SCORE_UNKNOWN_POS
+    if w.zone ~= "" and me.zone and w.zone ~= me.zone then return SM.SCORE_OTHER_ZONE, theirWorld end
+    return SM.SCORE_UNKNOWN_POS, theirWorld
   end
-  if e.zone and me.zone and e.zone ~= me.zone then return SM.SCORE_OTHER_ZONE end
+  local theirWorld = SM.WorldOf(e.instanceID, e.zone)
+  if theirWorld and myWorld and theirWorld ~= myWorld then return SM.SCORE_OTHER_WORLD, theirWorld end
+  if e.zone and me.zone and e.zone ~= me.zone then return SM.SCORE_OTHER_ZONE, theirWorld end
   local samePlace = e.instanceID and me.instanceID and e.instanceID == me.instanceID
-  if samePlace and e.x and e.y and me.x and me.y then return dist(e.x, e.y, me.x, me.y) end
-  return SM.SCORE_UNKNOWN_POS
+  if samePlace and e.x and e.y and me.x and me.y then return dist(e.x, e.y, me.x, me.y), theirWorld end
+  return SM.SCORE_UNKNOWN_POS, theirWorld
 end
 
 -- what the row says about a summon already in flight, or nil
@@ -125,32 +148,38 @@ function SM.Rank(entries, me, opts)
       -- offline: not listed, not counted
     elseif e.asked then
       -- "request a summon" beats every filter: he asked, he is listed, on top
-      out[#out + 1] = { unit = e.unit, name = e.name, score = SM.Score(e, me) or SM.SCORE_UNKNOWN_POS,
-        index = e.index or 0, fact = e.fact and true or false, asked = true,
-        waiting = nil, why = nil }
+      local sc, world = SM.Score(e, me)
+      out[#out + 1] = { unit = e.unit, name = e.name, score = sc or SM.SCORE_UNKNOWN_POS, world = world,
+        index = e.index or 0, fact = e.fact and true or false, asked = true }
       local w, why = SM.Waiting(e, opts.tried, now)
       out[#out].waiting, out[#out].why = w, why
     elseif e.atStone then
       atStone = atStone + 1                              -- standing at a known stone: no summon needed
+      if opts.all then out[#out + 1] = { unit = e.unit, name = e.name, score = -2, index = e.index or 0,
+        fact = e.fact and true or false, here = true } end
     elseif (e.fact and e.where and e.where.inInstance)
         or (not e.fact and SM.IsBannedZone(e.zone, opts.ban, opts.allow)) then
-      -- inside already: listed at the very bottom as "inside", not a target
       inside = inside + 1
-      out[#out + 1] = { unit = e.unit, name = e.name, score = -1, index = e.index or 0,
-        fact = e.fact and true or false, inside = true }
+      if opts.all then out[#out + 1] = { unit = e.unit, name = e.name, score = -1, index = e.index or 0,
+        fact = e.fact and true or false, inside = true } end
     else
-      local score = SM.Score(e, me)
-      if score and not (score < nearYards and e.visible) then
+      local score, world = SM.Score(e, me)
+      if score and (score < nearYards and e.visible) then
+        -- standing with me: no summon needed
+        if opts.all then out[#out + 1] = { unit = e.unit, name = e.name, score = -2, index = e.index or 0,
+          fact = e.fact and true or false, here = true } end
+      elseif score then
         local waiting, why = SM.Waiting(e, opts.tried, now)
         out[#out + 1] = {
-          unit = e.unit, name = e.name, score = score, index = e.index or 0,
+          unit = e.unit, name = e.name, score = score, world = world, index = e.index or 0,
           fact = e.fact and true or false, waiting = waiting, why = why, asked = false,
         }
       end
     end
   end
   table.sort(out, function(a, b)
-    if (a.inside or false) ~= (b.inside or false) then return b.inside end  -- inside: last of all
+    local ai, bi = (a.inside or a.here) and true or false, (b.inside or b.here) and true or false
+    if ai ~= bi then return bi end                       -- inside / here: last of all (unrolled only)
     local aw, bw = a.waiting ~= nil, b.waiting ~= nil
     if aw ~= bw then return bw end                       -- in-flight sink
     if aw and a.waiting ~= b.waiting then return a.waiting < b.waiting end
@@ -192,9 +221,11 @@ end
 -- a number would be distance from wherever you happen to be, which is noise.
 function SM.InfoText(e, atStone)
   if e.inside then return "inside" end
+  if e.here then return "here" end
   if e.why == "ok" then return "ok" end
   if e.waiting then return SM.ClockText(e.waiting) end
   if e.asked then return "asks" end
+  if e.score >= SM.SCORE_OTHER_WORLD then return e.world or "world" end
   if e.score >= SM.SCORE_OTHER_ZONE then return "far" end
   if e.score >= SM.SCORE_UNKNOWN_POS then return "" end
   if atStone then return math.floor(e.score) .. "y" end
@@ -370,6 +401,16 @@ function SM.Request(db, on)
   NS.Print(on and "summon requested - every BiS summoner sees you on top" or "summon request cancelled")
 end
 
+function SM.SetUnrolled(db, on)
+  SM.unrolled = on and true or false
+  if SM.allBtn then
+    SM.allBtn.edge:set(SM.unrolled and "accent" or "edge", 1)
+    local r, g, b = K.color(SM.unrolled and "accent" or "muted")
+    SM.allBtn.label:SetTextColor(r, g, b, 1)
+  end
+  SM.Refresh(db)
+end
+
 function SM.PaintRequest()
   if not SM.foot then return end
   local r, g, b
@@ -495,9 +536,10 @@ function SM.Build(db)
 
   -- footer: the peer's one button. "request a summon" puts you on top of every
   -- summoner's list with "asks"; click again to take it back.
+  -- footer budget, 170 wide: request 0..126 | all 126..170
   local foot = CreateFrame("Button", "BiSToolsSummonRequest", f)
-  foot:SetPoint("BOTTOMLEFT") foot:SetPoint("BOTTOMRIGHT")
-  foot:SetHeight(SM.FOOT_H)
+  foot:SetPoint("BOTTOMLEFT")
+  foot:SetSize(SM.W - SM.ALL_W, SM.FOOT_H)
   K.tex(foot, "BACKGROUND", "field", 0.9)
   foot.edge = K.border(foot, "edge", 1)
   foot.label = K.fs(foot, "request a summon", 9, "accent")
@@ -516,6 +558,28 @@ function SM.Build(db)
   foot:SetScript("OnLeave", function(self) self.edge:set("edge", 1) if GameTooltip then GameTooltip:Hide() end end)
   SM.foot = foot
   SM.PaintRequest()
+  -- "all": unroll the whole raid, inside and here included (Arn: in the raid,
+  -- one button to see everyone regardless of where they are)
+  local all = CreateFrame("Button", "BiSToolsSummonAll", f)
+  all:SetPoint("BOTTOMRIGHT")
+  all:SetSize(SM.ALL_W, SM.FOOT_H)
+  K.tex(all, "BACKGROUND", "field", 0.9)
+  all.edge = K.border(all, "edge", 1)
+  all.label = K.fs(all, "all", 9, "muted")
+  all.label:SetPoint("CENTER")
+  all:SetScript("OnClick", function() SM.SetUnrolled(db, not SM.unrolled) end)
+  all:SetScript("OnEnter", function(self)
+    SM.seenAt = GetTime()
+    self.edge:set("accent", 1)
+    if GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine("Everyone")
+      GameTooltip:AddLine("Show the whole raid, inside and here included.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  all:SetScript("OnLeave", function(self) self.edge:set(SM.unrolled and "accent" or "edge", 1) if GameTooltip then GameTooltip:Hide() end end)
+  SM.allBtn = all
 
   local pos = db.pos
   f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
@@ -617,16 +681,17 @@ function SM.PaintRows(db, list)
       -- fact: plain name. guess: muted, with the question mark it deserves.
       r.name:SetText(e.fact and e.name or (e.name .. " ?"))
       local colour
-      if e.inside then colour = "dim"
+      if e.inside or e.here then colour = "dim"
       elseif e.waiting then colour = "dim"
       elseif i == 1 then colour = "accent"
       elseif not e.fact then colour = "muted"
-      elseif e.score >= SM.SCORE_OTHER_ZONE then colour = "warn"
+      elseif e.score >= SM.SCORE_OTHER_WORLD then colour = "warn"
+      elseif e.score >= SM.SCORE_OTHER_ZONE then colour = "gold"
       else colour = "gold" end
       local cr, cg, cb = K.color(colour)
       r.name:SetTextColor(cr, cg, cb, 1)
       r.info:SetText(SM.InfoText(e, atStone))
-      cr, cg, cb = K.color((e.waiting or e.inside) and "muted" or (e.asked and "gold") or "ink2")
+      cr, cg, cb = K.color((e.waiting or e.inside or e.here) and "muted" or (e.asked and "gold") or "ink2")
       r.info:SetTextColor(cr, cg, cb, 1)
       r:Show()
       shown = shown + 1
@@ -649,7 +714,7 @@ function SM.Refresh(db)
   local now = GetTime()
   local entries, me = SM.Gather()
   local list, inside, atStone = SM.Rank(entries, me, {
-    near = db.near, ban = db.ban, allow = db.allow, tried = SM.tried, now = now,
+    near = db.near, ban = db.ban, allow = db.allow, tried = SM.tried, now = now, all = SM.unrolled,
   })
   SM.list, SM.inside, SM.atStone = list, inside, atStone
   local live = {}
@@ -841,6 +906,7 @@ function SM.Slash(db, args)
   elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
   elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
   elseif cmd == "me" then SM.Request(db, not SM.myRequest)
+  elseif cmd == "all" then SM.SetUnrolled(db, not SM.unrolled) NS.Print("summon list: %s", SM.unrolled and "everyone" or "who needs it")
   elseif cmd == "summoner" then
     if rest:lower() == "on" then SM.SetSummoner(db, true) elseif rest:lower() == "off" then SM.SetSummoner(db, false) else SM.SetSummoner(db, not db.summoner) end
   elseif cmd == "stones" then
@@ -886,7 +952,7 @@ function SM.Slash(db, args)
     C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [me|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bt summon [me|all|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 

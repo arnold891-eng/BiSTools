@@ -722,6 +722,7 @@ W.raid = {
   { name = "Gambler", zone = "Netherstorm", x = 1000, y = 1400, inst = 530 },
   { name = "Nolib",   zone = "Netherstorm", x = 1000, y = 1200, inst = 530 },
   { name = "Farzone", zone = "Shattrath City", x = nil, y = nil, inst = nil },
+  { name = "Azzy",    zone = "Stormwind City", x = nil, y = nil, inst = nil },
 }
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
 W.inRaid = true
@@ -730,7 +731,7 @@ say("Toolsy",  "1|CORE|HI|1|BiSTools=0.1.0|0")
 say("Druid",   "1|CORE|HI|1|BiSInnervate=3.3.5|0")
 say("Gambler", "1|CORE|HI|1|BiSGamba=1.1.0|0")
 ok(lib:HasLib("Toolsy") and lib:HasLib("Druid") and lib:HasLib("Gambler"), "three clients with any BiS addon are peers")
-ok(not lib:HasLib("Nolib") and not lib:HasLib("Farzone"), "the addon-less man never becomes a peer")
+ok(not lib:HasLib("Nolib") and not lib:HasLib("Farzone") and not lib:HasLib("Azzy"), "the addon-less men never become peers")
 say("Toolsy",  "1|CORE|WHERE|0|none||Netherstorm|1000.0|1000.0|530")
 say("Druid",   "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 say("Gambler", "1|CORE|WHERE|1|raid|Karazhan|Karazhan|100.0|100.0|532")
@@ -740,19 +741,30 @@ SM.Refresh(db_summon())
 local list, inside = SM.list, SM.inside
 local byName = {}
 for _, e in ipairs(list) do byName[e.name] = e end
-ok(inside == 1 and byName.Gambler and byName.Gambler.inside and list[#list].name == "Gambler", "Gambler says he is inside Karazhan -> 'inside', last row, no blacklist needed")
+ok(inside == 1 and byName.Gambler == nil, "Gambler says he is inside Karazhan -> counted inside, hidden until 'all'")
 ok(byName.Toolsy == nil, "Toolsy stands on us (0 y, visible) -> not a candidate")
 ok(byName.Druid and byName.Druid.fact and math.abs(byName.Druid.score - 300) < 1e-6, "Druid is a fact at 300 y from his own WHERE")
 ok(byName.Nolib and not byName.Nolib.fact and math.abs(byName.Nolib.score - 200) < 1e-6, "Nolib is a guess at 200 y from UnitPosition")
-ok(byName.Farzone and not byName.Farzone.fact and byName.Farzone.score == SM.SCORE_OTHER_ZONE, "Farzone: other zone by the roster string")
-ok(list[1].name == "Farzone" and list[2].name == "Druid" and list[3].name == "Nolib" and list[4].name == "Gambler", "furthest first, inside last")
+ok(byName.Farzone and not byName.Farzone.fact and byName.Farzone.score == SM.SCORE_OTHER_ZONE, "Farzone (Shattrath): same world, other zone")
+ok(byName.Azzy and byName.Azzy.score == SM.SCORE_OTHER_WORLD and byName.Azzy.world == "Azeroth", "Azzy (Stormwind): other world")
+ok(list[1].name == "Azzy" and list[2].name == "Farzone" and list[3].name == "Druid" and list[4].name == "Nolib" and #list == 4, "other world, other zone, then yards; inside hidden")
 -- paint: fact plain, guess with a ?
-ok(BiSToolsSummonRow1.name.text == "Farzone ?" and BiSToolsSummonRow2.name.text == "Druid" and BiSToolsSummonRow3.name.text == "Nolib ?", "guess rows wear the question mark, fact rows do not")
-ok(BiSToolsSummonRow2.info.text == "" and BiSToolsSummonRow1.info.text == "far" and BiSToolsSummonRow4.info.text == "inside", "info text: no yards away from a stone, far, inside")
+ok(BiSToolsSummonRow1.name.text == "Azzy ?" and BiSToolsSummonRow3.name.text == "Druid" and BiSToolsSummonRow4.name.text == "Nolib ?", "guess rows wear the question mark, fact rows do not")
+ok(BiSToolsSummonRow1.info.text == "Azeroth" and BiSToolsSummonRow2.info.text == "far" and BiSToolsSummonRow3.info.text == "", "info text: world name, far, no yards away from a stone")
+-- unroll: everyone, inside last
+BiSToolsSummonAll.scripts.OnClick(BiSToolsSummonAll)
+ok(SM.unrolled and #SM.list == 6 and SM.list[5].name == "Gambler" and SM.list[5].inside and SM.list[6].here, "all: Gambler listed as inside, here-people last")
+local hereRow
+for i = 1, 6 do local r = _G["BiSToolsSummonRow" .. i] if r and r.name.text:find("Toolsy") then hereRow = r end end
+ok(hereRow and hereRow.info.text == "here", "all: Toolsy standing with me shows 'here'")
+ok(BiSToolsSummonAll.label.color[1] == select(1, F.color("accent")), "all lit")
+BiSToolsSummonAll.scripts.OnClick(BiSToolsSummonAll)
+ok(not SM.unrolled and #SM.list == 4, "rolled back up")
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
-ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid6", "row targets its unit")
+ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid7", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
 ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + 16, "four rows tall, status line (1 in), request footer")
+ok(BiSToolsSummonRequest.w + BiSToolsSummonAll.w == BiSToolsSummon.w, "footer: request + all fill the width exactly")
 -- header overlap guard: nothing but title + buttons lives in the header
 ok(SM.count.parent == SM.body, "the count line lives under the rows, not in the header")
 ok(SM.summonerBtn.point[4] == -52 and SM.askBtn.point[4] == -31 and SM.pinBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
@@ -768,20 +780,21 @@ say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 -- a guess in a blacklisted zone is 'inside' by inference
 W.raid[5].zone = "Karazhan"
 SM.Refresh(db_summon())
-ok(SM.inside == 2 and #SM.list == 4 and SM.list[4].inside and SM.list[3].inside, "Nolib in Karazhan by roster string -> inside (the old guess)")
+ok(SM.inside == 2 and #SM.list == 3, "Nolib in Karazhan by roster string -> inside (the old guess)")
 W.raid[5].zone = "Netherstorm"
 
 -- fact outranks guess at equal score
 W.raid[5].x, W.raid[5].y = 1300, 1000
 SM.Refresh(db_summon())
-ok(SM.list[2].name == "Druid" and SM.list[3].name == "Nolib", "equal 300 y: the fact sorts above the guess")
+ok(SM.list[3].name == "Druid" and SM.list[4].name == "Nolib", "equal 300 y: the fact sorts above the guess")
 W.raid[5].x, W.raid[5].y = 1000, 1200
 
 -- click = park. A fact parks 15 s (their client will report the offer), a guess 120 s
 W.now = 5000
+BiSToolsSummonRow1:Click()   -- Azzy, a guess in the other world
+ok(SM.tried.Azzy and math.abs(SM.tried.Azzy - (5000 + 120)) < 1e-6, "clicking a guess parks 120 s")
+ok(SM.list[1].name == "Farzone" and SM.list[4].name == "Azzy" and BiSToolsSummonRow4.info.text == "2:00", "parked guess sinks with its clock")
 BiSToolsSummonRow1:Click()   -- Farzone, a guess
-ok(SM.tried.Farzone and math.abs(SM.tried.Farzone - (5000 + 120)) < 1e-6, "clicking a guess parks 120 s")
-ok(SM.list[1].name == "Druid" and SM.list[3].name == "Farzone" and BiSToolsSummonRow3.info.text == "2:00", "parked guess sinks with its clock (above inside)")
 BiSToolsSummonRow1:Click()   -- Druid, a fact
 ok(SM.tried.Druid and math.abs(SM.tried.Druid - (5000 + 15)) < 1e-6, "clicking a fact parks only 15 s")
 ok(SM.list[1].name == "Nolib", "Nolib is top now")
