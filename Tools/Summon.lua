@@ -860,16 +860,20 @@ function SM.PaintRows(db, list)
       r:Hide()
     end
   end
-  if shown == 0 then
-    local n = SM.stoneCount or 0
-    if compact and n > 0 then SM.empty:SetText(n .. " at the stone")
-    elseif compact then SM.empty:SetText("nobody at a stone")
-    else SM.empty:SetText("nobody needs a summon") end
+  local h
+  if shown == 0 and compact then
+    -- compact: the header prompt already says "N at stone" (Arn, 8 Sep: "those
+    -- messages should go on the header"); the body is a bare strip
+    SM.empty:Hide()
+    h = 4
+  elseif shown == 0 then
+    SM.empty:SetText("nobody needs a summon")
     SM.empty:Show()
+    h = SM.ROW_H + 4
   else
     SM.empty:Hide()
+    h = shown * SM.ROW_H + 4
   end
-  local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
   local status = SM.count:GetText()
   if status and status ~= "" then h = h + SM.STATUS_H end
   SM.body:SetHeight(h)
@@ -902,7 +906,7 @@ function SM.Refresh(db)
   SM.PaintTitle(SM.stoneCount)
   local bits = {}
   if not SM.MeAtStone(db) and not SM.unrolled then
-    -- compact: the empty line says "N at the stone", no second count
+    -- compact: the header prompt carries the at-stone count, no status line
   else
     if inside > 0 then bits[#bits + 1] = inside .. " in" end
   end
