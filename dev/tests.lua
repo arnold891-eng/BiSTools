@@ -750,6 +750,8 @@ say("Druid",   "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 say("Gambler", "1|CORE|WHERE|1|raid|Karazhan|Karazhan|100.0|100.0|532")
 
 S("summon near 80")
+-- I am standing at a known stone for the list checks (far from one the list is compact)
+db_summon().stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
 SM.Refresh(db_summon())
 local list, inside = SM.list, SM.inside
 local byName = {}
@@ -763,7 +765,7 @@ ok(byName.Azzy and byName.Azzy.score == SM.SCORE_OTHER_WORLD and byName.Azzy.wor
 ok(list[1].name == "Azzy" and list[2].name == "Farzone" and list[3].name == "Druid" and list[4].name == "Nolib" and #list == 4, "other world, other zone, then yards; inside hidden")
 -- paint: fact plain, guess with a ?
 ok(BiSToolsSummonRow1.name.text == "Azzy ?" and BiSToolsSummonRow3.name.text == "Druid" and BiSToolsSummonRow4.name.text == "Nolib ?", "guess rows wear the question mark, fact rows do not")
-ok(BiSToolsSummonRow1.info.text == "Azeroth" and BiSToolsSummonRow2.info.text == "far" and BiSToolsSummonRow3.info.text == "", "info text: world name, far, no yards away from a stone")
+ok(BiSToolsSummonRow1.info.text == "Azeroth" and BiSToolsSummonRow2.info.text == "far" and BiSToolsSummonRow3.info.text == "300y", "info text: world name, far, yards (I stand at the stone)")
 -- unroll: everyone, inside last
 BiSToolsSummonAll.scripts.OnClick(BiSToolsSummonAll)
 ok(SM.unrolled and #SM.list == 6 and SM.list[5].name == "Gambler" and SM.list[5].inside and SM.list[6].here, "all: Gambler listed as inside, here-people last")
@@ -888,6 +890,7 @@ S("summon hide")
 lib.peers.Nolib = nil   -- the request test spoke as him; he is the addon-less man again
 S("summon show")
 local dbs = db_summon()
+dbs.stones = {}
 ok(next(dbs.stones or {}) == nil, "no stones known yet")
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
 W.tooltipShown, W.tooltipText = true, "Tempest Keep Summoning Stone"
@@ -915,8 +918,18 @@ local nb
 for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Nolib") then nb = r end end
 ok(nb and nb.info.text == "200y", "at the stone: yards from the stone")
 W.me.x, W.me.y = 5000, 5000 W.now = W.now + 5 SM.Refresh(dbs)
-for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Nolib") then nb = r end end
-ok(nb and nb.info.text == "", "away from the stone: no yards")
+-- away from the stone the window is compact: no rows, the empty line counts the stone
+local anyRow = false
+for i = 1, 6 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown then anyRow = true end end
+ok(not anyRow and SM.empty.shown and SM.empty.text:find("at the stone"), "away from the stone: compact - no rows, 'N at the stone'")
+ok(SM.count.text == "", "compact: no second count line")
+ok(BiSToolsSummonRequest.shown ~= false, "compact: request button still there")
+-- unroll shows the list, without yards
+BiSToolsSummonAll.scripts.OnClick(BiSToolsSummonAll)
+nb = nil
+for i = 1, 8 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Nolib") then nb = r end end
+ok(nb and nb.info.text == "", "unrolled away from the stone: rows, no yards")
+BiSToolsSummonAll.scripts.OnClick(BiSToolsSummonAll)
 W.me.x, W.me.y = 1000, 1000
 -- a guess standing on the stone too (same instance, UnitPosition)
 W.raid[5].x, W.raid[5].y = 1000, 1050
@@ -990,6 +1003,26 @@ lib:Peer("Druid").where.at = W.now
 S("summon hide") SM.Reask(dbs) W.now = W.now + 16
 ok(W.sentCount("ASK") == ask0 + 2, "window hidden -> never asks")
 dbs.stones = {} W.me.x = 1000 SM.selfAtStone = nil
+
+-- two at a stone pops the window for everyone (auto mode), and keeps it while true
+S("summon auto")
+dbs.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
+W.me = { zone = "Netherstorm", x = 5000, y = 5000, inst = 530 }   -- I am far away
+say("Druid",  "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
+say("Toolsy", "1|CORE|WHERE|0|none||Netherstorm|1005.0|1000.0|530")  -- one at the stone
+W.now = W.now + 20 SM.selfAtStone = nil SM.SelfWatch(dbs)
+ok(not BiSToolsSummon:IsShown(), "one at the stone: nothing")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1010.0|1000.0|530")   -- now two
+SM.SelfWatch(dbs)
+ok(BiSToolsSummon:IsShown(), "two at the stone: the window pops for me, far away")
+ok(SM.empty.shown and SM.empty.text == "2 at the stone", "compact: '2 at the stone'")
+W.now = W.now + 20 SM.SelfWatch(dbs) SM.Watch(dbs, 0.2)
+ok(BiSToolsSummon:IsShown(), "stays while two are there")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")   -- one walks off
+W.now = W.now + 20 SM.SelfWatch(dbs) SM.Watch(dbs, 0.2)
+ok(not BiSToolsSummon:IsShown(), "one left -> lingers out")
+W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
+dbs.stones = {} S("summon show")
 
 -- the interact key over the window: press 1 targets the top name, press 2 is the real interact
 S("summon show") SM.Refresh(dbs)
