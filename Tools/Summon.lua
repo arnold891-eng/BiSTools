@@ -689,16 +689,16 @@ function SM.Build(db)
   if logo.SetTexCoord then logo:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
   SM.title = K.fs(head, "|cffb980ffSummon|r", 9, "ink")
   SM.title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
-  -- header budget, left to right: 4 + logo 11 + 4 + title (~50) ... buttons from
-  -- the right: x(12)@-3, p(12)@-17, ?(12)@-31, J(18)@-52 -> J's left edge sits
-  -- 70 px from the right. Nothing else goes in the header.
+  -- header budget, left to right: 4 + logo 11 + 4 + title (<= W-56-19 = 95 px, the
+  -- widest title is the green "N at stone" count) ... buttons from the right:
+  -- x(12)@-3, ?(12)@-17, J(18)@-38 -> J's left edge sits 56 px from the right.
+  -- Nothing else goes in the header. (No pin button: Arn, 8 Sep - "confusing";
+  -- auto-open on summons covers it, /bt summon show|auto|hide is the manual way.)
   SM.closeBtn = K.HeaderButton(head, -3, "x", "Close", "Auto mode brings it back on a summoning stone.",
     function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
-  SM.pinBtn = K.HeaderButton(head, -17, "p", "Pin", "Keep it open. /bt summon show | auto | hide",
-    function() SM.SetMode(db, db.mode == "on" and "auto" or "on") end)
-  SM.askBtn = K.HeaderButton(head, -31, "?", "Ask the raid", "Every BiS client answers with where it stands.",
+  SM.askBtn = K.HeaderButton(head, -17, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
-  SM.summonerBtn = K.HeaderButton(head, -52, "J", "Summoner mode - I am the summoner",
+  SM.summonerBtn = K.HeaderButton(head, -38, "J", "Summoner mode - I am the summoner",
     "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon summoner",
     function() SM.SetSummoner(db, not db.summoner) end)
   SM.summonerBtn:SetSize(18, 12)
@@ -715,23 +715,10 @@ function SM.Build(db)
     SM.seenAt = GetTime()
   end)
 
-  local body = CreateFrame("Frame", nil, f)
-  body:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
-  body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
-  body:SetHeight(1)
-  SM.body = body
-  SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
-  SM.empty:SetPoint("TOPLEFT", 6, -4)
-  -- status line under the rows: "2 at stone - 1 in"
-  SM.count = K.fs(body, "", 8, "muted")
-  SM.count:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -6, 2)
-
-  -- footer: the peer's one button. "request a summon" puts you on top of every
-  -- summoner's list with "asks"; click again to take it back.
-  -- console strip under the rows
+  -- console strip right under the header (Arn: "on the top now"), rows below it
   local con = CreateFrame("Frame", nil, f)
-  con:SetPoint("TOPLEFT", body, "BOTTOMLEFT")
-  con:SetPoint("TOPRIGHT", body, "BOTTOMRIGHT")
+  con:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+  con:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
   con:SetHeight(1)
   SM.conFrame, SM.conFS = con, {}
   for n = 1, SM.CON_LINES do
@@ -741,6 +728,23 @@ function SM.Build(db)
     SM.conFS[n] = fs
   end
   SM.promptFS = K.fs(con, "", 8, "ink2")
+  local conHair = con:CreateTexture(nil, "BORDER")
+  conHair:SetPoint("BOTTOMLEFT") conHair:SetPoint("BOTTOMRIGHT") conHair:SetHeight(1)
+  do local r, g, b = K.color("hair") conHair:SetColorTexture(r, g, b, 1) end
+
+  local body = CreateFrame("Frame", nil, f)
+  body:SetPoint("TOPLEFT", con, "BOTTOMLEFT")
+  body:SetPoint("TOPRIGHT", con, "BOTTOMRIGHT")
+  body:SetHeight(1)
+  SM.body = body
+  SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
+  SM.empty:SetPoint("TOPLEFT", 6, -4)
+  -- status line under the rows: "1 in" (the at-stone count lives in the title)
+  SM.count = K.fs(body, "", 8, "muted")
+  SM.count:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -6, 2)
+
+  -- footer: the peer's one button. "request a summon" puts you on top of every
+  -- summoner's list with "asks"; click again to take it back.
   SM.PaintConsole()
 
   -- footer budget, 170 wide: request 0..126 | all 126..170
@@ -810,11 +814,6 @@ function SM.PaintPin(db)
     local jr, jg, jb = K.color(db.summoner and "gold" or "muted")
     SM.summonerBtn.label:SetTextColor(jr, jg, jb, 1)
   end
-  if not SM.pinBtn then return end
-  local on = db.mode == "on"
-  SM.pinBtn.edge:set(on and "accent" or "edge", 1)
-  local r, g, b = K.color(on and "accent" or "muted")
-  SM.pinBtn.label:SetTextColor(r, g, b, 1)
 end
 
 -- a secure row: left-click targets, right-click parks, shift-drag moves
@@ -933,6 +932,18 @@ function SM.PaintRows(db, list)
   SM.Relayout()
 end
 
+-- the title is the count, Innervate-style: green triangle + "2 at stone" while
+-- anyone (me included) stands at a stone, the plain name otherwise
+SM.TITLE_ICON = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcon_4:11:11:0:0|t"
+function SM.PaintTitle(n)
+  if not SM.title then return end
+  if n and n > 0 then
+    SM.title:SetText(SM.TITLE_ICON .. T.text("good", n .. " at stone"))
+  else
+    SM.title:SetText("|cffb980ffSummon|r")
+  end
+end
+
 function SM.Refresh(db)
   if not SM.frame then return end
   local now = GetTime()
@@ -947,11 +958,11 @@ function SM.Refresh(db)
     if not live[name] or until_ <= now then SM.tried[name] = nil end
   end
   SM.stoneCount = (SM.StoneCount(db))
+  SM.PaintTitle(SM.stoneCount)
   local bits = {}
   if not SM.MeAtStone(db) and not SM.unrolled then
     -- compact: the empty line says "N at the stone", no second count
   else
-    if atStone > 0 then bits[#bits + 1] = atStone .. " at stone" end
     if inside > 0 then bits[#bits + 1] = inside .. " in" end
   end
   SM.count:SetText(#bits > 0 and table.concat(bits, " - ") or "")

@@ -178,7 +178,13 @@ local function FontString()
   -- that runs into the next control
   -- ~0.6 px per point per character: 9pt = 5.4, 8pt = 4.8. Close enough to catch a
   -- label that runs into the next control or off the window
-  function s:GetStringWidth() return #(tostring(self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) * (self.size or 9) * 0.6 end
+  function s:GetStringWidth()
+    -- inline textures |T...:w:h...|t take their declared width, escapes take none
+    local t, tex = tostring(self.text or ""), 0
+    t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
+    t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return #t * (self.size or 9) * 0.6 + tex
+  end
   function s:Hide() self.shown = false end
   function s:Show() self.shown = true end
   return s
@@ -791,7 +797,18 @@ ok(fits(BiSToolsSummonRequest.label, BiSToolsSummonRequest.w - 8), "footer label
 ok(BiSToolsSummonRequest.label.text:find("cancel"), "and still says cancel")
 BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
 ok(fits(BiSToolsSummonAll.label, BiSToolsSummonAll.w - 8), "all label fits")
-ok(fits(SM.title, 70 - 19), "title fits the header's left budget")
+-- header budget: W minus the button strip (70) minus logo+gaps (19)
+ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (idle)")
+-- Arn (8 Sep): Innervate-style count in the title - green triangle + "N at stone"
+SM.PaintTitle(0)
+ok(SM.title:GetText() == "|cffb980ffSummon|r", "no one at a stone: plain title")
+SM.PaintTitle(2)
+ok(SM.title:GetText():find("UI%-RaidTargetingIcon_4") and SM.title:GetText():find("2 at stone", 1, true), "2 at stone: triangle + green count in the title", SM.title:GetText())
+ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (counting)")
+SM.PaintTitle(12)
+ok(fits(SM.title, SM.W - 56 - 19), "title fits the header's left budget (12 at stone)")
+ok(SM.count:GetText() == nil or not tostring(SM.count:GetText()):find("at stone", 1, true), "status line no longer repeats the at-stone count")
+SM.PaintTitle(0)
 -- the status line gets its own row: body height grows by STATUS_H when it has text
 SM.count:SetText("") SM.PaintRows(db_summon(), SM.list) local h0 = SM.body.h
 SM.count:SetText("1 at stone") SM.PaintRows(db_summon(), SM.list)
@@ -799,7 +816,9 @@ ok(SM.body.h == h0 + 12, "status text adds a 12 px line under the rows (GetText,
 SM.Refresh(db_summon())
 -- header overlap guard: nothing but title + buttons lives in the header
 ok(SM.count.parent == SM.body, "the count line lives under the rows, not in the header")
-ok(SM.summonerBtn.point[4] == -52 and SM.askBtn.point[4] == -31 and SM.pinBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
+ok(SM.summonerBtn.point[4] == -38 and SM.askBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
+ok(SM.pinBtn == nil, "no pin button (auto-open covers it; /bt summon show|auto|hide is the manual way)")
+ok(SM.summonerBtn.w == 18 and SM.summonerBtn.point[4] - SM.summonerBtn.w == -56, "J's left edge is the 56 px strip")
 
 -- lib 1 peers sent no mapId outdoors: a fact standing next to me must not read "far"
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|")   -- empty mapId
@@ -911,7 +930,8 @@ SM.Refresh(dbs)
 local names = {}
 for _, e in ipairs(SM.list) do names[e.name] = true end
 ok(not names.Druid and SM.atStone == 2, "Druid within 80 y of the stone -> at stone, not a candidate (Toolsy too)")
-ok(SM.count.text:find("2 at stone"), "status line counts them")
+ok(SM.title:GetText():find("at stone", 1, true), "the title counts them (green, Innervate-style)", SM.title:GetText())
+ok(not (SM.count:GetText() or ""):find("at stone", 1, true), "and the status line does not repeat it")
 -- I am at the stone: yards show now (Farzone stays far)
 local fz
 for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Farzone") then fz = r end end
