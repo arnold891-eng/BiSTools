@@ -31,6 +31,8 @@ SM.FACT_PARK         = 15        -- park for a fact: their client reports the of
 SM.DEFAULT_ROWS      = 6
 SM.MAX_ROWS          = 10
 SM.ROW_H, SM.W       = 14, 150
+SM.FOOT_H            = 16
+SM.REQ_TTL           = 600       -- a request nobody answered dies after 10 min
 SM.NAG_EVERY         = 20
 SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
 
@@ -126,6 +128,7 @@ function SM.Rank(entries, me, opts)
         out[#out + 1] = {
           unit = e.unit, name = e.name, score = score, index = e.index or 0,
           fact = e.fact and true or false, waiting = waiting, why = why,
+          asked = e.asked and true or false,
         }
       end
     end
@@ -134,6 +137,7 @@ function SM.Rank(entries, me, opts)
     local aw, bw = a.waiting ~= nil, b.waiting ~= nil
     if aw ~= bw then return bw end                       -- in-flight sink
     if aw and a.waiting ~= b.waiting then return a.waiting < b.waiting end
+    if a.asked ~= b.asked then return a.asked end        -- "request a summon" jumps the queue
     if a.score ~= b.score then return a.score > b.score end
     if a.fact ~= b.fact then return a.fact end           -- a fact outranks a guess at equal score
     if a.name ~= b.name then return a.name < b.name end
@@ -169,6 +173,7 @@ end
 function SM.InfoText(e)
   if e.why == "ok" then return "ok" end
   if e.waiting then return SM.ClockText(e.waiting) end
+  if e.asked then return "asks" end
   if e.score >= SM.SCORE_UNKNOWN_POS then return "far" end
   return math.floor(e.score) .. "y"
 end
@@ -188,6 +193,7 @@ function SM.Gather()
       local p = lib:Peer(name)
       if p then e.where, e.summon = p.where, p.summon end
     end
+    e.asked = SM.Asked(name, GetTime())
     entries[#entries + 1] = e
   end
   if IsInRaid and IsInRaid() then
@@ -234,6 +240,57 @@ function SM.Unpark(db, name)
   SM.Refresh(db)
 end
 
+-- ---------------------------------------------------------------- requests
+-- MOD "SUMMON", CMD "REQ", arg 1 = asking, 0 = never mind. Only clients with
+-- BiSTools understand it; everyone else ignores an unknown MOD in silence.
+SM.requests = {}       -- name -> GetTime() they asked
+
+function SM.Request(db, on)
+  local lib = SM.Lib()
+  SM.myRequest = on and true or false
+  SM.PaintRequest()
+  if lib then
+    lib:Send("SUMMON", "REQ", on and 1 or 0)
+    if on then lib:SendWhere(true) end   -- and where I am, so the row scores right
+  end
+  NS.Print(on and "summon requested - every BiS summoner sees you on top" or "summon request cancelled")
+end
+
+function SM.PaintRequest()
+  if not SM.foot then return end
+  local r, g, b
+  if SM.myRequest then
+    SM.foot.label:SetText("summon requested - click to cancel")
+    r, g, b = K.color("gold")
+  else
+    SM.foot.label:SetText("request a summon")
+    r, g, b = K.color("accent")
+  end
+  SM.foot.label:SetTextColor(r, g, b, 1)
+end
+
+function SM.OnRequest(sender, flag)
+  if flag == "1" then
+    local fresh = SM.requests[sender] == nil
+    SM.requests[sender] = GetTime()
+    if fresh then
+      NS.Print("%s asks for a summon", T.text("gold", sender))
+      if PlaySound then PlaySound(3081, "Master") end
+    end
+  else
+    SM.requests[sender] = nil
+  end
+  local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
+  if db and SM.frame and SM.shown then SM.Refresh(db) end
+end
+
+function SM.Asked(name, now)
+  local at = SM.requests[name]
+  if not at then return false end
+  if (now - at) > SM.REQ_TTL then SM.requests[name] = nil return false end
+  return true
+end
+
 -- ---------------------------------------------------------------- window
 function SM.Build(db)
   if SM.frame then return SM.frame end
@@ -278,6 +335,17 @@ function SM.Build(db)
   SM.askBtn = K.HeaderButton(head, -31, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
   head:SetScript("OnEnter", function() SM.seenAt = GetTime() end)
+  -- the header is the drag handle: plain drag, no shift needed (rows need shift
+  -- because a plain click on a row is the target action)
+  head:EnableMouse(true)
+  head:RegisterForDrag("LeftButton")
+  head:SetScript("OnDragStart", function() if not InCombatLockdown() then f:StartMoving() end end)
+  head:SetScript("OnDragStop", function()
+    f:StopMovingOrSizing()
+    local point, _, rel, x, y = f:GetPoint(1)
+    db.pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+    SM.seenAt = GetTime()
+  end)
 
   local body = CreateFrame("Frame", nil, f)
   body:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
@@ -286,6 +354,30 @@ function SM.Build(db)
   SM.body = body
   SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
   SM.empty:SetPoint("TOPLEFT", 6, -4)
+
+  -- footer: the peer's one button. "request a summon" puts you on top of every
+  -- summoner's list with "asks"; click again to take it back.
+  local foot = CreateFrame("Button", "BiSToolsSummonRequest", f)
+  foot:SetPoint("BOTTOMLEFT") foot:SetPoint("BOTTOMRIGHT")
+  foot:SetHeight(SM.FOOT_H)
+  K.tex(foot, "BACKGROUND", "field", 0.9)
+  foot.edge = K.border(foot, "edge", 1)
+  foot.label = K.fs(foot, "request a summon", 9, "accent")
+  foot.label:SetPoint("CENTER")
+  foot:SetScript("OnClick", function() SM.Request(db, not SM.myRequest) end)
+  foot:SetScript("OnEnter", function(self)
+    SM.seenAt = GetTime()
+    self.edge:set("accent", 1)
+    if GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine("Request a summon")
+      GameTooltip:AddLine("Every summoner running BiSTools sees you on top of the list. Click again to cancel. Clears itself when an offer lands.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  foot:SetScript("OnLeave", function(self) self.edge:set("edge", 1) if GameTooltip then GameTooltip:Hide() end end)
+  SM.foot = foot
+  SM.PaintRequest()
 
   local pos = db.pos
   f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
@@ -381,7 +473,7 @@ function SM.PaintRows(db, list)
       local cr, cg, cb = K.color(colour)
       r.name:SetTextColor(cr, cg, cb, 1)
       r.info:SetText(SM.InfoText(e))
-      cr, cg, cb = K.color(e.waiting and "muted" or "ink2")
+      cr, cg, cb = K.color(e.waiting and "muted" or (e.asked and "gold") or "ink2")
       r.info:SetTextColor(cr, cg, cb, 1)
       r:Show()
       shown = shown + 1
@@ -395,7 +487,7 @@ function SM.PaintRows(db, list)
   if shown == 0 then SM.empty:Show() else SM.empty:Hide() end
   local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
   SM.body:SetHeight(h)
-  SM.frame:SetHeight(K.HEADER + h)
+  SM.frame:SetHeight(K.HEADER + h + SM.FOOT_H)
 end
 
 function SM.Refresh(db)
@@ -514,6 +606,8 @@ SM.nagFrame:RegisterEvent("CANCEL_SUMMON")
 SM.nagFrame:SetScript("OnEvent", function(_, ev)
   local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
   if ev == "CONFIRM_SUMMON" then
+    -- an offer landed: my request is answered
+    if SM.myRequest then SM.Request(db, false) end
     -- the lib's own CONFIRM_SUMMON handler runs too; order between frames is
     -- not promised, so give it a beat before reading lib.summon
     C_Timer.After(0.2, function() SM.NagStart(db) end)
@@ -550,7 +644,8 @@ function SM.Hook(db)
       if name then SM.tried[name] = nil end
       if SM.frame and SM.shown then SM.Refresh(db) end
     end
-    lib:RegisterCallback("SUM", function(name) bump(name) end)
+    lib:RegisterCallback("SUM", function(name) bump(name) SM.requests[name] = nil end)
+    lib:RegisterHandler("SUMMON", "REQ", function(sender, flag) SM.OnRequest(sender, flag) end)
     lib:RegisterCallback("WHERE", function() bump() end)
     lib:RegisterCallback("PEER", function() bump() end)
   end
@@ -579,6 +674,7 @@ function SM.Slash(db, args)
   elseif cmd == "auto" then SM.SetMode(db, "auto") NS.Print("summon: auto (stone mouseover)")
   elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
   elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
+  elseif cmd == "me" then SM.Request(db, not SM.myRequest)
   elseif cmd == "near" then db.near = tonumber(rest) or db.near SM.Refresh(db) NS.Print("near: %s y", T.text("accent", db.near or SM.DEFAULT_NEAR))
   elseif cmd == "linger" then db.linger = tonumber(rest) or db.linger NS.Print("linger: %s s", T.text("accent", db.linger or SM.DEFAULT_LINGER))
   elseif cmd == "retry" then db.retry = tonumber(rest) or db.retry NS.Print("guess park: %s s", T.text("accent", db.retry or SM.DEFAULT_RETRY))
@@ -618,7 +714,7 @@ function SM.Slash(db, args)
     C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bt summon [me|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 

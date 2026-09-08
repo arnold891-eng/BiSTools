@@ -752,7 +752,7 @@ ok(BiSToolsSummonRow2.info.text == "300y" and BiSToolsSummonRow1.info.text == "f
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
 ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid6", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
-ok(BiSToolsSummon.h == 16 + 3 * 14 + 4, "three rows tall")
+ok(BiSToolsSummon.h == 16 + 3 * 14 + 4 + 16, "three rows tall, plus the request footer")
 
 -- a guess in a blacklisted zone is 'inside' by inference
 W.raid[5].zone = "Karazhan"
@@ -798,6 +798,40 @@ for _, e in ipairs(SM.list) do if e.name == "Druid" then d = e end end
 ok(d and d.waiting == nil, "an offer past its own clock is no longer waiting")
 say("Druid", "1|CORE|SUM|NO|||")
 S("summon clear")
+
+-- request a summon: a peer's REQ jumps the queue with "asks"; mine goes out on the wire
+S("summon show") SM.Refresh(db_summon())
+ok(SM.list[1].name ~= "Nolib", "Nolib is not on top by score")
+say("Nolib", "1|SUMMON|REQ|1")   -- the addon-less man cannot send this; pretend a Tools user did
+ok(SM.requests.Nolib and SM.list[1].name == "Nolib" and BiSToolsSummonRow1.info.text == "asks", "a request puts him on top with 'asks'")
+ok(BiSToolsSummonRow1.info.color[1] == select(1, F.color("gold")), "asks is gold")
+ok(W.sounds[#W.sounds] == 3081, "request pings the summoner")
+local pr0 = #W.messages
+say("Nolib", "1|SUMMON|REQ|1")
+ok(#W.sounds > 0 and W.sounds[#W.sounds] == 3081 and SM.requests.Nolib, "repeat request does not re-ping (still asked)")
+say("Nolib", "1|SUMMON|REQ|0")
+ok(not SM.requests.Nolib and SM.list[1].name ~= "Nolib", "cancel drops him back")
+say("Nolib", "1|SUMMON|REQ|1")
+W.now = W.now + 700 SM.Refresh(db_summon())
+ok(not SM.requests.Nolib, "a request nobody answered dies after 10 min")
+say("Druid", "1|SUMMON|REQ|1")
+say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60")
+ok(not SM.requests.Druid, "an offer landing clears the request")
+say("Druid", "1|CORE|SUM|NO|||")
+-- my own request
+local m0 = #W.messages
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(SM.myRequest and W.messages[m0 + 1] == "1|SUMMON|REQ|1" and W.sentCount("WHERE") > 0, "footer sends REQ 1 and a WHERE")
+ok(BiSToolsSummonRequest.label.text:find("cancel"), "footer says click to cancel")
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(not SM.myRequest and W.messages[#W.messages] == "1|SUMMON|REQ|0", "click again sends REQ 0")
+S("summon me") ok(SM.myRequest, "/bt summon me")
+W.offer = { summoner = "Warlock", area = "Karazhan", left = 120 }
+SM.nagFrame.scripts.OnEvent(SM.nagFrame, "CONFIRM_SUMMON")
+ok(not SM.myRequest and W.messages[#W.messages] == "1|SUMMON|REQ|0", "an offer reaching me cancels my request")
+SM.nagFrame.scripts.OnEvent(SM.nagFrame, "CANCEL_SUMMON") W.runAfters() SM.NagStop()
+-- header is a drag handle
+S("summon hide")
 
 -- stone mouseover brings the window up in auto mode, asks the raid once, lingers, hides
 S("summon auto")

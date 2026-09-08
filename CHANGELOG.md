@@ -12,6 +12,10 @@
 - Summon nag: when someone summons YOU, a raid-warning line, the raid-warning sound and a
   voice line, every 20 s until you answer. Works even with the summon tool switched off;
   `/bt summon nag off` is its switch.
+- **Request a summon**: the button at the bottom of the summon window (or `/bt summon me`)
+  puts you on top of every BiS summoner's list marked `asks`, with a ping on their side.
+  Click again to cancel; clears itself when an offer reaches you.
+- Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.
 
