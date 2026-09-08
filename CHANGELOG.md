@@ -44,6 +44,10 @@
   `X asks`, `X accepted`, `X declined`, `request now`, `no summons`. Nothing of that goes to
   chat any more. The prompt is `BiSTheme.Console`, shared by every BiS window from here on
   (a copy ships in `Libs/BiSTheme/Console.lua`, so it works without BiSTheme installed).
+- LibBiSComm minor 3: a client no longer listens to its own echo. The game hands every group
+  addon message back to the sender; minor 2 took it and made you your own peer, so a summoner
+  at the stone counted himself twice (`2 at stone` with one person there) and a requester saw
+  his own `1 asking`. `N asking` now shows only to summoners (at a stone, or Jeck mode).
 - Pin button dropped: the window opens itself when summons are available; `/bt summon
   show|auto|hide` is the manual way. Logo dropped too - the prompt is the brand.
 - Summon window header drags without shift now.

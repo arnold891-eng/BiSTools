@@ -23,7 +23,7 @@
 --   * every host callback is pcall'd -- a lib fault cannot kill the addon
 --   * off means silent AND deaf
 
-local MAJOR, MINOR = "LibBiSComm-1.0", 2
+local MAJOR, MINOR = "LibBiSComm-1.0", 3
 
 local lib = _G.LibBiSComm
 if lib and (lib.MINOR or 0) >= MINOR then return end   -- an equal or newer copy won
@@ -278,6 +278,11 @@ function lib:OnMessage(prefix, msg, channel, sender)
     end
     -- Guard 3: a sender we can actually see in the group.
     if sender ~= PlayerName() and not UnitOf(sender) then return end
+    -- Guard 4: my own echo. The client hands every group addon message back to
+    -- its sender too; taking it would make me my own peer (MINOR 2 did: a
+    -- summoner at the stone counted himself twice - Arn, 8 Sep). What I know
+    -- about myself lives in self.where / self.summon, never in peers.
+    if sender == PlayerName() then return end
 
     local isNew = (self.peers[sender] == nil)
     local pr = peer(sender)
