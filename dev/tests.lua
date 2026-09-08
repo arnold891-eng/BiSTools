@@ -168,10 +168,14 @@ local function FontString()
   function s:SetPoint(p, rel, rp, x, y) if type(rel) == "number" then self.x = rel else self.x = x end end
   function s:ClearAllPoints() end
   function s:SetText(x) self.text = x end
+  function s:GetText() return self.text end
   function s:SetTextColor(r, g, b, a)
     if not num3(r, g, b) then error("SetTextColor wants r,g,b numbers") end
     self.color = { r, g, b, a }
   end
+  -- ~5.5 px per character at the sizes we use: close enough to catch a label
+  -- that runs into the next control
+  function s:GetStringWidth() return #(tostring(self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) * 5.5 end
   function s:Hide() self.shown = false end
   function s:Show() self.shown = true end
   return s
@@ -774,6 +778,20 @@ ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
 ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + 16, "four rows tall, status line (1 in), request footer")
 ok(BiSToolsSummonRequest.w + BiSToolsSummonAll.w == BiSToolsSummon.w, "footer: request + all fill the width exactly")
+-- every label fits its box, both states of the footer
+local function fits(fs, w) return fs:GetStringWidth() <= w end
+ok(fits(BiSToolsSummonRequest.label, BiSToolsSummonRequest.w - 8), "footer label fits (idle)")
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(fits(BiSToolsSummonRequest.label, BiSToolsSummonRequest.w - 8), "footer label fits (requested)")
+ok(BiSToolsSummonRequest.label.text:find("cancel"), "and still says cancel")
+BiSToolsSummonRequest.scripts.OnClick(BiSToolsSummonRequest)
+ok(fits(BiSToolsSummonAll.label, BiSToolsSummonAll.w - 8), "all label fits")
+ok(fits(SM.title, 70 - 19), "title fits the header's left budget")
+-- the status line gets its own row: body height grows by STATUS_H when it has text
+SM.count:SetText("") SM.PaintRows(db_summon(), SM.list) local h0 = SM.body.h
+SM.count:SetText("1 at stone") SM.PaintRows(db_summon(), SM.list)
+ok(SM.body.h == h0 + 12, "status text adds a 12 px line under the rows (GetText, not a mock field)")
+SM.Refresh(db_summon())
 -- header overlap guard: nothing but title + buttons lives in the header
 ok(SM.count.parent == SM.body, "the count line lives under the rows, not in the header")
 ok(SM.summonerBtn.point[4] == -52 and SM.askBtn.point[4] == -31 and SM.pinBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
