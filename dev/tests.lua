@@ -833,6 +833,70 @@ SM.nagFrame.scripts.OnEvent(SM.nagFrame, "CANCEL_SUMMON") W.runAfters() SM.NagSt
 -- header is a drag handle
 S("summon hide")
 
+-- stones: learned by hover, broadcast, received, and by a peer landing after OK
+lib.peers.Nolib = nil   -- the request test spoke as him; he is the addon-less man again
+S("summon show")
+local dbs = db_summon()
+ok(next(dbs.stones or {}) == nil, "no stones known yet")
+W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
+W.tooltipShown, W.tooltipText = true, "Tempest Keep Summoning Stone"
+local st0 = #W.messages
+SM.Watch(dbs, 0.2)
+local st = dbs.stones["530|Netherstorm"]
+ok(st and st.x == 1000 and st.y == 1000, "hovering the stone records it under map|zone")
+ok(W.messages[#W.messages]:find("^1|SUMMON|STONE|530|Netherstorm|1000.0|1000.0"), "and tells the raid")
+SM.Watch(dbs, 0.2) SM.Watch(dbs, 0.2)
+ok(W.sentCount("SUMMON|STONE") == 1, "told once")
+W.tooltipShown = false
+-- a peer standing on that stone is "at stone", dropped from the list, counted in the header
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1010.0|1000.0|530")
+SM.Refresh(dbs)
+local names = {}
+for _, e in ipairs(SM.list) do names[e.name] = true end
+ok(not names.Druid and SM.atStone == 2, "Druid within 80 y of the stone -> at stone, not a candidate (Toolsy too)")
+ok(SM.count.text:find("2 at stone"), "header counts them")
+-- a guess standing on the stone too (same instance, UnitPosition)
+W.raid[5].x, W.raid[5].y = 1000, 1050
+SM.Refresh(dbs)
+ok(SM.atStone == 3, "the addon-less man at the stone counts too, by UnitPosition")
+W.raid[5].x, W.raid[5].y = 1000, 1200
+-- I walk away: the stone stays where it was, Druid still at it
+W.me.x, W.me.y = 5000, 5000
+SM.Refresh(dbs)
+ok(SM.atStone == 2, "at-stone is measured from the stone, not from me")
+W.me.x, W.me.y = 1000, 1000
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
+-- receive a stone from a peer
+say("Toolsy", "1|SUMMON|STONE|530|Shadowmoon Valley|-3000.0|2000.0")
+ok(dbs.stones["530|Shadowmoon Valley"] and dbs.stones["530|Shadowmoon Valley"].x == -3000, "a peer's STONE lands in my table")
+-- landing: Gambler says OK, arrives, his WHERE after that is the stone
+dbs.stones = {}
+say("Gambler", "1|CORE|SUM|OFFER|Me|Blade's Edge|60")
+say("Gambler", "1|CORE|SUM|OK|Me|Blade's Edge|")
+ok(SM.landing and SM.landing.Gambler, "OK starts a landing watch")
+local asks0 = W.sentCount("ASK")
+W.runAfters(5)
+ok(W.sentCount("ASK") == asks0 + 1, "asks once after the teleport")
+say("Gambler", "1|CORE|WHERE|0|none||Blade's Edge Mountains|7000.0|-800.0|530")
+ok(dbs.stones["530|Blade's Edge Mountains"] and dbs.stones["530|Blade's Edge Mountains"].x == 7000, "his position after landing is the stone")
+ok(not SM.landing.Gambler, "watch cleared")
+say("Gambler", "1|CORE|SUM|NO|||")
+
+-- summoner mode: the summoner opts in; window pinned, requests come through like a raid warning
+S("summon summoner on")
+ok(dbs.summoner and dbs.mode == "on" and BiSToolsSummon:IsShown(), "summoner: pinned")
+ok(SM.summonerBtn.label.color[1] == select(1, F.color("gold")), "J lit gold")
+local n0 = #W.notices
+say("Nolib", "1|SUMMON|REQ|1")
+ok(#W.notices == n0 + 1 and W.notices[#W.notices]:find("Nolib") and W.sounds[#W.sounds] == 8959 and W.spoken[#W.spoken] == "Summon", "summoner: request = raid warning + sound + voice")
+say("Nolib", "1|SUMMON|REQ|0")
+S("summon summoner off")
+say("Nolib", "1|SUMMON|REQ|1")
+ok(#W.notices == n0 + 1 and W.sounds[#W.sounds] == 3081, "not summoner: quiet ping only")
+say("Nolib", "1|SUMMON|REQ|0")
+SM.summonerBtn.scripts.OnClick(SM.summonerBtn) ok(dbs.summoner, "J button toggles") SM.summonerBtn.scripts.OnClick(SM.summonerBtn) ok(not dbs.summoner, "and back")
+S("summon hide") dbs.stones = {}
+
 -- stone mouseover brings the window up in auto mode, asks the raid once, lingers, hides
 S("summon auto")
 ok(not BiSToolsSummon:IsShown() and db_summon().mode == "auto", "auto: hidden until a stone")

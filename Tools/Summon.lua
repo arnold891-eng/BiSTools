@@ -113,10 +113,12 @@ function SM.Rank(entries, me, opts)
   opts = opts or {}
   local nearYards = opts.near or SM.DEFAULT_NEAR
   local now = opts.now or 0
-  local out, inside = {}, 0
+  local out, inside, atStone = {}, 0, 0
   for _, e in ipairs(entries) do
     if not e.online then
       -- offline: not listed, not counted
+    elseif e.atStone then
+      atStone = atStone + 1                              -- standing at a known stone: no summon needed
     elseif e.fact and e.where and e.where.inInstance then
       inside = inside + 1
     elseif not e.fact and SM.IsBannedZone(e.zone, opts.ban, opts.allow) then
@@ -143,7 +145,7 @@ function SM.Rank(entries, me, opts)
     if a.name ~= b.name then return a.name < b.name end
     return a.index < b.index
   end)
-  return out, inside
+  return out, inside, atStone
 end
 
 function SM.ClockText(secs)
@@ -194,6 +196,12 @@ function SM.Gather()
       if p then e.where, e.summon = p.where, p.summon end
     end
     e.asked = SM.Asked(name, GetTime())
+    local near = (SM.db and SM.db.near) or SM.DEFAULT_NEAR
+    if e.fact and e.where and not e.where.inInstance then
+      e.atStone = SM.NearStone(SM.db, e.where.mapId, e.where.zone, e.where.x, e.where.y, near)
+    elseif not e.fact and x and y then
+      e.atStone = SM.NearStone(SM.db, inst, zone or ((GetRealZoneText and GetRealZoneText()) or ""), x, y, near)
+    end
     entries[#entries + 1] = e
   end
   if IsInRaid and IsInRaid() then
@@ -240,6 +248,83 @@ function SM.Unpark(db, name)
   SM.Refresh(db)
 end
 
+-- ---------------------------------------------------------------- stones
+-- No wowhead. A client that hovers a stone is standing on it: record its own
+-- position under map|zone, tell the raid (SUMMON|STONE), keep it in the db.
+-- "At the stone" is then a distance to a known stone, not to the summoner.
+function SM.StoneKey(map, zone) return tostring(map or "") .. "|" .. tostring(zone or "") end
+
+function SM.LearnStone(db, broadcast)
+  local py, px, _, pinst = UnitPosition("player")
+  if not px or not py then return nil end
+  local zone = (GetRealZoneText and GetRealZoneText()) or ""
+  local key = SM.StoneKey(pinst, zone)
+  db.stones = db.stones or {}
+  local st = db.stones[key]
+  if st then
+    -- drift toward the newest sighting, they are all within a few yards
+    st.x, st.y = (st.x * 3 + px) / 4, (st.y * 3 + py) / 4
+  else
+    st = { map = pinst, zone = zone, x = px, y = py }
+    db.stones[key] = st
+  end
+  if broadcast then
+    local lib = SM.Lib()
+    if lib and not SM.stoneTold then
+      SM.stoneTold = key
+      lib:Send("SUMMON", "STONE", pinst, zone, ("%.1f"):format(px), ("%.1f"):format(py))
+    elseif lib and SM.stoneTold ~= key then
+      SM.stoneTold = key
+      lib:Send("SUMMON", "STONE", pinst, zone, ("%.1f"):format(px), ("%.1f"):format(py))
+    end
+  end
+  return st
+end
+
+function SM.OnStone(db, sender, map, zone, x, y)
+  x, y = tonumber(x), tonumber(y)
+  if not x or not y or not db then return end
+  db.stones = db.stones or {}
+  local key = SM.StoneKey(map, zone)
+  if not db.stones[key] then db.stones[key] = { map = map, zone = zone, x = x, y = y } end
+end
+
+-- The other way a stone gets learned, no hover anywhere: a peer says OK and
+-- lands ON the stone. Ask once, and the WHERE that comes back is the stone.
+function SM.LearnFromLanding(db, name)
+  local lib = SM.Lib()
+  if not lib then return end
+  SM.landing = SM.landing or {}
+  SM.landing[name] = GetTime()
+  C_Timer.After(4, function() lib:Ask() end)   -- the teleport takes a beat
+end
+
+function SM.OnLandingWhere(db, name, where)
+  local at = SM.landing and SM.landing[name]
+  if not at then return end
+  if (GetTime() - at) > 30 then SM.landing[name] = nil return end
+  if not where or where.inInstance or not where.x or not where.y then return end
+  if (where.at or 0) <= at then return end          -- a stale position from before the trip
+  SM.landing[name] = nil
+  db.stones = db.stones or {}
+  local key = SM.StoneKey(where.mapId, where.zone)
+  local st = db.stones[key]
+  if st then st.x, st.y = (st.x * 3 + where.x) / 4, (st.y * 3 + where.y) / 4
+  else db.stones[key] = { map = where.mapId, zone = where.zone, x = where.x, y = where.y } end
+  return db.stones[key]
+end
+
+-- is (map, zone, x, y) within `near` of a stone we know in that zone?
+function SM.NearStone(db, map, zone, x, y, near)
+  if not db or not db.stones or not x or not y then return false end
+  for _, st in pairs(db.stones) do
+    if tostring(st.map) == tostring(map) and st.zone == zone then
+      if dist(st.x, st.y, x, y) < near then return true end
+    end
+  end
+  return false
+end
+
 -- ---------------------------------------------------------------- requests
 -- MOD "SUMMON", CMD "REQ", arg 1 = asking, 0 = never mind. Only clients with
 -- BiSTools understand it; everyone else ignores an unknown MOD in silence.
@@ -275,7 +360,18 @@ function SM.OnRequest(sender, flag)
     SM.requests[sender] = GetTime()
     if fresh then
       NS.Print("%s asks for a summon", T.text("gold", sender))
-      if PlaySound then PlaySound(3081, "Master") end
+      local db0 = SM.db
+      if db0 and db0.summoner then
+        -- the summoner: this is his job tonight, it should reach him mid-fight
+        if RaidNotice_AddMessage and RaidWarningFrame then
+          RaidNotice_AddMessage(RaidWarningFrame, sender .. " asks for a summon",
+            ChatTypeInfo and ChatTypeInfo["RAID_WARNING"] or { r = 1, g = 0.5, b = 0 })
+        end
+        if PlaySound then PlaySound(8959, "Master") end
+        if K and K.Speak then K.Speak("Summon") end
+      elseif PlaySound then
+        PlaySound(3081, "Master")
+      end
     end
   else
     SM.requests[sender] = nil
@@ -334,6 +430,10 @@ function SM.Build(db)
     function() SM.SetMode(db, db.mode == "on" and "auto" or "on") end)
   SM.askBtn = K.HeaderButton(head, -31, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
+  SM.summonerBtn = K.HeaderButton(head, -52, "J", "Summoner mode - I am the summoner",
+    "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon summoner",
+    function() SM.SetSummoner(db, not db.summoner) end)
+  SM.summonerBtn:SetSize(18, 12)
   head:SetScript("OnEnter", function() SM.seenAt = GetTime() end)
   -- the header is the drag handle: plain drag, no shift needed (rows need shift
   -- because a plain click on a row is the target action)
@@ -387,7 +487,20 @@ function SM.Build(db)
   return f
 end
 
+function SM.SetSummoner(db, on)
+  db.summoner = on and true or false
+  SM.PaintPin(db)
+  if on then SM.SetMode(db, "on") end
+  NS.Print("Summoner mode %s%s", db.summoner and T.text("gold", "on") or T.text("muted", "off"),
+    db.summoner and " - you are the summoner; requests come through loud" or "")
+end
+
 function SM.PaintPin(db)
+  if SM.summonerBtn then
+    SM.summonerBtn.edge:set(db.summoner and "gold" or "edge", 1)
+    local jr, jg, jb = K.color(db.summoner and "gold" or "muted")
+    SM.summonerBtn.label:SetTextColor(jr, jg, jb, 1)
+  end
   if not SM.pinBtn then return end
   local on = db.mode == "on"
   SM.pinBtn.edge:set(on and "accent" or "edge", 1)
@@ -494,16 +607,19 @@ function SM.Refresh(db)
   if not SM.frame then return end
   local now = GetTime()
   local entries, me = SM.Gather()
-  local list, inside = SM.Rank(entries, me, {
+  local list, inside, atStone = SM.Rank(entries, me, {
     near = db.near, ban = db.ban, allow = db.allow, tried = SM.tried, now = now,
   })
-  SM.list, SM.inside = list, inside
+  SM.list, SM.inside, SM.atStone = list, inside, atStone
   local live = {}
   for _, e in ipairs(list) do live[e.name] = true end
   for name, until_ in pairs(SM.tried) do
     if not live[name] or until_ <= now then SM.tried[name] = nil end
   end
-  SM.count:SetText(inside > 0 and (T.text("muted", inside .. " in")) or "")
+  local bits = {}
+  if atStone > 0 then bits[#bits + 1] = atStone .. " at stone" end
+  if inside > 0 then bits[#bits + 1] = inside .. " in" end
+  SM.count:SetText(#bits > 0 and T.text("muted", table.concat(bits, " - ")) or "")
   SM.PaintRows(db, list)
 end
 
@@ -546,8 +662,11 @@ function SM.Watch(db, dt)
   if SM.elapsed < 0.1 then return end
   SM.elapsed = 0
   local mode = db.mode or "auto"
+  if mode ~= "auto" and SM.LookingAtStone(db) then SM.LearnStone(db, true) end
   if mode == "auto" then
-    if SM.LookingAtStone(db) or (SM.frame and SM.frame:IsMouseOver()) then
+    local stone = SM.LookingAtStone(db)
+    if stone or (SM.frame and SM.frame:IsMouseOver()) then
+      if stone then SM.LearnStone(db, true) end
       if not SM.seenAt then SM.Refresh(db) SM.Ask() end
       SM.seenAt = GetTime()
     end
@@ -630,6 +749,7 @@ function SM.OnEvent(db, event)
 end
 
 function SM.Hook(db)
+  SM.db = db
   SM.Build(db)
   SM.events:RegisterEvent("GROUP_ROSTER_UPDATE")
   SM.events:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -644,13 +764,18 @@ function SM.Hook(db)
       if name then SM.tried[name] = nil end
       if SM.frame and SM.shown then SM.Refresh(db) end
     end
-    lib:RegisterCallback("SUM", function(name) bump(name) SM.requests[name] = nil end)
+    lib:RegisterCallback("SUM", function(name, sum)
+      bump(name) SM.requests[name] = nil
+      if sum and sum.state == "OK" then SM.LearnFromLanding(db, name) end
+    end)
+    lib:RegisterCallback("WHERE", function(name, where) SM.OnLandingWhere(db, name, where) end)
     lib:RegisterHandler("SUMMON", "REQ", function(sender, flag) SM.OnRequest(sender, flag) end)
+    lib:RegisterHandler("SUMMON", "STONE", function(sender, map, zone, x, y) SM.OnStone(db, sender, map, zone, x, y) end)
     lib:RegisterCallback("WHERE", function() bump() end)
     lib:RegisterCallback("PEER", function() bump() end)
   end
   SM.Refresh(db)
-  SM.ApplyVisible(db.mode == "on")
+  SM.ApplyVisible(db.mode == "on" or db.summoner)
 end
 
 function SM.Unhook()
@@ -675,6 +800,12 @@ function SM.Slash(db, args)
   elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
   elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
   elseif cmd == "me" then SM.Request(db, not SM.myRequest)
+  elseif cmd == "summoner" then
+    if rest:lower() == "on" then SM.SetSummoner(db, true) elseif rest:lower() == "off" then SM.SetSummoner(db, false) else SM.SetSummoner(db, not db.summoner) end
+  elseif cmd == "stones" then
+    local n = 0
+    for _, st in pairs(db.stones or {}) do n = n + 1 DEFAULT_CHAT_FRAME:AddMessage(("  %s  %.0f, %.0f"):format(T.text("accent", st.zone), st.x, st.y)) end
+    NS.Print("%d stone(s) known", n)
   elseif cmd == "near" then db.near = tonumber(rest) or db.near SM.Refresh(db) NS.Print("near: %s y", T.text("accent", db.near or SM.DEFAULT_NEAR))
   elseif cmd == "linger" then db.linger = tonumber(rest) or db.linger NS.Print("linger: %s s", T.text("accent", db.linger or SM.DEFAULT_LINGER))
   elseif cmd == "retry" then db.retry = tonumber(rest) or db.retry NS.Print("guess park: %s s", T.text("accent", db.retry or SM.DEFAULT_RETRY))
@@ -714,7 +845,7 @@ function SM.Slash(db, args)
     C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [me|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bt summon [me|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 
@@ -724,7 +855,8 @@ NS.Registry:Register({
   desc = "who still needs a summon, furthest first; click to target",
   usage = "/bt summon [show|auto|hide|...]",
   defaults = { mode = "auto", near = SM.DEFAULT_NEAR, linger = SM.DEFAULT_LINGER, retry = SM.DEFAULT_RETRY,
-    rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil },
+    rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil,
+    summoner = false, stones = {} },
   OnInit = function(self, db)
     SM.events = CreateFrame("Frame")
     SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
