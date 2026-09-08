@@ -15,6 +15,11 @@
 - **Request a summon**: the button at the bottom of the summon window (or `/bt summon me`)
   puts you on top of every BiS summoner's list marked `asks`, with a ping on their side.
   Click again to cancel; clears itself when an offer reaches you.
+- Summoning stones are learned, not looked up: hover one (or a peer lands on one after
+  accepting) and its position is saved and shared with the raid. "At the stone" is then a
+  distance to the stone, wherever the summoner stands; the header shows `N at stone`.
+- **Jeck mode** (`J` on the header, `/bt summon jeck`): you are the summoner tonight - window
+  pinned, every request reaches you as a raid warning + sound + voice, wherever you are.
 - Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.
