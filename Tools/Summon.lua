@@ -476,6 +476,42 @@ function SM.Asked(name, now)
   return true
 end
 
+-- ---------------------------------------------------------------- freshness
+-- The lib pushes WHERE on a zone change only. Walking 30 yards off the stone
+-- is not a zone change, so a summoner would keep seeing "at stone". Two fixes,
+-- both inside the no-chatter rule:
+--   peer side: every 3 s, if "am I at a known stone" flipped, push a WHERE
+--   summoner side: while the window is up, re-ask when a fact is older than
+--                  SM.STALE (the lib jitters and coalesces the answers)
+SM.STALE = 30
+SM.REASK = 15
+
+function SM.SelfWatch(db)
+  local lib = SM.Lib()
+  if not lib or not lib:Enabled() then return end
+  local py, px, _, pinst = UnitPosition("player")
+  local zone = (GetRealZoneText and GetRealZoneText()) or ""
+  local at = SM.NearStone(db, pinst, zone, px, py, db.near or SM.DEFAULT_NEAR) and true or false
+  if SM.selfAtStone == nil then SM.selfAtStone = at return end
+  if at ~= SM.selfAtStone then
+    SM.selfAtStone = at
+    lib:SendWhere(true)
+  end
+end
+
+function SM.Reask(db)
+  local lib = SM.Lib()
+  if not lib or not SM.shown then return end
+  local now = GetTime()
+  if (now - (SM.lastReask or 0)) < SM.REASK then return end
+  local stale = false
+  for _, p in pairs(lib:Peers()) do
+    if p.where and (now - (p.where.at or 0)) > SM.STALE then stale = true break end
+    if not p.where then stale = true break end
+  end
+  if stale then SM.lastReask = now lib:Ask() end
+end
+
 -- ---------------------------------------------------------------- the key
 -- Arn's idea (8 Sep): stand at the stone, mouse on the window, spam Interact
 -- With Target. While the target is NOT the top name, the key is overridden to
@@ -886,6 +922,13 @@ function SM.NagStop()
   if SM.nag.ticker then SM.nag.ticker:Cancel() SM.nag.ticker = nil end
 end
 
+-- peer-side freshness runs from load too, like the nag: it is part of the
+-- client's voice, and /bt off summon only kills the window
+SM.selfTicker = C_Timer.NewTicker(3, function()
+  local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
+  if db then SM.SelfWatch(db) end
+end)
+
 -- registered at load, on purpose: the nag outlives /bt off summon
 SM.nagFrame = CreateFrame("Frame")
 SM.nagFrame:RegisterEvent("CONFIRM_SUMMON")
@@ -921,7 +964,7 @@ function SM.Hook(db)
   SM.Build(db)
   SM.events:RegisterEvent("GROUP_ROSTER_UPDATE")
   SM.events:RegisterEvent("PLAYER_REGEN_ENABLED")
-  if not SM.ticker then SM.ticker = C_Timer.NewTicker(2, function() if SM.shown then SM.Refresh(db) end end) end
+  if not SM.ticker then SM.ticker = C_Timer.NewTicker(2, function() if SM.shown then SM.Refresh(db) SM.Reask(db) end end) end
   SM.events:SetScript("OnUpdate", function(_, dt) SM.Watch(db, dt) end)
   local lib = SM.Lib()
   if lib and not SM.hooked then
