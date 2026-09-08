@@ -462,6 +462,16 @@ function SM.Asked(name, now)
   return true
 end
 
+-- ---------------------------------------------------------------- interact experiment
+function SM.TryInteract()
+  if type(RunBinding) ~= "function" then return NS.Print("interact: RunBinding does not exist on this client") end
+  local key = GetBindingKey and GetBindingKey("INTERACTTARGET")
+  if not key then return NS.Print("interact: no key bound to Interact With Target") end
+  local ok, err = pcall(RunBinding, "INTERACTTARGET")
+  if ok then NS.Print("interact: RunBinding(INTERACTTARGET) ran (%s) - did it use the stone?", key)
+  else NS.Print("interact: blocked - %s", tostring(err)) end
+end
+
 -- ---------------------------------------------------------------- window
 function SM.Build(db)
   if SM.frame then return SM.frame end
@@ -632,9 +642,16 @@ function SM.Row(i, db)
   r.name:SetPoint("LEFT", 6, 0)
   r.info = K.fs(r, "", 8, "ink2")
   r.info:SetPoint("RIGHT", -6, 0)
-  r:SetScript("PostClick", function(self)
+  r:SetScript("PostClick", function(self, button)
     if IsShiftKeyDown() then return end
     if self.pname then SM.Park(db, self.pname) end
+    -- experiment (Arn, 8 Sep): after the click has targeted them, run the
+    -- Interact With Target binding, which next to a stone uses the stone.
+    -- RunBinding is protected; this tells us whether a click handler is
+    -- allowed to call it. Off by default: /bt summon interact on
+    if db.interact and button == "LeftButton" and not InCombatLockdown() then
+      SM.TryInteract()
+    end
   end)
   r:SetScript("OnDragStart", function()
     if not IsShiftKeyDown() or InCombatLockdown() then return end
@@ -906,6 +923,9 @@ function SM.Slash(db, args)
   elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
   elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
   elseif cmd == "me" then SM.Request(db, not SM.myRequest)
+  elseif cmd == "interact" then
+    if rest:lower() == "on" then db.interact = true elseif rest:lower() == "off" then db.interact = false else db.interact = not db.interact end
+    NS.Print("interact-after-click experiment: %s", db.interact and T.text("gold", "on") or T.text("muted", "off"))
   elseif cmd == "all" then SM.SetUnrolled(db, not SM.unrolled) NS.Print("summon list: %s", SM.unrolled and "everyone" or "who needs it")
   elseif cmd == "summoner" then
     if rest:lower() == "on" then SM.SetSummoner(db, true) elseif rest:lower() == "off" then SM.SetSummoner(db, false) else SM.SetSummoner(db, not db.summoner) end
