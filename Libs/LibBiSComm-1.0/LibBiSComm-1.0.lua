@@ -23,7 +23,7 @@
 --   * every host callback is pcall'd -- a lib fault cannot kill the addon
 --   * off means silent AND deaf
 
-local MAJOR, MINOR = "LibBiSComm-1.0", 1
+local MAJOR, MINOR = "LibBiSComm-1.0", 2
 
 local lib = _G.LibBiSComm
 if lib and (lib.MINOR or 0) >= MINOR then return end   -- an equal or newer copy won
@@ -359,10 +359,15 @@ function lib:MyWhere()
         local a, b = IsInInstance()
         inInst, instType = a and true or false, b or "none"
     end
+    -- mapId ALWAYS: outdoors it is the continent's instance id, the same number
+    -- UnitPosition hands out, and the summoner compares against it to turn two
+    -- positions into yards. MINOR 1 only sent it inside an instance, so a peer
+    -- standing next to the summoner in Stormwind read as "far".
     local instName, mapId = "", ""
-    if inInst and GetInstanceInfo then
+    if GetInstanceInfo then
         local n, _, _, _, _, _, _, id = GetInstanceInfo()
-        instName, mapId = n or "", id or ""
+        mapId = id or ""
+        if inInst then instName = n or "" end
     end
     local zone = (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText()) or ""
     local x, y = "", ""
