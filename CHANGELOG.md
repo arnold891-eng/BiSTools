@@ -20,6 +20,10 @@
   distance to the stone, wherever the summoner stands; the header shows `N at stone`.
 - **Jeck mode** (`J` on the header, `/bt summon jeck`): you are the summoner tonight - window
   pinned, every request reaches you as a raid warning + sound + voice, wherever you are.
+- Summon list order: whoever asked, then the other world (Azeroth/Outland, named in the row),
+  then same world other zone (`far`), then same zone by yards, furthest first. People inside
+  an instance, at the stone or next to you are hidden; `all` on the footer unrolls the whole
+  raid with `inside` / `here`.
 - Yards in the summon list only show while you stand at (or look at) a stone - then they are
   yards from the stone. Away from it a same-zone name shows nothing, another zone `far`.
   Raid members already inside an instance are listed last as `inside`.
