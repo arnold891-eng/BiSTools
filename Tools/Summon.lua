@@ -32,6 +32,7 @@ SM.DEFAULT_ROWS      = 6
 SM.MAX_ROWS          = 10
 SM.ROW_H, SM.W       = 14, 150
 SM.FOOT_H            = 16
+SM.STATUS_H          = 12        -- the "N at stone - M in" line under the rows
 SM.REQ_TTL           = 600       -- a request nobody answered dies after 10 min
 SM.NAG_EVERY         = 20
 SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
@@ -122,6 +123,13 @@ function SM.Rank(entries, me, opts)
   for _, e in ipairs(entries) do
     if not e.online then
       -- offline: not listed, not counted
+    elseif e.asked then
+      -- "request a summon" beats every filter: he asked, he is listed, on top
+      out[#out + 1] = { unit = e.unit, name = e.name, score = SM.Score(e, me) or SM.SCORE_UNKNOWN_POS,
+        index = e.index or 0, fact = e.fact and true or false, asked = true,
+        waiting = nil, why = nil }
+      local w, why = SM.Waiting(e, opts.tried, now)
+      out[#out].waiting, out[#out].why = w, why
     elseif e.atStone then
       atStone = atStone + 1                              -- standing at a known stone: no summon needed
     elseif (e.fact and e.where and e.where.inInstance)
@@ -136,8 +144,7 @@ function SM.Rank(entries, me, opts)
         local waiting, why = SM.Waiting(e, opts.tried, now)
         out[#out + 1] = {
           unit = e.unit, name = e.name, score = score, index = e.index or 0,
-          fact = e.fact and true or false, waiting = waiting, why = why,
-          asked = e.asked and true or false,
+          fact = e.fact and true or false, waiting = waiting, why = why, asked = false,
         }
       end
     end
@@ -399,6 +406,11 @@ function SM.OnRequest(sender, flag)
     SM.requests[sender] = nil
   end
   local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
+  if db and flag == "1" and (db.mode or "auto") == "auto" then
+    -- somebody asked: the summoner should see the window even away from a stone
+    SM.seenAt = GetTime()
+    SM.ApplyVisible(true)
+  end
   if db and SM.frame and SM.shown then SM.Refresh(db) end
 end
 
@@ -444,8 +456,9 @@ function SM.Build(db)
   if logo.SetTexCoord then logo:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
   SM.title = K.fs(head, "|cffb980ffSummon|r", 9, "ink")
   SM.title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
-  SM.count = K.fs(head, "", 8, "muted")
-  SM.count:SetPoint("LEFT", SM.title, "RIGHT", 6, 0)
+  -- header budget, left to right: 4 + logo 11 + 4 + title (~50) ... buttons from
+  -- the right: x(12)@-3, p(12)@-17, ?(12)@-31, J(18)@-52 -> J's left edge sits
+  -- 70 px from the right. Nothing else goes in the header.
   SM.closeBtn = K.HeaderButton(head, -3, "x", "Close", "Auto mode brings it back on a summoning stone.",
     function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
   SM.pinBtn = K.HeaderButton(head, -17, "p", "Pin", "Keep it open. /bt summon show | auto | hide",
@@ -476,6 +489,9 @@ function SM.Build(db)
   SM.body = body
   SM.empty = K.fs(body, "nobody needs a summon", 9, "muted")
   SM.empty:SetPoint("TOPLEFT", 6, -4)
+  -- status line under the rows: "2 at stone - 1 in"
+  SM.count = K.fs(body, "", 8, "muted")
+  SM.count:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -6, 2)
 
   -- footer: the peer's one button. "request a summon" puts you on top of every
   -- summoner's list with "asks"; click again to take it back.
@@ -623,6 +639,7 @@ function SM.PaintRows(db, list)
   end
   if shown == 0 then SM.empty:Show() else SM.empty:Hide() end
   local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
+  if SM.count.text and SM.count.text ~= "" then h = h + SM.STATUS_H end
   SM.body:SetHeight(h)
   SM.frame:SetHeight(K.HEADER + h + SM.FOOT_H)
 end
@@ -643,7 +660,7 @@ function SM.Refresh(db)
   local bits = {}
   if atStone > 0 then bits[#bits + 1] = atStone .. " at stone" end
   if inside > 0 then bits[#bits + 1] = inside .. " in" end
-  SM.count:SetText(#bits > 0 and T.text("muted", table.concat(bits, " - ")) or "")
+  SM.count:SetText(#bits > 0 and table.concat(bits, " - ") or "")
   SM.PaintRows(db, list)
 end
 

@@ -181,7 +181,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
   function f:CreateTexture() return Texture() end
-  function f:CreateFontString() return FontString() end
+  function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
   function f:SetHeight(h) self.h = h end
   function f:SetWidth(w) self.w = w end
@@ -752,7 +752,10 @@ ok(BiSToolsSummonRow2.info.text == "" and BiSToolsSummonRow1.info.text == "far" 
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
 ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid6", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
-ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 16, "four rows tall, plus the request footer")
+ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + 16, "four rows tall, status line (1 in), request footer")
+-- header overlap guard: nothing but title + buttons lives in the header
+ok(SM.count.parent == SM.body, "the count line lives under the rows, not in the header")
+ok(SM.summonerBtn.point[4] == -52 and SM.askBtn.point[4] == -31 and SM.pinBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
 
 -- lib 1 peers sent no mapId outdoors: a fact standing next to me must not read "far"
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|")   -- empty mapId
@@ -862,7 +865,7 @@ SM.Refresh(dbs)
 local names = {}
 for _, e in ipairs(SM.list) do names[e.name] = true end
 ok(not names.Druid and SM.atStone == 2, "Druid within 80 y of the stone -> at stone, not a candidate (Toolsy too)")
-ok(SM.count.text:find("2 at stone"), "header counts them")
+ok(SM.count.text:find("2 at stone"), "status line counts them")
 -- I am at the stone: yards show now (Farzone stays far)
 local fz
 for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Farzone") then fz = r end end
@@ -901,6 +904,19 @@ say("Gambler", "1|CORE|WHERE|0|none||Blade's Edge Mountains|7000.0|-800.0|530")
 ok(dbs.stones["530|Blade's Edge Mountains"] and dbs.stones["530|Blade's Edge Mountains"].x == 7000, "his position after landing is the stone")
 ok(not SM.landing.Gambler, "watch cleared")
 say("Gambler", "1|CORE|SUM|NO|||")
+
+-- a request from someone standing AT the stone still shows (Kumlance at the Stormwind stone, 8 Sep)
+S("summon auto") ok(not BiSToolsSummon:IsShown(), "auto: hidden")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1010.0|1000.0|530")   -- at the stone
+SM.Refresh(dbs)
+local seen = false for _, e in ipairs(SM.list) do if e.name == "Druid" then seen = true end end
+ok(not seen, "at the stone, no request -> not listed")
+say("Druid", "1|SUMMON|REQ|1")
+ok(BiSToolsSummon:IsShown(), "a request pops the window in auto mode")
+ok(SM.list[1] and SM.list[1].name == "Druid" and SM.list[1].asked, "asked beats the at-stone filter, sits on top")
+say("Druid", "1|SUMMON|REQ|0")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
+S("summon show")
 
 -- summoner mode: the summoner opts in; window pinned, requests come through like a raid warning
 S("summon summoner on")
