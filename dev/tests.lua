@@ -1278,6 +1278,89 @@ S("summon hide")
 BiSToolsFarm.scripts.OnDragStop(BiSToolsFarm)
 ok(db.pos[1] == "TOPLEFT" and db.pos[4] == "CENTER" and db.pos[2] == 12, "drag saves position")
 
+-- ------------------------------------------------------------ a full 25-man
+-- Arn (8 Sep): "run some tests with 25 people using this addon". 21 facts (12-char
+-- names, the ugly kind), 3 without any addon, me at the stone in Netherstorm.
+do
+  local names = { "Kumlance", "Jeckalicious", "Brimstonefel", "Fojjiwarlock", "Hexadecimal", "Moonwhisper",
+    "Quillfeather", "Ravenmourne", "Sylvanasfan", "Kessandra", "Lorthemar", "Nyxathid", "Pyrelight",
+    "Ithiliel", "Elaria", "Fenwick", "Jorvak", "Bree", "Cato", "Nebbin", "Arn", "Dorn", "Gorrmash", "Oggrim" }
+  local nolib = { Dorn = true, Gorrmash = true, Oggrim = true }
+  W.raid = { { name = "Me" } }
+  for i, n in ipairs(names) do
+    W.raid[#W.raid + 1] = { name = n, zone = "Netherstorm", x = 1000 + i * 40, y = 1000, inst = 530 }
+  end
+  W.inRaid = true
+  local dbx = db_summon()
+  dbx.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
+  dbx.rows = 6 dbx.jeck = false
+  W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
+  lib.peers = {} SM.requests = {} SM.tried = {}
+  for i, n in ipairs(names) do
+    if not nolib[n] then
+      say(n, "1|CORE|HI|3|BiSTools=0.2.0|0")
+      if i <= 6 then        -- six standing at the stone with me
+        say(n, ("1|CORE|WHERE|0|none||Netherstorm|%d.0|1000.0|530"):format(1000 + i * 5))
+      elseif i <= 11 then   -- five inside Karazhan
+        say(n, "1|CORE|WHERE|1|raid|Karazhan|Karazhan|100.0|100.0|532")
+      elseif i <= 15 then   -- four in Azeroth
+        say(n, ("1|CORE|WHERE|0|none||Elwynn Forest|%d.0|500.0|0"):format(i * 100))
+      else                  -- the rest spread across Netherstorm
+        say(n, ("1|CORE|WHERE|0|none||Netherstorm|%d.0|1000.0|530"):format(1000 + i * 300))
+      end
+    end
+  end
+  say("Kessandra", "1|SUMMON|REQ|1") say("Pyrelight", "1|SUMMON|REQ|1")   -- an addon-less man cannot ask
+  S("summon show") SM.Refresh(dbx)
+  ok(lib:Count() == 21, "21 facts on the lib, 3 addon-less men are not", lib:Count())
+  -- Kessandra is inside Karazhan AND asked: a request beats every filter, so 4 count as inside
+  ok(SM.atStone == 6 and SM.inside == 4, "6 at the stone, 4 inside - counted, not listed (the asking one is listed)", SM.atStone, SM.inside)
+  ok(SM.stoneCount == 7, "the stone slot counts me too: 7", SM.stoneCount)
+  ok(SM.con.slots.stone.text:find("7 at stone", 1, true) and SM.con:Width() <= SM.W - 56 - 8, "header prompt fits with 7 at stone")
+  -- 24 members - 6 at stone - 4 inside = 14 candidates; the two asking facts on top,
+  -- then the other world (Azeroth), then Netherstorm far-to-near, guesses last with ?
+  ok(#SM.list == 14, "14 candidates listed", #SM.list)
+  ok(SM.list[1].asked and SM.list[2].asked, "the two who asked are on top", SM.list[1].name, SM.list[2].name)
+  ok(SM.list[3].score >= SM.SCORE_OTHER_WORLD and SM.list[5].score >= SM.SCORE_OTHER_WORLD and SM.list[6].score < SM.SCORE_OTHER_WORLD, "then the three in the other world, then Netherstorm", SM.list[3].name)
+  ok(SM.list[6].score > SM.list[11].score, "Netherstorm furthest first")
+  local guessSeen = false
+  for _, e in ipairs(SM.list) do if e.name == "Gorrmash" and not e.fact then guessSeen = true end end
+  ok(guessSeen, "an addon-less man still ranks, as a guess")
+  -- rows: capped at db.rows, every row's name + info fit inside 170 px
+  local shown, widest = 0, 0
+  for i = 1, SM.MAX_ROWS do
+    local r = _G["BiSToolsSummonRow" .. i]
+    if r and r.shown then
+      shown = shown + 1
+      local w = r.name:GetStringWidth() + r.info:GetStringWidth() + 12
+      if w > widest then widest = w end
+    end
+  end
+  ok(shown == 6, "six rows shown of fourteen (db.rows)", shown)
+  ok(widest <= SM.W, "the widest row (12-char name + info) fits the window", widest)
+  -- Jeck mode: the asking slot appears for the summoner
+  dbx.jeck = true SM.Refresh(dbx)
+  ok(SM.con.slots.asks and SM.con.slots.asks.text == "2 asking", "2 asking for the summoner", SM.con.slots.asks and SM.con.slots.asks.text)
+  ok(SM.con:Width() <= SM.W - 56 - 8, "header still fits")
+  dbx.jeck = false
+  -- the ticker's Refresh must stay cheap with 25 on the roster
+  local t0 = os.clock()
+  for _ = 1, 200 do SM.Refresh(dbx) end
+  local per = (os.clock() - t0) / 200 * 1000
+  print(("   Refresh on a 25-man: %.3f ms each (runs every 2 s)"):format(per))
+  ok(per < 2, "Refresh on a 25-man under 2 ms")
+  -- everybody at the stone -> pop rule still says "N at stone", list empties
+  for i, n in ipairs(names) do
+    if not nolib[n] then say(n, ("1|CORE|WHERE|0|none||Netherstorm|%d.0|1000.0|530"):format(1000 + i)) end
+  end
+  SM.Refresh(dbx)
+  ok(SM.atStone == 19 and SM.stoneCount == 22 and #SM.list == 5, "everyone with the addon at the stone: 22 counted with me; the two asking + three guesses still listed", SM.atStone, SM.stoneCount, #SM.list)
+  ok(SM.con.slots.stone.text:find("22 at stone", 1, true) and SM.con:Width() <= SM.W - 56 - 8, "22 at stone fits the prompt")
+  S("summon hide")
+  -- put the small fixture back for whatever follows
+  W.raid = { { name = "Me" } } W.inRaid = false lib.peers = {} SM.requests = {}
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true,
