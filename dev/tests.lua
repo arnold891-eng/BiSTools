@@ -31,8 +31,12 @@ _G.GetRaidRosterInfo = function(i)
   return m.name, 0, 1, 70, "Warrior", "WARRIOR", m.zone, m.online ~= false, false
 end
 _G.UnitIsUnit = function(a, b)
-  local function nm(u) if u == "player" then return "Me" end local i = u:match("^raid(%d+)$") return i and W.raid[tonumber(i)] and W.raid[tonumber(i)].name end
-  return nm(a) == nm(b)
+  local function nm(u)
+    if u == "player" then return "Me" end
+    if u == "target" then return W.target and W.target.name end
+    local i = u:match("^raid(%d+)$") return i and W.raid[tonumber(i)] and W.raid[tonumber(i)].name
+  end
+  return nm(a) ~= nil and nm(a) == nm(b)
 end
 _G.UnitPosition = function(u)
   if u == "player" then return W.me.y, W.me.x, 0, W.me.inst end
@@ -51,6 +55,8 @@ _G.GetRealZoneText = function() return W.me.zone end
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return false end
+W.interactKey = "NUMPADMULTIPLY"
+_G.GetBindingKey = function(cmd) if cmd == "INTERACTTARGET" then return W.interactKey end end
 W.messages = {}
 function W.sentCount(needle) local n = 0 for _, m in ipairs(W.messages) do if m:find(needle, 1, true) then n = n + 1 end end return n end
 _G.C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
@@ -177,7 +183,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:RegisterEvent(e) self.events[e] = true end
   function f:UnregisterAllEvents() self.events = {} end
   function f:UnregisterEvent(e) self.events[e] = nil end
-  function f:IsMouseOver() return false end
+  function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
   function f:CreateTexture() return Texture() end
@@ -214,7 +220,10 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:Click()
     if self.scripts.PreClick then self.scripts.PreClick(self, "LeftButton", true) end
     local t = self.attrs.type
-    if t == "target" then W.target = W.plates[self.attrs.unit]
+    local tunit = self.attrs.unit or self.attrs["*unit1"]
+    if t == "target" or (t == nil and self.attrs["*type1"] == "target") then
+      local ri = tunit and tunit:match("^raid(%d+)$")
+      W.target = ri and W.raid[tonumber(ri)] or W.plates[tunit]
     elseif t == "macro" then
       local nm = self.attrs.macrotext:match("^/targetexact (.+)$")
       W.target = nil
@@ -930,6 +939,39 @@ ok(SM.list[1] and SM.list[1].name == "Druid" and SM.list[1].asked, "asked beats 
 say("Druid", "1|SUMMON|REQ|0")
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 S("summon show")
+
+-- the interact key over the window: press 1 targets the top name, press 2 is the real interact
+S("summon show") SM.Refresh(dbs)
+local kb = SM.KeyButton()
+W.target = nil W.mouseOver = nil
+SM.Watch(dbs, 0.2)
+ok(W.binds[kb] == nil, "mouse off the window: no override")
+W.mouseOver = SM.frame
+SM.Watch(dbs, 0.2)
+ok(W.binds[kb] and W.binds[kb].key == "NUMPADMULTIPLY" and W.binds[kb].btn == "BiSToolsSummonKey", "mouse on the window, top not targeted -> interact key overridden to the key button")
+ok(kb:GetAttribute("*unit1") == SM.list[1].unit, "key button points at the top name")
+kb:Click()                                       -- press 1
+ok(W.target and W.target.name == SM.list[1].name, "press 1 targets the top name")
+ok(SM.list[1].name == W.target.name, "and does NOT park him")
+SM.Watch(dbs, 0.2)
+ok(W.binds[kb] == nil, "top targeted -> override dropped, press 2 is the real interact")
+-- park him (his offer lands): the top changes, the override is back
+say(SM.list[1].name, "1|CORE|SUM|OFFER|Me|Karazhan|60")
+SM.Watch(dbs, 0.2)
+ok(W.binds[kb] and kb:GetAttribute("*unit1") == SM.list[1].unit, "new top -> re-armed on the new name")
+say(W.target.name, "1|CORE|SUM|NO|||")
+W.combat = true W.mouseOver = nil
+SM.Watch(dbs, 0.2)
+ok(W.binds[kb] ~= nil, "in combat: binds untouched")
+W.combat = false
+SM.Watch(dbs, 0.2) ok(W.binds[kb] == nil, "mouse off -> cleared")
+S("summon key off") W.mouseOver = SM.frame W.target = nil SM.Watch(dbs, 0.2)
+ok(W.binds[kb] == nil, "/bt summon key off -> never armed")
+S("summon key on") SM.Watch(dbs, 0.2) ok(W.binds[kb] ~= nil, "back on")
+W.interactKey = nil SM.Watch(dbs, 0.2) ok(W.binds[kb] == nil, "no interact key bound -> nothing to override")
+W.interactKey = "NUMPADMULTIPLY" W.mouseOver = nil W.target = nil SM.Watch(dbs, 0.2)
+S("off summon") ok(W.binds[kb] == nil, "tool off clears the override") S("on summon")
+S("summon hide")
 
 -- jeck mode: the summoner opts in; window pinned, requests come through like a raid warning
 S("summon jeck on")
