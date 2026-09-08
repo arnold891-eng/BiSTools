@@ -38,6 +38,9 @@
 - Two people at a stone: the summon window opens on every BiSTools client in the raid. Far
   from the stone it is compact - `N at the stone` and the request button; `all` unrolls the
   list. At the stone you get the full list.
+- The summon window talks like a shell: a `BiS> _` prompt at the bottom, and lines that print
+  and fade - `2 at the stone - request now`, `X asks for a summon`, `X accepted`, `no summons
+  - hiding`. Nothing of that goes to chat any more.
 - Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.

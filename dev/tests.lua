@@ -164,18 +164,21 @@ local function Texture()
 end
 local function FontString()
   local s = { shown = true }
-  function s:SetFont() end
-  function s:SetPoint(p, rel, rp, x, y) if type(rel) == "number" then self.x = rel else self.x = x end end
+  function s:SetFont(_, size) self.size = size end
+  function s:SetPoint(p, rel, rp, x, y) if type(rel) == "number" then self.x, self.y = rel, rp else self.x, self.y = x, y end end
   function s:ClearAllPoints() end
   function s:SetText(x) self.text = x end
   function s:GetText() return self.text end
+  function s:SetAlpha(a) self.alpha = a end
   function s:SetTextColor(r, g, b, a)
     if not num3(r, g, b) then error("SetTextColor wants r,g,b numbers") end
     self.color = { r, g, b, a }
   end
   -- ~5.5 px per character at the sizes we use: close enough to catch a label
   -- that runs into the next control
-  function s:GetStringWidth() return #(tostring(self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) * 5.5 end
+  -- ~0.6 px per point per character: 9pt = 5.4, 8pt = 4.8. Close enough to catch a
+  -- label that runs into the next control or off the window
+  function s:GetStringWidth() return #(tostring(self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) * (self.size or 9) * 0.6 end
   function s:Hide() self.shown = false end
   function s:Show() self.shown = true end
   return s
@@ -778,7 +781,7 @@ ok(not SM.unrolled and #SM.list == 4, "rolled back up")
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
 ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid7", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
-ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + 16, "four rows tall, status line (1 in), request footer")
+ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 12 + (SM.conH or 0) + 16, "four rows tall, status line (1 in), console, request footer")
 ok(BiSToolsSummonRequest.w + BiSToolsSummonAll.w == BiSToolsSummon.w, "footer: request + all fill the width exactly")
 -- every label fits its box, both states of the footer
 local function fits(fs, w) return fs:GetStringWidth() <= w end
@@ -1020,9 +1023,62 @@ W.now = W.now + 20 SM.SelfWatch(dbs) SM.Watch(dbs, 0.2)
 ok(BiSToolsSummon:IsShown(), "stays while two are there")
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")   -- one walks off
 W.now = W.now + 20 SM.SelfWatch(dbs) SM.Watch(dbs, 0.2)
-ok(not BiSToolsSummon:IsShown(), "one left -> lingers out")
+ok(BiSToolsSummon:IsShown(), "one left -> a few seconds of grace")
+W.now = W.now + 6 SM.Watch(dbs, 0.2)
+ok(not BiSToolsSummon:IsShown(), "then it hides")
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
 dbs.stones = {} S("summon show")
+
+-- console strip: powershell lines that fade, a prompt that blinks, chat stays clean
+S("summon show")
+local chat0 = 0
+local oldAdd = DEFAULT_CHAT_FRAME.AddMessage
+DEFAULT_CHAT_FRAME.AddMessage = function(_, m) chat0 = chat0 + 1 W.lastMsg = m end
+SM.con.lines = {} SM.PaintConsole()
+ok(SM.promptFS.text:find("BiS> "), "prompt line always there")
+ok(SM.conH == 11 + 3, "console = prompt only when quiet")
+local h0 = BiSToolsSummon.h
+SM.Log("2 at the stone - request now", "good")
+ok(#SM.con.lines == 1 and SM.conFS[1].shown and SM.conFS[1].text:find("request now") and not SM.conFS[1].text:find("%.%.%.") and SM.conFS[1].alpha == 1, "line printed solid, whole")
+ok(SM.conH == 2 * 11 + 3 and BiSToolsSummon.h == h0 + 11, "window grew by one line")
+ok(SM.conFS[1]:GetStringWidth() <= SM.W - 12, "line fits the width")
+W.now = W.now + 5 SM.Watch(dbs, 0.2)
+ok(SM.conFS[1].alpha > 0 and SM.conFS[1].alpha < 1, "after the hold it fades")
+W.now = W.now + 2 SM.Watch(dbs, 0.2)
+ok(#SM.con.lines == 0 and not SM.conFS[1].shown and BiSToolsSummon.h == h0, "gone after hold + fade, window shrank back")
+for i = 1, 5 do SM.Log("line " .. i) end
+ok(#SM.con.lines == 3 and SM.conFS[3].text:find("line 5") and SM.conFS[1].text:find("line 3"), "keeps the newest 3")
+ok(SM.promptFS.y == -(3 * 11) - 2, "prompt sits under the lines")
+W.now = W.now + 0.5 SM.Watch(dbs, 0.2) local c1 = SM.promptFS.text
+W.now = W.now + 0.5 SM.Watch(dbs, 0.2) local c2 = SM.promptFS.text
+ok(c1 ~= c2, "cursor blinks")
+-- the everyday events go to the console, not chat
+chat0 = 0
+say("Druid", "1|SUMMON|REQ|1")
+ok(chat0 == 0 and SM.conFS[#SM.con.lines].text:find("Druid asks"), "a request prints in the window, not chat")
+say("Druid", "1|SUMMON|REQ|0")
+say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60")
+ok(SM.conFS[#SM.con.lines].text:find("Druid offered"), "offer line")
+say("Druid", "1|CORE|SUM|NO|||")
+ok(SM.conFS[#SM.con.lines].text:find("Druid declined"), "decline line")
+ok(chat0 == 0, "still nothing in chat")
+DEFAULT_CHAT_FRAME.AddMessage = oldAdd
+-- pop and leave narrate themselves
+S("summon auto") SM.con.lines = {} SM.popped = false
+dbs.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
+W.me = { zone = "Netherstorm", x = 5000, y = 5000, inst = 530 }
+say("Druid",  "1|CORE|WHERE|0|none||Netherstorm|1010.0|1000.0|530")
+say("Toolsy", "1|CORE|WHERE|0|none||Netherstorm|1005.0|1000.0|530")
+W.now = W.now + 20 SM.selfAtStone = nil SM.SelfWatch(dbs)
+ok(BiSToolsSummon:IsShown() and SM.conFS[1].text:find("2 at the stone %- request now") and not SM.conFS[1].text:find("%.%.%."), "pop narrates, whole line")
+SM.SelfWatch(dbs) ok(#SM.con.lines == 1, "said once")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
+W.now = W.now + 1 SM.SelfWatch(dbs)
+ok(SM.conFS[#SM.con.lines].text:find("no summons %- hiding"), "leave narrates: no summons - hiding")
+W.now = W.now + 4 SM.Watch(dbs, 0.2) ok(BiSToolsSummon:IsShown(), "still up 4 s later")
+W.now = W.now + 2 SM.Watch(dbs, 0.2) ok(not BiSToolsSummon:IsShown(), "hidden ~5 s after the line")
+W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
+dbs.stones = {} SM.con.lines = {} S("summon show")
 
 -- the interact key over the window: press 1 targets the top name, press 2 is the real interact
 S("summon show") SM.Refresh(dbs)

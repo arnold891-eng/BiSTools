@@ -49,6 +49,9 @@ SM.ROW_H, SM.W       = 14, 170
 SM.FOOT_H            = 16
 SM.ALL_W             = 44        -- the "all" button on the footer's right
 SM.STATUS_H          = 12        -- the "N at stone - M in" line under the rows
+SM.CON_LINES         = 3         -- console strip: this many lines, newest at the bottom
+SM.CON_H             = 11        -- per line
+SM.CON_HOLD, SM.CON_FADE = 4, 2  -- seconds a line stays solid, then seconds it fades
 SM.REQ_TTL           = 600       -- a request nobody answered dies after 10 min
 SM.NAG_EVERY         = 20
 SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
@@ -327,6 +330,7 @@ function SM.LearnStone(db, broadcast)
   else
     st = { map = pinst, zone = zone, x = px, y = py }
     db.stones[key] = st
+    SM.Log("stone learned: " .. zone, "ink2")
   end
   if broadcast then
     local lib = SM.Lib()
@@ -398,7 +402,7 @@ function SM.Request(db, on)
     lib:Send("SUMMON", "REQ", on and 1 or 0)
     if on then lib:SendWhere(true) end   -- and where I am, so the row scores right
   end
-  NS.Print(on and "summon requested - every BiS summoner sees you on top" or "summon request cancelled")
+  SM.Log(on and "requested - you are on top" or "request cancelled", on and "gold" or "muted")
 end
 
 -- a label must fit its box: shrink with an ellipsis until GetStringWidth says so.
@@ -443,7 +447,7 @@ function SM.OnRequest(sender, flag)
     local fresh = SM.requests[sender] == nil
     SM.requests[sender] = GetTime()
     if fresh then
-      NS.Print("%s asks for a summon", T.text("gold", sender))
+      SM.Log(sender .. " asks for a summon", "gold")
       local db0 = SM.db
       if db0 and db0.jeck then
         -- the summoner: this is his job tonight, it should reach him mid-fight
@@ -522,6 +526,17 @@ function SM.SelfWatch(db)
     if not SM.shown then SM.Refresh(db) end
     SM.seenAt = GetTime()
     SM.ApplyVisible(true)
+    if not SM.popped then
+      SM.popped = true
+      SM.Log(n .. " at the stone - request now", "good")
+    end
+  elseif SM.popped then
+    SM.popped = false
+    if SM.shown and (db.mode or "auto") == "auto" then
+      SM.Log("no summons - hiding", "muted")
+      -- let the linger run out in ~5 s instead of the full 8
+      SM.seenAt = GetTime() - (db.linger or SM.DEFAULT_LINGER) + 5
+    end
   end
 end
 
@@ -579,6 +594,64 @@ function SM.ArmKey(db)
     ClearOverrideBindings(b)
     SM.keyArmed = nil
   end
+end
+
+-- ---------------------------------------------------------------- console
+-- Arn (8 Sep): "like a powershell line ... not in chat, keep chat clear ...
+-- fading out after a couple of seconds". A strip between the rows and the
+-- footer. SM.Log pushes a line; the watcher ages and fades them.
+SM.con = { lines = {} }
+
+function SM.Log(text, colour)
+  local L = SM.con.lines
+  L[#L + 1] = { text = text, colour = colour or "ink2", at = GetTime() }
+  while #L > SM.CON_LINES do table.remove(L, 1) end
+  SM.PaintConsole()
+end
+
+function SM.PaintConsole()
+  if not SM.frame or not SM.conFrame then return end
+  local now = GetTime()
+  local L = SM.con.lines
+  -- drop the dead ones
+  local i = 1
+  while i <= #L do
+    if (now - L[i].at) >= (SM.CON_HOLD + SM.CON_FADE) then table.remove(L, i) else i = i + 1 end
+  end
+  for n = 1, SM.CON_LINES do
+    local fs = SM.conFS[n]
+    local line = L[n]
+    if line then
+      local age = now - line.at
+      local a = 1
+      if age > SM.CON_HOLD then a = 1 - (age - SM.CON_HOLD) / SM.CON_FADE end
+      if a < 0 then a = 0 end
+      SM.Fit(fs, T.text("accent", "> ") .. line.text, SM.W - 12)
+      local r, g, b = K.color(line.colour)
+      fs:SetTextColor(r, g, b, 1)
+      fs:SetAlpha(a)
+      fs:Show()
+    else
+      fs:Hide()
+    end
+  end
+  -- the prompt: always there, cursor blinking, like a shell waiting on you
+  local blink = math.floor(now * 2) % 2 == 0
+  SM.promptFS:SetText(T.text("accent", "BiS> ") .. (blink and "_" or " "))
+  SM.promptFS:ClearAllPoints()
+  SM.promptFS:SetPoint("TOPLEFT", SM.conFrame, "TOPLEFT", 6, -(#L) * SM.CON_H - 2)
+  local h = (#L + 1) * SM.CON_H + 3
+  if SM.conH ~= h then
+    SM.conH = h
+    SM.conFrame:SetHeight(math.max(h, 1))
+    SM.Relayout()
+  end
+end
+
+-- one place computes the frame height: header + body + console + footer
+function SM.Relayout()
+  if not SM.frame then return end
+  SM.frame:SetHeight(K.HEADER + (SM.bodyH or 1) + (SM.conH or 0) + SM.FOOT_H)
 end
 
 -- ---------------------------------------------------------------- window
@@ -655,6 +728,21 @@ function SM.Build(db)
 
   -- footer: the peer's one button. "request a summon" puts you on top of every
   -- summoner's list with "asks"; click again to take it back.
+  -- console strip under the rows
+  local con = CreateFrame("Frame", nil, f)
+  con:SetPoint("TOPLEFT", body, "BOTTOMLEFT")
+  con:SetPoint("TOPRIGHT", body, "BOTTOMRIGHT")
+  con:SetHeight(1)
+  SM.conFrame, SM.conFS = con, {}
+  for n = 1, SM.CON_LINES do
+    local fs = K.fs(con, "", 8, "ink2")
+    fs:SetPoint("TOPLEFT", con, "TOPLEFT", 6, -(n - 1) * SM.CON_H - 2)
+    fs:Hide()
+    SM.conFS[n] = fs
+  end
+  SM.promptFS = K.fs(con, "", 8, "ink2")
+  SM.PaintConsole()
+
   -- footer budget, 170 wide: request 0..126 | all 126..170
   local foot = CreateFrame("Button", "BiSToolsSummonRequest", f)
   foot:SetPoint("BOTTOMLEFT")
@@ -841,7 +929,8 @@ function SM.PaintRows(db, list)
   local status = SM.count:GetText()
   if status and status ~= "" then h = h + SM.STATUS_H end
   SM.body:SetHeight(h)
-  SM.frame:SetHeight(K.HEADER + h + SM.FOOT_H)
+  SM.bodyH = h
+  SM.Relayout()
 end
 
 function SM.Refresh(db)
@@ -921,6 +1010,7 @@ function SM.Watch(db, dt)
   if not want then SM.seenAt = nil end
   SM.ApplyVisible(want)
   SM.ArmKey(db)
+  if SM.shown then SM.PaintConsole() end   -- ages the lines, blinks the cursor
 end
 
 -- ---------------------------------------------------------------- the nag
@@ -1020,7 +1110,9 @@ function SM.Hook(db)
     end
     lib:RegisterCallback("SUM", function(name, sum)
       bump(name) SM.requests[name] = nil
-      if sum and sum.state == "OK" then SM.LearnFromLanding(db, name) end
+      if sum and sum.state == "OK" then SM.Log(name .. " accepted", "good") SM.LearnFromLanding(db, name)
+      elseif sum and sum.state == "OFFER" then SM.Log(name .. " offered", "ink2")
+      elseif not sum then SM.Log(name .. " declined", "warn") end
     end)
     lib:RegisterCallback("WHERE", function(name, where) SM.OnLandingWhere(db, name, where) end)
     lib:RegisterHandler("SUMMON", "REQ", function(sender, flag) SM.OnRequest(sender, flag) end)
