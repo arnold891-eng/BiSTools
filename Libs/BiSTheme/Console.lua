@@ -10,6 +10,10 @@
 
       BiS> <text>_            cursor blinking at 2 Hz
 
+  The words fade out and the next ones fade in (Arn: "fade in and out animations,
+  not hard cuts"); the `BiS> ` prompt itself never moves. The console makes one
+  extra FontString for the words, anchored to the right of the title.
+
   where <text> is either a standing SLOT (the addon's name, "2 at stone",
   "requesting...") - the slots rotate every `cycle` seconds - or a transient
   line pushed with Say ("Druid asks", "Druid accepted"), which jumps the queue,
@@ -17,7 +21,7 @@
 
   Usage from any addon:
 
-      local con = BiSTheme.Console(titleFontString, { width = 110 })
+      local con = BiSTheme.Console(titleFontString, { width = 110, size = 8 })
       con:Set("name", "Summon")                 -- slot 1: always the addon's name
       con:Set("stone", "2 at stone", "good")    -- a state slot; nil text clears it
       con:Say("Druid asks", "gold")             -- an event line, shown once
@@ -63,6 +67,8 @@ end
 T.CONSOLE = {
   cycle  = 3,       -- seconds a standing slot shows before the next one
   hold   = 3,       -- seconds a Say line holds before the rotation resumes
+  fade   = 0.25,    -- seconds to fade the words out, and again to fade the next in
+  size   = 8,       -- font size of the words (the title's own size is the caller's)
   prompt = "BiS> ",
 }
 
@@ -83,21 +89,36 @@ end
 local Con = {}
 Con.__index = Con
 
---- Wrap a FontString (the window's title) as the prompt.
+--- Wrap a FontString (the window's title) as the prompt. The title keeps "BiS> ";
+--- the words live in a second FontString to its right so they can fade on their own.
 function T.Console(fs, opts)
   opts = opts or {}
   local D = T.CONSOLE
   local c = setmetatable({}, Con)
   c.fs, c.width = fs, opts.width
-  c.cycle, c.hold = opts.cycle or D.cycle, opts.hold or D.hold
+  c.cycle, c.hold, c.fadeT = opts.cycle or D.cycle, opts.hold or D.hold, opts.fade or D.fade
   c.slots, c.order, c.queue = {}, {}, {}
   c.idx, c.since = 1, GetTime()
+  fs:SetText(T.text("accent", D.prompt))
+  local w = fs:GetParent():CreateFontString(nil, "OVERLAY")
+  w:SetFont(STANDARD_TEXT_FONT, opts.size or D.size, "")
+  w:SetPoint("LEFT", fs, "RIGHT", 0, 0)
+  w:SetText("")
+  c.words = w
   if fs.GetStringWidth then
-    fs:SetText("_") c.curW = fs:GetStringWidth()
-    fs:SetText(D.prompt) c.promptW = fs:GetStringWidth()
+    c.promptW = fs:GetStringWidth()
+    w:SetText("_") c.curW = w:GetStringWidth() w:SetText("")
   end
+  c.alpha = 1
   c:Paint()
   return c
+end
+
+--- The whole line as text (prompt + words + cursor) and its width, for checks.
+function Con:Text() return (self.fs:GetText() or "") .. (self.words:GetText() or "") end
+function Con:Width()
+  if not self.fs.GetStringWidth then return 0 end
+  return self.fs:GetStringWidth() + self.words:GetStringWidth()
 end
 
 --- A standing slot: shown in rotation while it has text. nil clears it.
@@ -155,14 +176,35 @@ function Con:Paint()
     line = self.saying
   end
   if not line then line = self:Current(now) end
-  self.line = line
+  -- fade: the words on screen go to 0 over fadeT, the new words come up from 0
+  local same = (line == nil and self.line == nil) or
+    (line and self.line and line.text == self.line.text and line.colour == self.line.colour)
+  if not same and self.fading ~= "out" then
+    self.fading, self.fadeAt = "out", now
+  end
+  local a = 1
+  if self.fadeAt and self.fadeAt > now then self.fadeAt = now end   -- a clock that moved back
+  if self.fading == "out" then
+    a = 1 - (now - self.fadeAt) / self.fadeT
+    if a <= 0 then
+      a = 0
+      self.line = line
+      self.fading, self.fadeAt = "in", now
+    end
+  elseif self.fading == "in" then
+    a = (now - self.fadeAt) / self.fadeT
+    if a >= 1 then a = 1 self.fading = nil end
+  end
+  self.alpha = a
+  self.words:SetAlpha(a)
+  local shown = self.line
   local blink = math.floor(now * 2) % 2 == 0
   local cur = blink and "_" or " "
-  local words = line and line.text or ""
-  if self.width and line then
+  local words = shown and shown.text or ""
+  if self.width and shown then
     -- trim the plain words only (never inside a colour escape); prompt and
     -- cursor keep their own width outside the trim
-    words = T.Fit(self.fs, words, self.width - (self.curW or 0) - (self.promptW or 0))
+    words = T.Fit(self.words, words, self.width - (self.curW or 0) - (self.promptW or 0))
   end
-  self.fs:SetText(T.text("accent", T.CONSOLE.prompt) .. (line and T.text(line.colour, words) or "") .. cur)
+  self.words:SetText((shown and T.text(shown.colour, words) or "") .. cur)
 end
