@@ -485,17 +485,43 @@ end
 --                  SM.STALE (the lib jitters and coalesces the answers)
 SM.STALE = 30
 SM.REASK = 15
+SM.POP_AT = 2        -- this many at a stone pops the window on every Tools client
+
+-- how many are standing at a known stone right now: facts from their WHERE,
+-- me from my own position. Guesses count too when the client can see them.
+function SM.StoneCount(db)
+  local lib = SM.Lib()
+  local near = db.near or SM.DEFAULT_NEAR
+  local n = 0
+  local py, px, _, pinst = UnitPosition("player")
+  local zone = (GetRealZoneText and GetRealZoneText()) or ""
+  local meAt = SM.NearStone(db, pinst, zone, px, py, near)
+  if meAt then n = n + 1 end
+  if lib then
+    for _, p in pairs(lib:Peers()) do
+      local w = p.where
+      if w and not w.inInstance and SM.NearStone(db, w.mapId, w.zone, w.x, w.y, near) then n = n + 1 end
+    end
+  end
+  return n, meAt
+end
 
 function SM.SelfWatch(db)
   local lib = SM.Lib()
   if not lib or not lib:Enabled() then return end
-  local py, px, _, pinst = UnitPosition("player")
-  local zone = (GetRealZoneText and GetRealZoneText()) or ""
-  local at = SM.NearStone(db, pinst, zone, px, py, db.near or SM.DEFAULT_NEAR) and true or false
-  if SM.selfAtStone == nil then SM.selfAtStone = at return end
-  if at ~= SM.selfAtStone then
+  local n, at = SM.StoneCount(db)
+  at = at and true or false
+  if SM.selfAtStone == nil then SM.selfAtStone = at
+  elseif at ~= SM.selfAtStone then
     SM.selfAtStone = at
     lib:SendWhere(true)
+  end
+  -- Arn (8 Sep): two at the stone = the window opens for everyone, so the far
+  -- ones can press "request a summon" without typing a thing
+  if n >= SM.POP_AT and (db.mode or "auto") == "auto" and SM.frame then
+    if not SM.shown then SM.Refresh(db) end
+    SM.seenAt = GetTime()
+    SM.ApplyVisible(true)
   end
 end
 
@@ -764,6 +790,10 @@ end
 function SM.PaintRows(db, list)
   local want = math.min(db.rows or SM.DEFAULT_ROWS, SM.MAX_ROWS)
   local atStone = SM.MeAtStone(db)
+  -- far from the stone you are not summoning anyone: header, count, the
+  -- request button. The list only unrolls on "all".
+  local compact = (not atStone) and (not SM.unrolled)
+  if compact then want = 0 end
   if InCombatLockdown() then SM.pending.rows = true return end
   SM.pending.rows = nil
   local shown = 0
@@ -798,7 +828,15 @@ function SM.PaintRows(db, list)
       r:Hide()
     end
   end
-  if shown == 0 then SM.empty:Show() else SM.empty:Hide() end
+  if shown == 0 then
+    local n = SM.stoneCount or 0
+    if compact and n > 0 then SM.empty:SetText(n .. " at the stone")
+    elseif compact then SM.empty:SetText("nobody at a stone")
+    else SM.empty:SetText("nobody needs a summon") end
+    SM.empty:Show()
+  else
+    SM.empty:Hide()
+  end
   local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
   local status = SM.count:GetText()
   if status and status ~= "" then h = h + SM.STATUS_H end
@@ -819,9 +857,14 @@ function SM.Refresh(db)
   for name, until_ in pairs(SM.tried) do
     if not live[name] or until_ <= now then SM.tried[name] = nil end
   end
+  SM.stoneCount = (SM.StoneCount(db))
   local bits = {}
-  if atStone > 0 then bits[#bits + 1] = atStone .. " at stone" end
-  if inside > 0 then bits[#bits + 1] = inside .. " in" end
+  if not SM.MeAtStone(db) and not SM.unrolled then
+    -- compact: the empty line says "N at the stone", no second count
+  else
+    if atStone > 0 then bits[#bits + 1] = atStone .. " at stone" end
+    if inside > 0 then bits[#bits + 1] = inside .. " in" end
+  end
   SM.count:SetText(#bits > 0 and table.concat(bits, " - ") or "")
   SM.PaintRows(db, list)
 end
