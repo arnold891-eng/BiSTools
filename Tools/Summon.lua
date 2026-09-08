@@ -401,6 +401,19 @@ function SM.Request(db, on)
   NS.Print(on and "summon requested - every BiS summoner sees you on top" or "summon request cancelled")
 end
 
+-- a label must fit its box: shrink with an ellipsis until GetStringWidth says so.
+-- (Arn, 8 Sep: "summon requested - click to cancel" ran into the "all" button.)
+function SM.Fit(fs, text, width)
+  fs:SetText(text)
+  if not fs.GetStringWidth then return text end
+  local t = text
+  while fs:GetStringWidth() > width and #t > 1 do
+    t = t:sub(1, -2)
+    fs:SetText(t .. "...")
+  end
+  return fs:GetText()
+end
+
 function SM.SetUnrolled(db, on)
   SM.unrolled = on and true or false
   if SM.allBtn then
@@ -414,11 +427,12 @@ end
 function SM.PaintRequest()
   if not SM.foot then return end
   local r, g, b
+  local maxW = (SM.W - SM.ALL_W) - 8
   if SM.myRequest then
-    SM.foot.label:SetText("summon requested - click to cancel")
+    SM.Fit(SM.foot.label, "requested - cancel", maxW)
     r, g, b = K.color("gold")
   else
-    SM.foot.label:SetText("request a summon")
+    SM.Fit(SM.foot.label, "request a summon", maxW)
     r, g, b = K.color("accent")
   end
   SM.foot.label:SetTextColor(r, g, b, 1)
@@ -750,7 +764,8 @@ function SM.PaintRows(db, list)
   end
   if shown == 0 then SM.empty:Show() else SM.empty:Hide() end
   local h = math.max(shown * SM.ROW_H, SM.ROW_H) + 4
-  if SM.count.text and SM.count.text ~= "" then h = h + SM.STATUS_H end
+  local status = SM.count:GetText()
+  if status and status ~= "" then h = h + SM.STATUS_H end
   SM.body:SetHeight(h)
   SM.frame:SetHeight(K.HEADER + h + SM.FOOT_H)
 end
