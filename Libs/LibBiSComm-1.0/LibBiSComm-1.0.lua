@@ -1,0 +1,585 @@
+-- LibBiSComm-1.0
+-- The shared BiS addon channel. EMBEDDED in every BiS addon, not installed as
+-- one: a client with a single BiS addon carries the whole layer, which is the
+-- entire point. Highest version present wins and upgrades in place.
+--
+--   Wire format:  PROTO|MOD|CMD|a1|a2|...
+--
+-- MOD is what lets unrelated addons share one prefix. An unknown MOD or CMD is
+-- ignored in silence, so a client running an older or newer BiS addon is never
+-- half-understood -- the same additive rule that let Rez fold into Innervate.
+--
+-- CORE is deliberately three commands. It carries only what a client knows
+-- about ITSELF and nobody else can see:
+--
+--   HI    |libMinor|addonsBlob|known     who is here, running what
+--   ASK   |what                          somebody wants WHERE (summoner)
+--   WHERE |in|type|instName|zone|x|y|map am I inside an instance, and where
+--   SUM   |state|summoner|area|left      OFFER / OK / NO on a summon offer
+--
+-- House rules, in the lib so they cannot drift addon to addon:
+--   * draws nothing, prints nothing (one /bis for status and the off switch)
+--   * no periodic chatter: WHERE pushes on a real change, otherwise it answers
+--   * every host callback is pcall'd -- a lib fault cannot kill the addon
+--   * off means silent AND deaf
+
+local MAJOR, MINOR = "LibBiSComm-1.0", 1
+
+local lib = _G.LibBiSComm
+if lib and (lib.MINOR or 0) >= MINOR then return end   -- an equal or newer copy won
+lib = lib or {}
+_G.LibBiSComm = lib
+lib.MAJOR, lib.MINOR = MAJOR, MINOR
+
+-- Upgrading in place: everything the old copy learned survives. Wiping these
+-- on a reload-in-place would drop the raid off every grid at once.
+lib.peers     = lib.peers     or {}    -- name -> peer table
+lib.handlers  = lib.handlers  or {}    -- mod -> cmd -> fn
+lib.callbacks = lib.callbacks or {}    -- event -> { fn, ... }
+lib.addons    = lib.addons    or {}    -- name -> version, what this client runs
+if lib.enabled == nil then lib.enabled = true end
+
+lib.PREFIX = "BiS"
+lib.PROTO  = 1
+
+local PREFIX, PROTO, SEP = lib.PREFIX, lib.PROTO, "|"
+
+local ANSWER_MIN, ANSWER_JITTER = 1, 2   -- 1-3s: 25 clients must not answer as one
+local HI_THROTTLE    = 5
+local WHERE_THROTTLE = 3
+local ASK_COALESCE   = 3
+local OFFER_FALLBACK = 120               -- summon offer lifetime if the API is quiet
+
+--------------------------------------------------------------------
+-- small helpers (self-contained: the lib must work in an addon that has none)
+--------------------------------------------------------------------
+
+local function Now()
+    if GetTime then return GetTime() end
+    return 0
+end
+
+local function After(delay, fn)
+    if C_Timer and C_Timer.After then C_Timer.After(delay, fn); return true end
+    return false
+end
+
+local function Short(name)
+    if not name then return nil end
+    return string.match(name, "^([^%-]+)") or name
+end
+lib.Short = Short
+
+local function PlayerName()
+    return Short(UnitName and UnitName("player") or nil)
+end
+
+local function InGroup()
+    if IsInRaid and IsInRaid() then return true end
+    if IsInGroup and IsInGroup() then return true end
+    return false
+end
+
+-- A dungeon-finder group silently DROPS "RAID"/"PARTY" addon messages. Summon
+-- work happens at instance doorsteps, which is exactly where this bites.
+local function GroupChannel()
+    if IsInGroup and LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+        return "INSTANCE_CHAT"
+    end
+    if IsInRaid and IsInRaid() then return "RAID" end
+    if IsInGroup and IsInGroup() then return "PARTY" end
+    return nil
+end
+lib.GroupChannel = GroupChannel
+
+local function ForEachMember(cb)
+    local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
+    if IsInRaid and IsInRaid() then
+        for i = 1, n do
+            local unit = "raid" .. i
+            if UnitExists and UnitExists(unit) then cb(unit, Short(UnitName(unit))) end
+        end
+    else
+        cb("player", PlayerName())
+        for i = 1, math.max(0, n - 1) do
+            local unit = "party" .. i
+            if UnitExists and UnitExists(unit) then cb(unit, Short(UnitName(unit))) end
+        end
+    end
+end
+
+local function UnitOf(name)
+    name = Short(name)
+    if not name then return nil end
+    if name == PlayerName() then return "player" end
+    local found
+    ForEachMember(function(unit, n) if not found and n == name then found = unit end end)
+    return found
+end
+lib.UnitOf = UnitOf
+
+-- WindfuryComm++ shipped `tonumber(string.gsub(v, ".", "0"))`: "." matches every
+-- character, so "2.1.3" became 0 for everybody and its update notice has never
+-- once fired. Parse the numbers out; never pattern-mangle a version.
+function lib.VersionCmp(a, b)
+    local function parts(v)
+        local t = {}
+        for n in string.gmatch(tostring(v or ""), "(%d+)") do t[#t + 1] = tonumber(n) end
+        return t
+    end
+    local pa, pb = parts(a), parts(b)
+    for i = 1, math.max(#pa, #pb) do
+        local x, y = pa[i] or 0, pb[i] or 0
+        if x ~= y then return x < y and -1 or 1 end
+    end
+    return 0
+end
+
+function lib.VersionGT(a, b) return lib.VersionCmp(a, b) > 0 end
+
+local function split(msg)
+    local out, i = {}, 1
+    for piece in string.gmatch(msg .. SEP, "([^" .. SEP .. "]*)%" .. SEP) do
+        out[i] = piece; i = i + 1
+    end
+    return out
+end
+lib._split = split
+
+local function fire(event, ...)
+    for _, fn in ipairs(lib.callbacks[event] or {}) do
+        local ok, err = pcall(fn, ...)
+        if not ok then lib._lastError = err end   -- a host bug must not stop the next host
+    end
+end
+
+--------------------------------------------------------------------
+-- peers
+--------------------------------------------------------------------
+
+local function peer(name)
+    local p = lib.peers[name]
+    if not p then
+        p = { name = name, addons = {}, where = nil, summon = nil }
+        lib.peers[name] = p
+    end
+    return p
+end
+
+function lib:Peer(name) return self.peers[Short(name or "")] end
+function lib:Peers() return self.peers end
+
+function lib:Count()
+    local n = 0
+    for _ in pairs(self.peers) do n = n + 1 end
+    return n
+end
+
+-- Does this group member run any BiS addon? Everything downstream hangs off
+-- this: a name that answers is fact, a name that does not is a guess, and the
+-- two must never look alike in a UI.
+function lib:HasLib(name)
+    name = Short(name or "")
+    if name == PlayerName() then return true end
+    return self.peers[name] ~= nil
+end
+
+function lib:PurgeAbsent()
+    for name in pairs(self.peers) do
+        if not UnitOf(name) then self.peers[name] = nil end
+    end
+end
+
+--------------------------------------------------------------------
+-- registration by host addons
+--------------------------------------------------------------------
+
+function lib:RegisterAddon(name, version)
+    if not name then return end
+    self.addons[name] = tostring(version or "?")
+end
+
+function lib:RegisterHandler(mod, cmd, fn)
+    self.handlers[mod] = self.handlers[mod] or {}
+    self.handlers[mod][cmd] = fn
+end
+
+-- events: "PEER" (name, peer) | "WHERE" (name, where) | "SUM" (name, summon)
+function lib:RegisterCallback(event, fn)
+    self.callbacks[event] = self.callbacks[event] or {}
+    table.insert(self.callbacks[event], fn)
+end
+
+function lib:Enabled() return self.enabled and true or false end
+
+-- Off is silent AND deaf. A client that still listened while claiming to be off
+-- would be the same lie as Innervate's closed window that kept a live drag strip.
+function lib:SetEnabled(on)
+    self.enabled = on and true or false
+    if not self.enabled then
+        self.peers = {}
+        lib.peers = self.peers
+    end
+    return self.enabled
+end
+
+--------------------------------------------------------------------
+-- send / receive
+--------------------------------------------------------------------
+
+function lib:Send(mod, cmd, ...)
+    if not self.enabled then return false end
+    if not mod or not cmd then return false end
+    local parts = { PROTO, mod, cmd }
+    for i = 1, select("#", ...) do
+        local v = select(i, ...)
+        if v == nil then v = "" elseif type(v) == "boolean" then v = v and "1" or "0" end
+        parts[#parts + 1] = tostring(v)
+    end
+    local msg = table.concat(parts, SEP)
+    -- The client drops anything past 255 bytes and never tells the sender. Say
+    -- so instead of losing it silently.
+    if #msg > 250 then
+        self._lastError = "message too long: " .. mod .. "/" .. cmd .. " " .. #msg
+        return false
+    end
+    local chan = GroupChannel()
+    if not chan then return false end
+    if C_ChatInfo and C_ChatInfo.SendAddonMessage then
+        C_ChatInfo.SendAddonMessage(PREFIX, msg, chan)
+    elseif SendAddonMessage then
+        SendAddonMessage(PREFIX, msg, chan)
+    else
+        return false
+    end
+    return true
+end
+
+function lib:OnMessage(prefix, msg, channel, sender)
+    if not self.enabled then return end
+    if prefix ~= PREFIX or not msg then return end
+    sender = Short(sender)
+    if not sender then return end
+
+    local p = split(msg)
+    local proto, mod, cmd = tonumber(p[1] or ""), p[2], p[3]
+    if not mod or not cmd then return end
+
+    -- Guard 1: our framing only. A newer client's message parsed as ours would
+    -- corrupt state rather than be rejected.
+    if proto ~= PROTO then
+        if proto and proto > PROTO then self._sawNewer = true end
+        return
+    end
+    -- Guard 2: group channels only. A whisper from a stranger must not be able
+    -- to plant a position or a summon state.
+    if channel and channel ~= "RAID" and channel ~= "PARTY" and channel ~= "INSTANCE_CHAT" then
+        return
+    end
+    -- Guard 3: a sender we can actually see in the group.
+    if sender ~= PlayerName() and not UnitOf(sender) then return end
+
+    local isNew = (self.peers[sender] == nil)
+    local pr = peer(sender)
+    pr.seen = Now()
+    if isNew then fire("PEER", sender, pr) end
+
+    local args = {}
+    for i = 4, #p do args[i - 3] = p[i] end
+
+    local core = self._core[cmd]
+    if mod == "CORE" and core then
+        local ok, err = pcall(core, sender, unpack(args))
+        if not ok then self._lastError = err end
+        return
+    end
+    -- Guard 4: unknown MOD or CMD is ignored, not guessed at.
+    local h = self.handlers[mod] and self.handlers[mod][cmd]
+    if h then
+        local ok, err = pcall(h, sender, unpack(args))
+        if not ok then self._lastError = err end
+    end
+end
+
+--------------------------------------------------------------------
+-- CORE: identity
+--------------------------------------------------------------------
+
+function lib:AddonsBlob()
+    local out = {}
+    for name, ver in pairs(self.addons) do out[#out + 1] = name .. "=" .. ver end
+    table.sort(out)
+    return table.concat(out, ",")
+end
+
+function lib:Hi()
+    if not InGroup() then return false end
+    return self:Send("CORE", "HI", self.MINOR, self:AddonsBlob(), self:Count())
+end
+
+lib._core = {}
+
+lib._core.HI = function(sender, minor, blob, known)
+    local pr = peer(sender)
+    pr.libMinor = tonumber(minor or "") or 0
+    pr.addons = {}
+    for entry in string.gmatch(blob or "", "([^,]+)") do
+        local n, v = string.match(entry, "^(.-)=(.*)$")
+        if n then pr.addons[n] = v end
+    end
+    fire("PEER", sender, pr)
+
+    -- Answer every HI, throttled -- not only a stranger's. A client that lost
+    -- its table (a reload, a zone-in) says HI again and needs the whole group to
+    -- answer, or it never sees anybody again.
+    local theyKnow = tonumber(known or "") or 0
+    local short = theyKnow < (lib:Count() - 1)
+    local throttled = (Now() - (lib._lastHi or 0)) <= HI_THROTTLE
+    if not lib._hiPending and (short or not throttled) then
+        lib._hiPending = true
+        local send = function()
+            lib._hiPending = false
+            lib._lastHi = Now()
+            lib:Hi()
+        end
+        if not After(ANSWER_MIN + math.random() * ANSWER_JITTER, send) then send() end
+    end
+end
+
+--------------------------------------------------------------------
+-- CORE: where am I
+--------------------------------------------------------------------
+
+-- Everything here is about the SELF. UnitPosition on somebody else goes nil the
+-- moment they are in another instance -- which is precisely the case a summoner
+-- cares about -- while a client's own position is never unknown.
+function lib:MyWhere()
+    local inInst, instType = false, "none"
+    if IsInInstance then
+        local a, b = IsInInstance()
+        inInst, instType = a and true or false, b or "none"
+    end
+    local instName, mapId = "", ""
+    if inInst and GetInstanceInfo then
+        local n, _, _, _, _, _, _, id = GetInstanceInfo()
+        instName, mapId = n or "", id or ""
+    end
+    local zone = (GetRealZoneText and GetRealZoneText()) or (GetZoneText and GetZoneText()) or ""
+    local x, y = "", ""
+    if UnitPosition then
+        local py, px = UnitPosition("player")
+        if px and py then
+            x = string.format("%.1f", px)
+            y = string.format("%.1f", py)
+        end
+    end
+    return {
+        inInstance = inInst, instType = instType, instName = instName,
+        zone = zone, x = tonumber(x), y = tonumber(y), mapId = mapId,
+        at = Now(),
+    }
+end
+
+local function whereKey(w)
+    return tostring(w.inInstance) .. w.instType .. w.instName .. w.zone
+end
+
+function lib:SendWhere(force)
+    if not InGroup() then return false end
+    local w = self:MyWhere()
+    local key = whereKey(w)
+    -- Push only on a real change. Walking around is not news; zoning is.
+    if not force and key == self._lastWhereKey and (Now() - (self._lastWhereAt or 0)) < WHERE_THROTTLE then
+        return false
+    end
+    self._lastWhereKey, self._lastWhereAt = key, Now()
+    self.where = w
+    return self:Send("CORE", "WHERE", w.inInstance, w.instType, w.instName, w.zone,
+                     w.x or "", w.y or "", w.mapId)
+end
+
+-- A summoner asking. Everyone answers once, spread over 1-3s; repeat asks
+-- inside the window fold into the one answer already scheduled.
+function lib:Ask()
+    return self:Send("CORE", "ASK", "WHERE")
+end
+
+lib._core.ASK = function(sender, what)
+    if what ~= "WHERE" then return end
+    if lib._askPending then return end
+    if (Now() - (lib._lastAnswer or 0)) < ASK_COALESCE and lib._lastAnswer then return end
+    lib._askPending = true
+    local send = function()
+        lib._askPending = false
+        lib._lastAnswer = Now()
+        lib:SendWhere(true)
+    end
+    if not After(ANSWER_MIN + math.random() * ANSWER_JITTER, send) then send() end
+end
+
+lib._core.WHERE = function(sender, inInst, instType, instName, zone, x, y, mapId)
+    local pr = peer(sender)
+    pr.where = {
+        inInstance = (inInst == "1"),
+        instType   = instType or "none",
+        instName   = instName or "",
+        zone       = zone or "",
+        x = tonumber(x or ""), y = tonumber(y or ""),
+        mapId = mapId or "",
+        at = Now(),
+    }
+    fire("WHERE", sender, pr.where)
+end
+
+--------------------------------------------------------------------
+-- CORE: summon offers
+--------------------------------------------------------------------
+-- CONFIRM_SUMMON fires on the person being summoned, never on the summoner, and
+-- clicking a meeting stone is a game-object interaction the client does not
+-- expose at all. This is the only honest way a summoner learns what happened.
+
+function lib:SendSummon(state, summoner, area, left)
+    self.summon = (state ~= "NO") and
+        { state = state, summoner = summoner, area = area, left = left, at = Now() } or nil
+    return self:Send("CORE", "SUM", state, summoner or "", area or "", left or "")
+end
+
+function lib:OnConfirmSummon()
+    local summoner = GetSummonConfirmSummoner and GetSummonConfirmSummoner() or ""
+    local area     = GetSummonConfirmAreaName and GetSummonConfirmAreaName() or ""
+    local left     = GetSummonConfirmTimeLeft and GetSummonConfirmTimeLeft() or OFFER_FALLBACK
+    left = tonumber(left) or OFFER_FALLBACK
+    if left <= 0 then left = OFFER_FALLBACK end
+    self._offerId = (self._offerId or 0) + 1
+    local id = self._offerId
+    self:SendSummon("OFFER", Short(summoner), area, math.floor(left))
+    -- An offer that lapses unanswered is the exact case that used to leave the
+    -- summoner staring at the same name: say so when the clock runs out.
+    After(left, function()
+        if lib._offerId == id and lib.summon and lib.summon.state == "OFFER" then
+            lib:SendSummon("NO", nil, nil, nil)
+        end
+    end)
+end
+
+function lib:OnConfirmed()      -- they clicked Accept
+    if self.summon and self.summon.state == "OFFER" then
+        self._offerId = (self._offerId or 0) + 1
+        self:SendSummon("OK", self.summon.summoner, self.summon.area, nil)
+    end
+end
+
+function lib:OnCancelSummon()   -- declined, or it timed out client-side
+    if self.summon then
+        self._offerId = (self._offerId or 0) + 1
+        self:SendSummon("NO", nil, nil, nil)
+    end
+end
+
+lib._core.SUM = function(sender, state, summoner, area, left)
+    local pr = peer(sender)
+    if state == "NO" then
+        pr.summon = nil
+    else
+        pr.summon = {
+            state = state, summoner = summoner, area = area,
+            left = tonumber(left or ""), at = Now(),
+        }
+    end
+    fire("SUM", sender, pr.summon)
+end
+
+--------------------------------------------------------------------
+-- events
+--------------------------------------------------------------------
+
+function lib:Boot()
+    if self._booted then return end
+    self._booted = true
+
+    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+        pcall(C_ChatInfo.RegisterAddonMessagePrefix, PREFIX)
+    elseif RegisterAddonMessagePrefix then
+        pcall(RegisterAddonMessagePrefix, PREFIX)
+    end
+
+    local f = self._frame or (CreateFrame and CreateFrame("Frame"))
+    if not f then return end
+    self._frame = f
+
+    local function reg(ev)
+        -- An event this client does not have must not stop the rest registering.
+        pcall(f.RegisterEvent, f, ev)
+    end
+    reg("CHAT_MSG_ADDON")
+    reg("PLAYER_ENTERING_WORLD")
+    reg("ZONE_CHANGED_NEW_AREA")
+    reg("GROUP_ROSTER_UPDATE")
+    reg("CONFIRM_SUMMON")
+    reg("CANCEL_SUMMON")
+
+    f:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
+        if event == "CHAT_MSG_ADDON" then
+            lib:OnMessage(a1, a2, a3, a4)
+        elseif event == "CONFIRM_SUMMON" then
+            lib:OnConfirmSummon()
+        elseif event == "CANCEL_SUMMON" then
+            lib:OnCancelSummon()
+        elseif event == "GROUP_ROSTER_UPDATE" then
+            lib:OnRoster()
+        else
+            lib:SendWhere(true)
+            if not After(1 + math.random() * 2, function() lib:Hi() end) then lib:Hi() end
+        end
+    end)
+
+    -- Accept has no event of its own; the popup calls ConfirmSummon().
+    if hooksecurefunc and type(_G.ConfirmSummon) == "function" then
+        hooksecurefunc("ConfirmSummon", function() lib:OnConfirmed() end)
+    end
+end
+
+-- A zone-in reads the roster as EMPTY for a moment. Wiping the peer table on
+-- that blip took Innervate's whole grid out for a night; wait 10s before
+-- believing an empty group.
+function lib:OnRoster()
+    local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
+    if n > 0 then
+        self._lastN, self._emptySince = n, nil
+        self:PurgeAbsent()
+        if not After(1 + math.random() * 2, function() lib:Hi() end) then self:Hi() end
+        return
+    end
+    if (self._lastN or 0) == 0 then return end
+    self._emptySince = self._emptySince or Now()
+    if (Now() - self._emptySince) < 10 then return end
+    self._lastN, self._emptySince = 0, nil
+    self.peers = {}
+    lib.peers = self.peers
+end
+
+--------------------------------------------------------------------
+-- the one slash: status and the honest off switch
+--------------------------------------------------------------------
+
+if SlashCmdList and not SlashCmdList["BISCOMM"] then
+    _G.SLASH_BISCOMM1 = "/bis"
+    SlashCmdList["BISCOMM"] = function(msg)
+        msg = tostring(msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+        local say = function(s)
+            if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cffb980ffBiS|r " .. s) end
+        end
+        if msg == "comm off" or msg == "off" then
+            lib:SetEnabled(false); say("comm off - silent and deaf until /bis on")
+        elseif msg == "comm on" or msg == "on" then
+            lib:SetEnabled(true); lib:Hi(); say("comm on")
+        else
+            say(("comm %s, lib %d, %d peer(s), running %s")
+                :format(lib:Enabled() and "on" or "off", lib.MINOR, lib:Count(),
+                        lib:AddonsBlob() ~= "" and lib:AddonsBlob() or "nothing"))
+            say("/bis on | /bis off")
+        end
+    end
+end
+
+return lib

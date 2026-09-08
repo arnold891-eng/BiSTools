@@ -1,0 +1,397 @@
+-- BiSTools / Tools / FarmSpots.lua
+-- Spawn timers for the farm tool. Every kill stamps where you stood; kills
+-- within SPOT_R yards fold into one spot. The second kill at a spot teaches its
+-- respawn (median of the gaps). The shelf hangs off the right of the farm
+-- window and counts down, soonest first, an arrow per row pointing the way.
+local _, NS = ...
+local T = NS.T
+local F = NS.Farm
+local S = { rows = {} }
+F.Spots = S
+
+S.SPOT_R  = 5       -- yards default; db.spotRadius overrides (slider 5..60 later). Arn: 20 was too loose
+S.R_MIN, S.R_MAX = 5, 60
+S.MAX     = 10      -- spots per mob
+S.MIN_GAP = 20      -- seconds: two kills closer than this are two mobs, not a respawn
+S.W, S.ROW = 112, 14
+
+-- ---------------------------------------------------------------- where am I
+function S.Here()
+  if not C_Map or not C_Map.GetBestMapForUnit then return nil end
+  local map = C_Map.GetBestMapForUnit("player")
+  if not map then return nil end
+  local pos = C_Map.GetPlayerMapPosition(map, "player")
+  if not pos then return nil end
+  local x, y = pos:GetXY()
+  if not x or (x == 0 and y == 0) then return nil end
+  return map, x, y
+end
+
+function S.Yards(map, x1, y1, x2, y2)
+  local w, h = 1000, 1000
+  if C_Map.GetMapWorldSize then
+    local ww, hh = C_Map.GetMapWorldSize(map)
+    if ww and ww > 0 then w, h = ww, hh end
+  end
+  local dx, dy = (x1 - x2) * w, (y1 - y2) * h
+  return math.sqrt(dx * dx + dy * dy)
+end
+
+function S.Median(t)
+  local c = {}
+  for i, v in ipairs(t) do c[i] = v end
+  table.sort(c)
+  local n = #c
+  if n == 0 then return nil end
+  if n % 2 == 1 then return c[(n + 1) / 2] end
+  return (c[n / 2] + c[n / 2 + 1]) / 2
+end
+
+function S.Radius(db)
+  local r = tonumber(db.spotRadius) or S.SPOT_R
+  if r < S.R_MIN then r = S.R_MIN elseif r > S.R_MAX then r = S.R_MAX end
+  return r
+end
+function S.SetRadius(db, r)
+  r = tonumber(r)
+  if not r then return nil end
+  db.spotRadius = r
+  return S.Radius(db)
+end
+
+-- ---------------------------------------------------------------- marks
+-- Every spot owns one raid mark (1..7), for good, so "square is up in 0:40"
+-- means a place. The scanner deals only marks no spot owns; targeting the mob
+-- while standing at a spot corrects its mark to that spot's.
+S.MARKS = 7
+function S.FreeMark(list)
+  local used = {}
+  for _, sp in ipairs(list) do if sp.mark then used[sp.mark] = true end end
+  for m = 1, S.MARKS do if not used[m] then return m end end
+  return nil
+end
+
+-- set of marks owned by this mob's spots
+function S.BoundMarks(db, name)
+  local out = {}
+  local list = db.spots and db.spots[name]
+  if list then for _, sp in ipairs(list) do if sp.mark then out[sp.mark] = true end end end
+  return out
+end
+
+-- nearest spot of this mob to where you stand, within reach
+function S.Near(db, name, reach)
+  local map, x, y = S.Here()
+  if not map then return nil end
+  local list = db.spots and db.spots[name]
+  if not list then return nil end
+  local best, bestD
+  for _, sp in ipairs(list) do
+    if sp.map == map then
+      local d = S.Yards(map, sp.x, sp.y, x, y)
+      if d <= reach and (not bestD or d < bestD) then best, bestD = sp, d end
+    end
+  end
+  return best, bestD
+end
+
+function S.Reach(db)
+  return math.max(S.Radius(db) * 3, 15)
+end
+
+-- you are looking at the farmed mob, standing at one of its spots: the mob
+-- wears that spot's mark from now on. Called on target change and each tick.
+function S.Sync(db)
+  local name = db.active
+  if not name or not UnitExists("target") or UnitName("target") ~= name then return end
+  if UnitIsDead("target") or (UnitIsTapDenied and UnitIsTapDenied("target")) then return end
+  local sp = S.Near(db, name, S.Reach(db))
+  if not sp or not sp.mark then return end
+  if GetRaidTargetIndex("target") ~= sp.mark then
+    SetRaidTarget("target", sp.mark)
+    return sp.mark
+  end
+end
+
+-- ---------------------------------------------------------------- record
+function S.List(db, name)
+  db.spots = db.spots or {}
+  db.spots[name] = db.spots[name] or {}
+  return db.spots[name]
+end
+
+-- which spot did this kill belong to?
+--   1. the mark the mob died wearing, if a spot owns it (distance ignored: you
+--      may have shot it from range or it ran)
+--   2. nearest spot within the radius
+--   3. nearest spot within reach that is "up" (past its respawn)
+function S.Match(db, list, map, x, y, mark)
+  if mark then
+    for _, sp in ipairs(list) do if sp.mark == mark then return sp end end
+  end
+  local best, bestD
+  for _, sp in ipairs(list) do
+    if sp.map == map then
+      local d = S.Yards(map, sp.x, sp.y, x, y)
+      if d <= S.Radius(db) and (not bestD or d < bestD) then best, bestD = sp, d end
+    end
+  end
+  if best then return best end
+  local now = time()
+  for _, sp in ipairs(list) do
+    if sp.map == map and sp.respawn and (now - sp.last) >= sp.respawn then
+      local d = S.Yards(map, sp.x, sp.y, x, y)
+      if d <= S.Reach(db) and (not bestD or d < bestD) then best, bestD = sp, d end
+    end
+  end
+  return best
+end
+
+function S.Kill(db, name, mark)
+  local map, x, y = S.Here()
+  if not map then return end
+  local now = time()
+  local list = S.List(db, name)
+  local hit = S.Match(db, list, map, x, y, mark)
+  if hit then
+    local gap = now - hit.last
+    if gap >= S.MIN_GAP then
+      hit.gaps = hit.gaps or {}
+      table.insert(hit.gaps, gap)
+      while #hit.gaps > 8 do table.remove(hit.gaps, 1) end
+      hit.respawn = S.Median(hit.gaps)
+    end
+    hit.last = now
+    hit.kills = (hit.kills or 1) + 1
+    -- nudge the centre toward this kill, but only if you actually stood there
+    if S.Yards(map, hit.x, hit.y, x, y) <= S.Radius(db) then
+      hit.x, hit.y = (hit.x * 3 + x) / 4, (hit.y * 3 + y) / 4
+    end
+  else
+    db.spotSeq = (db.spotSeq or 0) + 1
+    table.insert(list, { id = db.spotSeq, map = map, x = x, y = y, last = now, kills = 1, mark = S.FreeMark(list) })
+    while #list > S.MAX do
+      -- drop the spot we know least about: no respawn learned, oldest kill
+      local worst, wi
+      for i, sp in ipairs(list) do
+        local score = (sp.respawn and 1e9 or 0) + sp.last
+        if not worst or score < worst then worst, wi = score, i end
+      end
+      table.remove(list, wi)
+    end
+    -- a dropped spot frees its mark: hand it to the oldest markless spot
+    for _, sp in ipairs(list) do
+      if not sp.mark then sp.mark = S.FreeMark(list) end
+    end
+  end
+  S.Refresh(db)
+  return hit or list[#list]
+end
+
+-- forget one mob's spots (the one the shelf is showing)
+function S.ClearMob(db)
+  local mob = S.Mob(db)
+  if mob and db.spots then db.spots[mob] = nil end
+  S.Refresh(db)
+  if mob then NS.Print("spots for %s reset", T.text("accent", mob)) end
+end
+
+function S.Clear(db)
+  if db.spots then wipe(db.spots) end
+  db.spotSeq = 0
+  S.Refresh(db)
+end
+
+-- ---------------------------------------------------------------- callout
+-- WARN_AT seconds before a spot is due, say its mark once. Reset by the next
+-- kill there (last changes). Honours db.sound: "off" = quiet.
+S.WARN_AT = 15
+function S.Warn(db)
+  if (db.sound or "first") == "off" then return end
+  local mob = S.Mob(db)
+  local list = mob and db.spots and db.spots[mob]
+  if not list then return end
+  local now = time()
+  for _, sp in ipairs(list) do
+    if sp.respawn then
+      local left = sp.respawn - (now - sp.last)
+      if left <= S.WARN_AT and left > -S.WARN_AT and sp.warnedFor ~= sp.last then
+        sp.warnedFor = sp.last
+        F.Speak(sp.mark and F.MARK_NAMES[sp.mark] or ("Spot " .. sp.id))
+      end
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- shelf
+function S.Mob(db)
+  return db.active or (db.last and db.last.name) or db.custom
+end
+
+function S.Build(db)
+  if S.frame then return S.frame end
+  local f = CreateFrame("Frame", "BiSToolsFarmSpots", F.frame)
+  S.frame = f
+  f:SetSize(S.W, F.HEADER)
+  f:SetFrameStrata("MEDIUM")
+  f:SetPoint("TOPLEFT", F.frame, "TOPRIGHT", 4, 0)
+  F.tex(f, "BACKGROUND", "frame", F.BODY_A)
+  F.border(f, "edge", 0.35)
+
+  local head = CreateFrame("Frame", nil, f)
+  head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
+  head:SetHeight(F.HEADER)
+  F.tex(head, "BACKGROUND", "header", F.HEAD_A)
+  local hair = head:CreateTexture(nil, "BORDER")
+  hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
+  do local r, g, b = F.color("edge") hair:SetColorTexture(r, g, b, 1) end
+  S.title = F.fs(head, "|cffb980ffSpawns|r", 9, "ink")
+  S.title:SetPoint("LEFT", 6, 0)
+  S.closeBtn = F.HeaderButton(head, -3, "x", "Hide timers", "They keep counting.", function() S.Toggle(db, false) end, "warn")
+  S.resetBtn = F.HeaderButton(head, -17, "r", "Reset", "Forget every spot and timer for this mob. /bt farm spots clear wipes all mobs.",
+    function() S.ClearMob(db) end)
+
+  local body = CreateFrame("Frame", nil, f)
+  body:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
+  body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
+  body:SetHeight(1)
+  S.body = body
+  S.empty = F.fs(body, "kill it a few times", 9, "muted")
+  S.empty:SetPoint("TOPLEFT", 6, -4)
+  f:Hide()
+  return f
+end
+
+function S.Row(i)
+  local r = S.rows[i]
+  if r then return r end
+  r = CreateFrame("Frame", nil, S.body)
+  r:SetHeight(S.ROW)
+  r:SetPoint("TOPLEFT", 0, -(i - 1) * S.ROW)
+  r:SetPoint("TOPRIGHT", 0, -(i - 1) * S.ROW)
+  -- arrow: the minimap player arrow, spun to point at the spot from where you stand
+  r.arrow = r:CreateTexture(nil, "ARTWORK")
+  r.arrow:SetSize(12, 12)
+  r.arrow:SetPoint("LEFT", 5, 0)
+  r.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
+  r.id = F.fs(r, "", 7, "dim")
+  r.id:SetPoint("LEFT", 19, 0)
+  r.icon = r:CreateTexture(nil, "ARTWORK")
+  r.icon:SetSize(11, 11)
+  r.icon:SetPoint("LEFT", 19, 0)
+  r.clock = F.fs(r, "", 9, "ink2")
+  r.clock:SetPoint("LEFT", 33, 0)
+  r.dist = F.fs(r, "", 8, "muted")
+  r.dist:SetPoint("RIGHT", -6, 0)
+  S.rows[i] = r
+  return r
+end
+
+function S.Clock(sec)
+  sec = math.floor(sec + 0.5)
+  if sec < 0 then sec = 0 end
+  return ("%d:%02d"):format(math.floor(sec / 60), sec % 60)
+end
+
+-- how far to spin an up-pointing arrow so it points at (sx,sy) from (px,py), given
+-- where the player faces. Map x grows east, y grows south; GetPlayerFacing() is
+-- radians, 0 = north, counter-clockwise (pi/2 = west). SetRotation is also
+-- counter-clockwise, so the answer is just the difference.
+function S.Bearing(px, py, sx, sy)
+  if not GetPlayerFacing then return nil end
+  local facing = GetPlayerFacing()
+  if not facing then return nil end
+  local dx, dy = sx - px, sy - py
+  if dx == 0 and dy == 0 then return 0 end
+  local toSpot = math.atan2(-dx, -dy)
+  local rel = toSpot - facing
+  while rel > math.pi do rel = rel - 2 * math.pi end
+  while rel < -math.pi do rel = rel + 2 * math.pi end
+  return rel
+end
+
+-- one row's text + colour. Returns sort key too: smaller = show higher.
+function S.Describe(sp, now)
+  local elapsed = now - sp.last
+  if sp.respawn then
+    local left = sp.respawn - elapsed
+    if left <= 0 then return "up", "good", -1e6 + math.min(elapsed - sp.respawn, 1e5) end
+    if left <= 30 then return S.Clock(left), "gold", left end
+    return S.Clock(left), "ink2", left
+  end
+  return "+" .. S.Clock(elapsed), "muted", 1e6 - elapsed
+end
+
+function S.Refresh(db)
+  S.Warn(db)
+  if not S.frame or not S.frame:IsShown() then return end
+  local mob = S.Mob(db)
+  local list = mob and db.spots and db.spots[mob] or {}
+  local now = time()
+  local map, px, py = S.Here()
+  local shown = {}
+  for _, sp in ipairs(list) do
+    local text, colour, key = S.Describe(sp, now)
+    shown[#shown + 1] = { sp = sp, text = text, colour = colour, key = key }
+  end
+  table.sort(shown, function(a, b) return a.key < b.key end)
+  S.title:SetText("|cffb980ffSpawns|r")
+  for i = 1, math.max(#shown, #S.rows) do
+    local r = S.Row(i)
+    local e = shown[i]
+    if e then
+      if e.sp.mark then
+        r.icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. e.sp.mark)
+        r.icon:Show()
+        r.id:SetText("")
+      else
+        r.icon:Hide()
+        r.id:SetText("#" .. e.sp.id)
+      end
+      r.clock:SetText(e.text)
+      local cr, cg, cb = F.color(e.colour)
+      r.clock:SetTextColor(cr, cg, cb, 1)
+      if map and map == e.sp.map then
+        r.dist:SetText(("%dy"):format(S.Yards(map, px, py, e.sp.x, e.sp.y)))
+        local rot = S.Bearing(px, py, e.sp.x, e.sp.y)
+        if rot then r.arrow:SetRotation(rot) r.arrow:Show() else r.arrow:Hide() end
+      else
+        r.dist:SetText("")
+        r.arrow:Hide()
+      end
+      r:Show()
+    else
+      r:Hide()
+    end
+  end
+  if #shown == 0 then S.empty:Show() else S.empty:Hide() end
+  local h = math.max(#shown * S.ROW, S.ROW) + 4
+  S.body:SetHeight(h)
+  S.frame:SetHeight(F.HEADER + h)
+end
+
+function S.Toggle(db, want)
+  F.Build(db)
+  S.Build(db)
+  if want == nil then want = not S.frame:IsShown() end
+  db.shelf = want and true or false
+  if want then
+    S.frame:Show()
+    S.Refresh(db)
+    if not S.ticker then S.ticker = C_Timer.NewTicker(0.25, function() S.Refresh(db) end) end
+  else
+    S.Hide()
+  end
+end
+
+function S.Hide()
+  if S.ticker then S.ticker:Cancel() S.ticker = nil end
+  if S.frame then S.frame:Hide() end
+end
+
+-- reopen with the window if it was open last time
+local hooked = F.Hook
+function F.Hook(db)
+  hooked(db)
+  if db.shelf and db.shown then S.Toggle(db, true) end
+end
