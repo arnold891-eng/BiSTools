@@ -692,7 +692,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR and lib._booted, "LibBiSComm loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 2 and lib._booted, "LibBiSComm 1.0 minor 2 loaded and booted from Core/Init")
 ok(lib.addons.BiSTools == "test", "BiSTools registered itself with the lib")
 ok(lib:Enabled() and BiSToolsDB.comm == nil, "comm on by default, nothing persisted yet")
 ok(NS.Registry:Get("summon") and NS.Registry:Enabled("summon"), "summon tool registered and on")
@@ -740,24 +740,32 @@ SM.Refresh(db_summon())
 local list, inside = SM.list, SM.inside
 local byName = {}
 for _, e in ipairs(list) do byName[e.name] = e end
-ok(inside == 1 and byName.Gambler == nil, "Gambler says he is inside Karazhan -> skipped as inside, no blacklist needed")
+ok(inside == 1 and byName.Gambler and byName.Gambler.inside and list[#list].name == "Gambler", "Gambler says he is inside Karazhan -> 'inside', last row, no blacklist needed")
 ok(byName.Toolsy == nil, "Toolsy stands on us (0 y, visible) -> not a candidate")
 ok(byName.Druid and byName.Druid.fact and math.abs(byName.Druid.score - 300) < 1e-6, "Druid is a fact at 300 y from his own WHERE")
 ok(byName.Nolib and not byName.Nolib.fact and math.abs(byName.Nolib.score - 200) < 1e-6, "Nolib is a guess at 200 y from UnitPosition")
 ok(byName.Farzone and not byName.Farzone.fact and byName.Farzone.score == SM.SCORE_OTHER_ZONE, "Farzone: other zone by the roster string")
-ok(list[1].name == "Farzone" and list[2].name == "Druid" and list[3].name == "Nolib", "furthest first")
+ok(list[1].name == "Farzone" and list[2].name == "Druid" and list[3].name == "Nolib" and list[4].name == "Gambler", "furthest first, inside last")
 -- paint: fact plain, guess with a ?
 ok(BiSToolsSummonRow1.name.text == "Farzone ?" and BiSToolsSummonRow2.name.text == "Druid" and BiSToolsSummonRow3.name.text == "Nolib ?", "guess rows wear the question mark, fact rows do not")
-ok(BiSToolsSummonRow2.info.text == "300y" and BiSToolsSummonRow1.info.text == "far", "info text")
+ok(BiSToolsSummonRow2.info.text == "" and BiSToolsSummonRow1.info.text == "far" and BiSToolsSummonRow4.info.text == "inside", "info text: no yards away from a stone, far, inside")
 ok(BiSToolsSummonRow1.template == "SecureActionButtonTemplate" and BiSToolsSummonRow1.clicks == "AnyDown", "rows are secure, AnyDown")
 ok(BiSToolsSummonRow1:GetAttribute("*type1") == "target" and BiSToolsSummonRow1:GetAttribute("*unit1") == "raid6", "row targets its unit")
 ok(BiSToolsSummonRow1:GetAttribute("shift-type1") == "" and BiSToolsSummonRow1:GetAttribute("type2") == nil and BiSToolsSummonRow1:GetAttribute("*type2") == nil, "shift kills the click, no type2 anywhere")
-ok(BiSToolsSummon.h == 16 + 3 * 14 + 4 + 16, "three rows tall, plus the request footer")
+ok(BiSToolsSummon.h == 16 + 4 * 14 + 4 + 16, "four rows tall, plus the request footer")
+
+-- lib 1 peers sent no mapId outdoors: a fact standing next to me must not read "far"
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|")   -- empty mapId
+SM.Refresh(db_summon())
+local dd
+for _, e in ipairs(SM.list) do if e.name == "Druid" then dd = e end end
+ok(dd and math.abs(dd.score - 300) < 1e-6, "no mapId in the WHERE -> UnitPosition yards instead of far")
+say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|530")
 
 -- a guess in a blacklisted zone is 'inside' by inference
 W.raid[5].zone = "Karazhan"
 SM.Refresh(db_summon())
-ok(SM.inside == 2 and #SM.list == 2, "Nolib in Karazhan by roster string -> inside (the old guess)")
+ok(SM.inside == 2 and #SM.list == 4 and SM.list[4].inside and SM.list[3].inside, "Nolib in Karazhan by roster string -> inside (the old guess)")
 W.raid[5].zone = "Netherstorm"
 
 -- fact outranks guess at equal score
@@ -770,7 +778,7 @@ W.raid[5].x, W.raid[5].y = 1000, 1200
 W.now = 5000
 BiSToolsSummonRow1:Click()   -- Farzone, a guess
 ok(SM.tried.Farzone and math.abs(SM.tried.Farzone - (5000 + 120)) < 1e-6, "clicking a guess parks 120 s")
-ok(SM.list[1].name == "Druid" and SM.list[#SM.list].name == "Farzone" and BiSToolsSummonRow3.info.text == "2:00", "parked guess sinks with its clock")
+ok(SM.list[1].name == "Druid" and SM.list[3].name == "Farzone" and BiSToolsSummonRow3.info.text == "2:00", "parked guess sinks with its clock (above inside)")
 BiSToolsSummonRow1:Click()   -- Druid, a fact
 ok(SM.tried.Druid and math.abs(SM.tried.Druid - (5000 + 15)) < 1e-6, "clicking a fact parks only 15 s")
 ok(SM.list[1].name == "Nolib", "Nolib is top now")
@@ -789,7 +797,7 @@ say("Druid", "1|CORE|SUM|OK|Me|Karazhan|")
 for _, e in ipairs(SM.list) do if e.name == "Druid" then d = e end end
 ok(d and d.why == "ok" and d.waiting == 0, "OK -> 'ok', sinks")
 local okRow
-for i = 1, 3 do if BiSToolsSummonRow1 and _G["BiSToolsSummonRow" .. i].name.text == "Druid" then okRow = _G["BiSToolsSummonRow" .. i] end end
+for i = 1, 4 do if BiSToolsSummonRow1 and _G["BiSToolsSummonRow" .. i].name.text == "Druid" then okRow = _G["BiSToolsSummonRow" .. i] end end
 ok(okRow and okRow.info.text == "ok", "row says ok")
 -- lapse: OFFER 60 s ago with no word -> not waiting any more
 say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60")
@@ -855,6 +863,18 @@ local names = {}
 for _, e in ipairs(SM.list) do names[e.name] = true end
 ok(not names.Druid and SM.atStone == 2, "Druid within 80 y of the stone -> at stone, not a candidate (Toolsy too)")
 ok(SM.count.text:find("2 at stone"), "header counts them")
+-- I am at the stone: yards show now (Farzone stays far)
+local fz
+for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Farzone") then fz = r end end
+ok(fz and fz.info.text == "far", "other zone still 'far' at the stone")
+W.raid[5].x, W.raid[5].y = 1000, 1200 SM.Refresh(dbs)
+local nb
+for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Nolib") then nb = r end end
+ok(nb and nb.info.text == "200y", "at the stone: yards from the stone")
+W.me.x, W.me.y = 5000, 5000 W.now = W.now + 5 SM.Refresh(dbs)
+for i = 1, 4 do local r = _G["BiSToolsSummonRow" .. i] if r and r.shown and r.name.text:find("Nolib") then nb = r end end
+ok(nb and nb.info.text == "", "away from the stone: no yards")
+W.me.x, W.me.y = 1000, 1000
 -- a guess standing on the stone too (same instance, UnitPosition)
 W.raid[5].x, W.raid[5].y = 1000, 1050
 SM.Refresh(dbs)

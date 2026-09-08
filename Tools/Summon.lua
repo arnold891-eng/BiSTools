@@ -81,6 +81,11 @@ function SM.Score(e, me)
     if w.x and w.y and me.x and me.y and tostring(w.mapId) == tostring(me.instanceID or "") then
       return dist(w.x, w.y, me.x, me.y)
     end
+    -- their WHERE cannot be placed against mine (lib 1 sent no mapId outdoors),
+    -- but the client can see them: UnitPosition is good enough for yards
+    if e.x and e.y and me.x and me.y and e.instanceID and e.instanceID == me.instanceID then
+      return dist(e.x, e.y, me.x, me.y)
+    end
     if w.zone ~= "" and me.zone and w.zone ~= me.zone then return SM.SCORE_OTHER_ZONE end
     return SM.SCORE_UNKNOWN_POS
   end
@@ -119,10 +124,12 @@ function SM.Rank(entries, me, opts)
       -- offline: not listed, not counted
     elseif e.atStone then
       atStone = atStone + 1                              -- standing at a known stone: no summon needed
-    elseif e.fact and e.where and e.where.inInstance then
+    elseif (e.fact and e.where and e.where.inInstance)
+        or (not e.fact and SM.IsBannedZone(e.zone, opts.ban, opts.allow)) then
+      -- inside already: listed at the very bottom as "inside", not a target
       inside = inside + 1
-    elseif not e.fact and SM.IsBannedZone(e.zone, opts.ban, opts.allow) then
-      inside = inside + 1
+      out[#out + 1] = { unit = e.unit, name = e.name, score = -1, index = e.index or 0,
+        fact = e.fact and true or false, inside = true }
     else
       local score = SM.Score(e, me)
       if score and not (score < nearYards and e.visible) then
@@ -136,6 +143,7 @@ function SM.Rank(entries, me, opts)
     end
   end
   table.sort(out, function(a, b)
+    if (a.inside or false) ~= (b.inside or false) then return b.inside end  -- inside: last of all
     local aw, bw = a.waiting ~= nil, b.waiting ~= nil
     if aw ~= bw then return bw end                       -- in-flight sink
     if aw and a.waiting ~= b.waiting then return a.waiting < b.waiting end
@@ -172,12 +180,26 @@ function SM.ShouldShow(mode, seenAt, now, linger)
   return (now - seenAt) < (linger or SM.DEFAULT_LINGER)
 end
 
-function SM.InfoText(e)
+-- yards are only worth showing when the summoner stands at the stone (or is
+-- looking at one): then "120y" means 120 yards from the stone. Anywhere else
+-- a number would be distance from wherever you happen to be, which is noise.
+function SM.InfoText(e, atStone)
+  if e.inside then return "inside" end
   if e.why == "ok" then return "ok" end
   if e.waiting then return SM.ClockText(e.waiting) end
   if e.asked then return "asks" end
-  if e.score >= SM.SCORE_UNKNOWN_POS then return "far" end
-  return math.floor(e.score) .. "y"
+  if e.score >= SM.SCORE_OTHER_ZONE then return "far" end
+  if e.score >= SM.SCORE_UNKNOWN_POS then return "" end
+  if atStone then return math.floor(e.score) .. "y" end
+  return ""
+end
+
+-- am I at (or looking at) a stone right now?
+function SM.MeAtStone(db)
+  if SM.stoneSeen and (GetTime() - SM.stoneSeen) < 3 then return true end
+  local py, px, _, pinst = UnitPosition("player")
+  local zone = (GetRealZoneText and GetRealZoneText()) or ""
+  return SM.NearStone(db, pinst, zone, px, py, db.near or SM.DEFAULT_NEAR)
 end
 
 -- ---------------------------------------------------------------- gather
@@ -565,6 +587,7 @@ end
 
 function SM.PaintRows(db, list)
   local want = math.min(db.rows or SM.DEFAULT_ROWS, SM.MAX_ROWS)
+  local atStone = SM.MeAtStone(db)
   if InCombatLockdown() then SM.pending.rows = true return end
   SM.pending.rows = nil
   local shown = 0
@@ -578,15 +601,16 @@ function SM.PaintRows(db, list)
       -- fact: plain name. guess: muted, with the question mark it deserves.
       r.name:SetText(e.fact and e.name or (e.name .. " ?"))
       local colour
-      if e.waiting then colour = "dim"
+      if e.inside then colour = "dim"
+      elseif e.waiting then colour = "dim"
       elseif i == 1 then colour = "accent"
       elseif not e.fact then colour = "muted"
       elseif e.score >= SM.SCORE_OTHER_ZONE then colour = "warn"
       else colour = "gold" end
       local cr, cg, cb = K.color(colour)
       r.name:SetTextColor(cr, cg, cb, 1)
-      r.info:SetText(SM.InfoText(e))
-      cr, cg, cb = K.color(e.waiting and "muted" or (e.asked and "gold") or "ink2")
+      r.info:SetText(SM.InfoText(e, atStone))
+      cr, cg, cb = K.color((e.waiting or e.inside) and "muted" or (e.asked and "gold") or "ink2")
       r.info:SetTextColor(cr, cg, cb, 1)
       r:Show()
       shown = shown + 1
@@ -662,11 +686,11 @@ function SM.Watch(db, dt)
   if SM.elapsed < 0.1 then return end
   SM.elapsed = 0
   local mode = db.mode or "auto"
-  if mode ~= "auto" and SM.LookingAtStone(db) then SM.LearnStone(db, true) end
+  if mode ~= "auto" and SM.LookingAtStone(db) then SM.LearnStone(db, true) SM.stoneSeen = GetTime() end
   if mode == "auto" then
     local stone = SM.LookingAtStone(db)
     if stone or (SM.frame and SM.frame:IsMouseOver()) then
-      if stone then SM.LearnStone(db, true) end
+      if stone then SM.LearnStone(db, true) SM.stoneSeen = GetTime() end
       if not SM.seenAt then SM.Refresh(db) SM.Ask() end
       SM.seenAt = GetTime()
     end

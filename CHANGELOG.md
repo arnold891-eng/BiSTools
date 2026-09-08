@@ -20,6 +20,12 @@
   distance to the stone, wherever the summoner stands; the header shows `N at stone`.
 - **Jeck mode** (`J` on the header, `/bt summon jeck`): you are the summoner tonight - window
   pinned, every request reaches you as a raid warning + sound + voice, wherever you are.
+- Yards in the summon list only show while you stand at (or look at) a stone - then they are
+  yards from the stone. Away from it a same-zone name shows nothing, another zone `far`.
+  Raid members already inside an instance are listed last as `inside`.
+- LibBiSComm minor 2: WHERE now carries the map id outdoors too, so a peer standing next to
+  you no longer reads as `far`. Tools also falls back to what the client can see for peers
+  still on minor 1.
 - Summon window header drags without shift now.
 - `/bt summon peers` lists who the channel can see. `/bt summon testaccept` is a live probe
   for whether an addon may accept a summon without a click.
