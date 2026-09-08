@@ -462,6 +462,49 @@ function SM.Asked(name, now)
   return true
 end
 
+-- ---------------------------------------------------------------- the key
+-- Arn's idea (8 Sep): stand at the stone, mouse on the window, spam Interact
+-- With Target. While the target is NOT the top name, the key is overridden to
+-- a hidden secure button that targets the top name (no park). The moment the
+-- target IS the top name the override is dropped, so the next press is the
+-- real interact - which next to a stone uses the stone. Then the top changes
+-- (his offer lands, or you park him) and the override comes back.
+function SM.KeyButton()
+  if SM.keyBtn then return SM.keyBtn end
+  local b = CreateFrame("Button", "BiSToolsSummonKey", UIParent, "SecureActionButtonTemplate")
+  b:RegisterForClicks("AnyDown")
+  b:SetAttribute("*type1", "target")
+  b:SetScript("PostClick", function(self)
+    SM.keyTargeted = self:GetAttribute("*unit1")
+  end)
+  SM.keyBtn = b
+  return b
+end
+
+function SM.ArmKey(db)
+  if InCombatLockdown() then return end
+  local b = SM.KeyButton()
+  local key = GetBindingKey and GetBindingKey("INTERACTTARGET")
+  local top = SM.list and SM.list[1]
+  local want = false
+  if key and db.key ~= false and SM.frame and SM.shown and SM.frame:IsMouseOver()
+     and top and top.unit and not top.inside and not top.here
+     and not (UnitExists("target") and UnitIsUnit("target", top.unit)) then
+    want = true
+  end
+  if want then
+    if b:GetAttribute("*unit1") ~= top.unit then b:SetAttribute("*unit1", top.unit) end
+    if SM.keyArmed ~= key then
+      ClearOverrideBindings(b)
+      SetOverrideBindingClick(b, true, key, "BiSToolsSummonKey")
+      SM.keyArmed = key
+    end
+  elseif SM.keyArmed then
+    ClearOverrideBindings(b)
+    SM.keyArmed = nil
+  end
+end
+
 -- ---------------------------------------------------------------- window
 function SM.Build(db)
   if SM.frame then return SM.frame end
@@ -783,6 +826,7 @@ function SM.Watch(db, dt)
   local want = SM.ShouldShow(mode, SM.seenAt, GetTime(), db.linger)
   if not want then SM.seenAt = nil end
   SM.ApplyVisible(want)
+  SM.ArmKey(db)
 end
 
 -- ---------------------------------------------------------------- the nag
@@ -888,6 +932,7 @@ function SM.Hook(db)
 end
 
 function SM.Unhook()
+  if SM.keyBtn and not InCombatLockdown() then ClearOverrideBindings(SM.keyBtn) SM.keyArmed = nil end
   SM.events:UnregisterAllEvents()
   SM.events:SetScript("OnUpdate", nil)
   if SM.ticker then SM.ticker:Cancel() SM.ticker = nil end
@@ -909,6 +954,10 @@ function SM.Slash(db, args)
   elseif cmd == "hide" then SM.SetMode(db, "off") NS.Print("summon: hidden")
   elseif cmd == "ask" then SM.Ask() NS.Print("asked the raid")
   elseif cmd == "me" then SM.Request(db, not SM.myRequest)
+  elseif cmd == "key" then
+    if rest:lower() == "on" then db.key = true elseif rest:lower() == "off" then db.key = false else db.key = not (db.key ~= false) end
+    NS.Print("interact key over the window: %s (mouse on the window, press Interact With Target: targets the top name, press again: the stone)",
+      db.key ~= false and T.text("good", "on") or T.text("warn", "off"))
   elseif cmd == "all" then SM.SetUnrolled(db, not SM.unrolled) NS.Print("summon list: %s", SM.unrolled and "everyone" or "who needs it")
   elseif cmd == "jeck" then
     if rest:lower() == "on" then SM.SetJeck(db, true) elseif rest:lower() == "off" then SM.SetJeck(db, false) else SM.SetJeck(db, not db.jeck) end
@@ -955,7 +1004,7 @@ function SM.Slash(db, args)
     C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [me|all|jeck|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bt summon [me|all|key|jeck|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 
@@ -966,7 +1015,7 @@ NS.Registry:Register({
   usage = "/bt summon [show|auto|hide|...]",
   defaults = { mode = "auto", near = SM.DEFAULT_NEAR, linger = SM.DEFAULT_LINGER, retry = SM.DEFAULT_RETRY,
     rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil,
-    jeck = false, stones = {} },
+    jeck = false, stones = {}, key = true },
   OnInit = function(self, db)
     SM.events = CreateFrame("Frame")
     SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
