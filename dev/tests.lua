@@ -68,7 +68,9 @@ _G.UnitIsConnected = function() return true end
 _G.GetRealZoneText = function() return W.me.zone end
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
-_G.IsShiftKeyDown = function() return false end
+_G.IsShiftKeyDown = function() return W.shift or false end
+W.cursor = { 0, 0 }
+_G.GetCursorPosition = function() return W.cursor[1], W.cursor[2] end
 W.interactKey = "NUMPADMULTIPLY"
 _G.GetBindingKey = function(cmd) if cmd == "INTERACTTARGET" then return W.interactKey end end
 W.messages = {}
@@ -236,6 +238,10 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:ClearAllPoints() self.point = nil end
   function f:GetPoint() return "TOPLEFT", nil, "CENTER", 12, -34 end
   function f:SetFrameStrata() end
+  function f:SetFrameLevel() end
+  function f:GetCenter() return self.cx or 0, self.cy or 0 end
+  function f:GetEffectiveScale() return 1 end
+  function f:SetAlpha(a) self.alpha = a end
   function f:SetMovable() end
   function f:EnableMouse() end
   function f:SetClampedToScreen() end
@@ -269,6 +275,8 @@ _G.CreateFrame = function(kind, name, parent, template)
   return f
 end
 
+_G.Minimap = CreateFrame("Frame", "Minimap")
+_G.Minimap.cx, _G.Minimap.cy = 1000, 500
 -- ------------------------------------------------------------ load
 local before = {} for k in pairs(_G) do before[k] = true end
 local NS = {}
@@ -1499,6 +1507,133 @@ do
   ok(RC._booted and RC.standDown == true and RC._frame == nil, "Innervate loaded: stands down, no frame, no double claim")
   W.innervateLoaded = false
   W.raid = { { name = "Me" } } W.inRaid = false
+end
+
+-- ------------------------------------------------------------ the Hub: minimap button, tools window, options
+-- Arn (10 Sep): "/ commands are so convoluted ... work on the minimap icon; right click
+-- opens the options; the first window shows all the tools we can open" and "right now I
+-- have no idea where the farm window is at".
+do
+  local H = NS.Hub
+  ok(H and H.frame.events.PLAYER_LOGIN, "the Hub boots its minimap button at PLAYER_LOGIN")
+  local mm = H.BuildMinimap()
+  ok(mm and mm == BiSToolsMinimap and mm.parent == Minimap, "minimap button, parented to the Minimap")
+  local x, y = H.MinimapPos(225)
+  ok(mm.point[1] == "CENTER" and mm.point[2] == Minimap and math.abs(mm.point[4] - x) < 1e-6 and math.abs(mm.point[5] - y) < 1e-6, "sits on the rim at the saved angle (225 = lower left)")
+  ok(mm.icon.file == "Interface\\Icons\\Spell_Shadow_Twilight" and mm.ring.file == "Interface\\Minimap\\MiniMap-TrackingBorder", "BiS icon in the standard tracking ring")
+  -- drag: the angle follows the cursor around the minimap centre
+  W.cursor = { 1000 + 100, 500 }   -- due east of the centre
+  H.DragMinimap()
+  ok(math.abs(NS.DB().hub.angle - 0) < 1e-6 and math.abs(mm.point[4] - 80) < 1e-6 and math.abs(mm.point[5]) < 1e-6, "dragging east: 0 degrees, button at (80, 0)", NS.DB().hub.angle, mm.point[4], mm.point[5])
+  W.cursor = { 1000, 500 + 100 }
+  H.DragMinimap()
+  ok(math.abs(NS.DB().hub.angle - 90) < 1e-6 and math.abs(mm.point[4]) < 1e-6 and math.abs(mm.point[5] - 80) < 1e-6, "north: 90 degrees, button at (0, 80)")
+  NS.DB().hub.angle = 225 H.PlaceMinimap()
+  -- left click: the Hub, one row per tool
+  mm.scripts.OnClick(mm, "LeftButton")
+  local hub = BiSToolsHub
+  ok(hub and hub:IsShown() and #hub.rows == 2, "left click opens the Hub with a row per registered tool")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon", "rows in TOC order: farm, summon")
+  ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "2 of 2 on", "prompt slot counts the tools that are on")
+  ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
+  ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 2 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  -- row click opens the tool window; shift-click drags it to the middle
+  BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
+  hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
+  ok(BiSToolsFarm:IsShown() and F.db.pos[1] == "TOPLEFT", "click: farm window shown where it was")
+  W.shift = true
+  hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
+  W.shift = false
+  ok(F.db.pos[1] == "CENTER" and F.db.pos[2] == 0 and BiSToolsFarm.point[1] == "CENTER" and BiSToolsFarm.point[2] == UIParent, "shift-click: farm window dragged to the middle of the screen")
+  -- right click toggles the tool; opening an off tool switches it on first
+  hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "1 of 2 on", "right click: summon off, row and count follow")
+  ok(lib:Enabled(), "and the lib is untouched by it")
+  hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
+  ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
+  -- right click on the minimap: options
+  mm.scripts.OnClick(mm, "RightButton")
+  local opt = BiSToolsOptions
+  ok(opt and opt:IsShown(), "right click opens Options")
+  ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
+  -- sections: tools (3 own rows), farm (4), summon (7) -> 3 headers + 14 rows
+  ok(#opt.rows == 3 + 3 + 4 + 7, "one row per section header and per option", #opt.rows)
+  ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
+  local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
+  -- every option label fits its lane (controls take the right 110 px)
+  for _, r in ipairs(opt.rows) do if r.name then ok(r.name:GetStringWidth() <= H.OPT_W - 12 - 110, "option label fits: " .. tostring(r.name.text)) end end
+  -- a section header's box toggles the tool
+  local farmHdr = opt.rows[5]
+  ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
+  farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "1 of 2 on", "box off: farm off, hub count follows")
+  farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
+  ok(R:Enabled("farm"), "and back on")
+  -- toggle: nag
+  local nag = find("nag me when summoned")
+  ok(nag and nag.ctl.on == true, "nag toggle reads db.nag (default on)")
+  nag.ctl.scripts.OnClick(nag.ctl)
+  ok(db_summon().nag == false and nag.ctl.on == false, "click: nag off in the db and in the box")
+  nag.ctl.scripts.OnClick(nag.ctl)
+  ok(db_summon().nag == true, "click: back on")
+  -- seg: farm sound
+  local snd = find("find sound")
+  ok(snd and #snd.ctl == 3 and snd.ctl[1].label.text == "first", "sound is a 3-way seg")
+  snd.ctl[3].scripts.OnClick(snd.ctl[3])
+  ok(db.sound == "off", "seg click sets db.sound = off")
+  snd.ctl[1].scripts.OnClick(snd.ctl[1])
+  ok(db.sound == "first", "and back to first")
+  -- step: radius, clamped
+  local rad = find("spot radius")
+  ok(rad and rad.ctl.val.text == "20 yd", "radius step shows 20 yd")
+  rad.ctl.plus.scripts.OnClick(rad.ctl.plus)
+  ok(F.Spots.Radius(db) == 25 and rad.ctl.val.text == "25 yd", "> bumps the radius by 5")
+  for _ = 1, 10 do rad.ctl.minus.scripts.OnClick(rad.ctl.minus) end
+  ok(F.Spots.Radius(db) == 5, "< clamps at 5")
+  db.spotRadius = 20 H.PaintOptions()
+  local rows = find("rows")
+  for _ = 1, 20 do rows.ctl.minus.scripts.OnClick(rows.ctl.minus) end
+  ok(db_summon().rows == 1, "the stepper itself clamps at min (rows never below 1)", db_summon().rows)
+  for _ = 1, 20 do rows.ctl.plus.scripts.OnClick(rows.ctl.plus) end
+  ok(db_summon().rows == SM.MAX_ROWS, "and at max", db_summon().rows)
+  db_summon().rows = SM.DEFAULT_ROWS H.PaintOptions()
+  -- prune: 0 shows off
+  local pr = find("prune after")
+  for _ = 1, 12 do pr.ctl.minus.scripts.OnClick(pr.ctl.minus) end
+  ok(F.Spots.Prune(db) == 0 and pr.ctl.val.text == "off", "prune stepped down to 0 reads off")
+  pr.ctl.plus.scripts.OnClick(pr.ctl.plus)
+  ok(F.Spots.Prune(db) == 60 and pr.ctl.val.text == "60 s", "and one up is 60 s")
+  db.prune = nil H.PaintOptions()
+  -- own options: minimap button hide/show, the BiS channel switch, reset positions
+  local mmo = find("minimap button")
+  mmo.ctl.scripts.OnClick(mmo.ctl)
+  ok(NS.DB().hub.minimap == false and not mm:IsShown(), "minimap option hides the button")
+  mmo.ctl.scripts.OnClick(mmo.ctl)
+  ok(mm:IsShown(), "and brings it back")
+  local comm = find("BiS channel (/biscomm)")
+  ok(comm and comm.ctl.on == true, "channel switch reads the lib")
+  comm.ctl.scripts.OnClick(comm.ctl)
+  ok(not lib:Enabled(), "the user's own switch: off is off (same as /biscomm off)")
+  comm.ctl.scripts.OnClick(comm.ctl)
+  ok(lib:Enabled(), "and on again")
+  BiSToolsFarm.point = { "TOPLEFT", nil, "TOPLEFT", 900, -100 }
+  find("reset window positions").ctl.scripts.OnClick(find("reset window positions").ctl)
+  ok(BiSToolsFarm.point[1] == "CENTER" and BiSToolsSummon.point[1] == "CENTER" and hub.point[1] == "CENTER", "reset drags every window to the middle")
+  -- slash fallbacks
+  S("options") ok(not opt:IsShown(), "/bt options toggles the window")
+  S("hub") ok(not hub:IsShown(), "/bt hub toggles the hub")
+  S("minimap") ok(NS.DB().hub.minimap == false, "/bt minimap hides the button") S("minimap")
+  -- window events go to the prompt, never chat
+  local chat = 0 local oldAdd = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function() chat = chat + 1 end
+  S("hub") hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton") hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
+  DEFAULT_CHAT_FRAME.AddMessage = oldAdd
+  ok(chat == 0, "toggling from the hub prints nothing to chat", chat)
+  local q = hub.con.queue
+  ok(#q >= 1 and q[#q].text == "summon on", "the hub says it in the prompt (queued behind the earlier lines)", q[#q] and q[#q].text)
+  S("hub")
 end
 
 -- ------------------------------------------------------------ wrong-accent pass (dev/theme.lua)

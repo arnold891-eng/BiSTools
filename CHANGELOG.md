@@ -1,3 +1,14 @@
+## 0.3.0 (dev)
+
+- **Minimap button** (Arn: "the / commands are so convoluted between all the addons"). Left
+  click: the **Hub** - every tool on one list; click a row to open its window (shift-click
+  drags the window to the middle of the screen - "I have no idea where the farm window is
+  at"), right-click a row to switch the tool on/off. Right click on the button: **Options** -
+  on/off per tool, farm find-sound / spot radius / burst / prune, summon window mode / nag /
+  Summoner / interact key / at-stone yards / rows / linger, the minimap button itself, the BiS
+  channel switch, and "reset window positions". Drag the button around the minimap rim.
+  `/bt hub`, `/bt options`, `/bt minimap` are the slash fallbacks.
+
 ## 0.2.0
 
 - **LibBiSComm** embedded (`Libs/LibBiSComm-1.0`): the shared BiS raid channel. Just having

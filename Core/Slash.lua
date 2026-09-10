@@ -12,7 +12,7 @@ local function List()
     DEFAULT_CHAT_FRAME:AddMessage(("  %s %s - %s  %s"):format(
       state, T.text("accent", key), tool.desc or "", T.text("muted", tool.usage or "")))
   end
-  DEFAULT_CHAT_FRAME:AddMessage(T.text("muted", "  /bt on|off <tool> to toggle"))
+  DEFAULT_CHAT_FRAME:AddMessage(T.text("muted", "  /bt on|off <tool> to toggle  |  /bt hub | options | minimap  (or the minimap button)"))
 end
 
 SLASH_BISTOOLS1 = "/bt"
@@ -28,6 +28,7 @@ SlashCmdList.BISTOOLS = function(msg)
     R:SetEnabled(rest, cmd == "on")
     return NS.Print("%s %s", tool.name, cmd == "on" and T.text("good", "on") or T.text("warn", "off"))
   end
+  if NS.HubSlash and NS.HubSlash(cmd) then return end
   local tool = R:Get(cmd)
   if not tool then return NS.Print("no tool '%s' - /bt for the list", cmd) end
   -- a tool may keep its slash alive while off (summon: the nag switch must
