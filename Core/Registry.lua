@@ -6,6 +6,9 @@
 --     OnLogin = function(tool, db) end,  -- PLAYER_LOGIN
 --     OnSlash = function(tool, db, args) end,
 --     OnEnable / OnDisable = function(tool, db) end,  -- /bt on|off <name>
+--     OnOpen = function(tool, db, recenter) end,  -- the Hub: show your window (recenter: to the middle)
+--     options = { { kind = "toggle"|"seg"|"step"|"button", label, get(db), set(db, v),
+--                   values (seg) | min, max, step, show(db) (step) | button, action(db) } },
 --     slashWhenOff = true }   -- OnSlash still runs while the tool is off
 local _, NS = ...
 local R = { tools = {}, order = {} }

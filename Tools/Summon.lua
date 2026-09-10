@@ -1178,6 +1178,34 @@ NS.Registry:Register({
     SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
   end,
   OnLogin = function(self, db) SM.Hook(db) end,
+  -- the Hub: pin the window open; recenter drags it to the middle
+  OnOpen = function(self, db, recenter)
+    SM.Build(db)
+    if recenter and SM.frame then
+      db.pos = { "CENTER", 0, -120, "CENTER" }
+      SM.frame:ClearAllPoints() SM.frame:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
+    end
+    SM.SetMode(db, "on")
+  end,
+  options = {
+    { kind = "seg", label = "window", values = { "auto", "on", "off" },
+      get = function(db) return db.mode or "auto" end, set = function(db, v) SM.SetMode(db, v) end },
+    { kind = "toggle", label = "nag me when summoned", get = function(db) return db.nag ~= false end,
+      set = function(db, on) db.nag = on and true or false end },
+    { kind = "toggle", label = "Jeck mode (I summon)", get = function(db) return db.jeck and true or false end,
+      set = function(db, on) SM.SetJeck(db, on) end },
+    { kind = "toggle", label = "interact key over window", get = function(db) return db.key ~= false end,
+      set = function(db, on) db.key = on and true or false end },
+    { kind = "step", label = "at the stone within", min = 20, max = 200, step = 10,
+      get = function(db) return db.near or SM.DEFAULT_NEAR end, set = function(db, v) db.near = v SM.Refresh(db) end,
+      show = function(db) return (db.near or SM.DEFAULT_NEAR) .. " yd" end },
+    { kind = "step", label = "rows", min = 1, max = SM.MAX_ROWS, step = 1,
+      get = function(db) return db.rows or SM.DEFAULT_ROWS end, set = function(db, v) db.rows = v SM.Refresh(db) end,
+      show = function(db) return tostring(db.rows or SM.DEFAULT_ROWS) end },
+    { kind = "step", label = "linger after the stone", min = 2, max = 30, step = 2,
+      get = function(db) return db.linger or SM.DEFAULT_LINGER end, set = function(db, v) db.linger = v end,
+      show = function(db) return (db.linger or SM.DEFAULT_LINGER) .. " s" end },
+  },
   OnEnable = function(self, db) SM.Hook(db) end,
   OnDisable = function(self, db) SM.Unhook() end,   -- window only. The lib and the nag keep going.
   OnSlash = function(self, db, args) SM.Slash(db, args) end,
