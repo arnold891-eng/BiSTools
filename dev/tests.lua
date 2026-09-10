@@ -760,7 +760,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 4 and lib._booted, "LibBiSComm 1.0 minor 4 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 5 and lib._booted, "LibBiSComm 1.0 minor 5 loaded and booted from Core/Init")
 ok(_G.SLASH_BISCOMM1 == "/biscomm", "minor 4 gave /bis back to LoonBestInSlot; the lib is /biscomm")
 for k, v in pairs(_G) do if type(k) == "string" and k:match("^SLASH_") then ok(v ~= "/bis", k .. " must not take /bis (LoonBestInSlot owns it)") end end
 -- version: the TOC's, never a literal (RegisterAddon announces it to the whole raid)
@@ -853,7 +853,7 @@ do
   W.runAfters(3.5)
   local his = 0 for _, m in ipairs(W.messages) do if m:match("^1|CORE|HI|") then his = his + 1 end end
   ok(his == h0 + 1, "the lib said HI once after entering the world in a raid", his - h0)
-  ok(W.messages[#W.messages]:match("^1|CORE|HI|4|BiSTools=" .. TOC_VERSION:gsub("%.", "%%.")), "and the HI carries minor 4 and the TOC version", W.messages[#W.messages])
+  ok(W.messages[#W.messages]:match("^1|CORE|HI|" .. lib.MINOR .. "|BiSTools=" .. TOC_VERSION:gsub("%.", "%%.")), "and the HI carries the lib minor and the TOC version", W.messages[#W.messages])
 end
 say("Toolsy",  "1|CORE|HI|1|BiSTools=0.1.0|0")
 say("Druid",   "1|CORE|HI|1|BiSInnervate=3.3.5|0")
@@ -1376,6 +1376,19 @@ lib:OnConfirmSummon() nagFrame.scripts.OnEvent(nagFrame, "CONFIRM_SUMMON") W.run
 ok(not SM.nag.active and #W.notices == notices0 + 4, "/bt summon nag off is the only thing that silences it")
 S("summon nag on")
 nagFrame.scripts.OnEvent(nagFrame, "CANCEL_SUMMON")
+-- a bystander's CONFIRM_SUMMON (someone ELSE got summoned; the client fires it on me with
+-- nothing behind it - Arn: "randomly ... it says SUMMON by someone"): no nag, no OFFER,
+-- and my own pending request is not cancelled by it
+do
+  W.offer = nil
+  local n1, m1 = #W.notices, #W.messages
+  SM.myRequest = true
+  lib:OnConfirmSummon() nagFrame.scripts.OnEvent(nagFrame, "CONFIRM_SUMMON") W.runAfters()
+  ok(#W.notices == n1 and not SM.nag.active, "empty CONFIRM_SUMMON: no raid warning, no nag")
+  ok(#W.messages == m1, "and the lib sent no phantom OFFER")
+  ok(SM.myRequest == true, "and my standing request was not cancelled by it")
+  SM.myRequest = false
+end
 S("on summon")
 S("summon hide")
 
