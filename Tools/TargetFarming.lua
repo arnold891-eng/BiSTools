@@ -498,6 +498,31 @@ NS.Registry:Register({
     F.events:SetScript("OnEvent", function(_, ev, ...) F.OnEvent(db, ev, ...) end)
   end,
   OnLogin = function(self, db) F.Hook(db) end,
+  -- the Hub: open the window; recenter drags it to the middle (Arn: "no idea
+  -- where the farm window is at")
+  OnOpen = function(self, db, recenter)
+    F.Toggle(db, true)
+    if recenter and F.frame then
+      db.pos = { "CENTER", 0, 0, "CENTER" }
+      F.frame:ClearAllPoints() F.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+  end,
+  options = {
+    { kind = "seg", label = "find sound", values = F.SOUND_MODES,
+      get = function(db) return db.sound or "first" end, set = function(db, v) F.SetSound(db, v) end },
+    { kind = "step", label = "spot radius", min = 5, max = 60, step = 5, unit = "yd",
+      get = function(db) return F.Spots and F.Spots.Radius(db) or 20 end,
+      set = function(db, v) if F.Spots then F.Spots.SetRadius(db, v) end end,
+      show = function(db) return (F.Spots and F.Spots.Radius(db) or 20) .. " yd" end },
+    { kind = "step", label = "burst window", min = 5, max = 300, step = 5,
+      get = function(db) return F.Spots and F.Spots.Burst(db) or 60 end,
+      set = function(db, v) if F.Spots then F.Spots.SetBurst(db, v) end end,
+      show = function(db) return (F.Spots and F.Spots.Burst(db) or 60) .. " s" end },
+    { kind = "step", label = "prune after", min = 0, max = 3600, step = 60,
+      get = function(db) return F.Spots and F.Spots.Prune(db) or 600 end,
+      set = function(db, v) if F.Spots then F.Spots.SetPrune(db, v) end end,
+      show = function(db) local p = F.Spots and F.Spots.Prune(db) or 600 return p == 0 and "off" or (p .. " s") end },
+  },
   OnEnable = function(self, db) F.Hook(db) end,
   OnDisable = function(self, db)
     F.events:UnregisterAllEvents()

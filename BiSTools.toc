@@ -16,3 +16,4 @@ Core\Slash.lua
 Tools\TargetFarming.lua
 Tools\FarmSpots.lua
 Tools\Summon.lua
+Tools\Hub.lua
