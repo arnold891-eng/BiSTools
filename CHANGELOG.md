@@ -1,16 +1,5 @@
 ## 0.3.0 (dev)
 
-## 0.2.1 - 10 Sep 2026
-
-- **The options window moved out.** `Window`, `Fit`, `Box` and `Control` left
-  `Tools/Hub.lua` for `BiSTheme/Options.lua`, embedded under `Libs\` like
-  `Console.lua`, because Arn wants every BiS addon's options to look like this
-  one. The Hub kept what is actually about BiSTools: the minimap button, the
-  tools list, and which option belongs to which tool. Nothing about the window
-  changed - all 497 checks pass untouched, and breaking the lifted file turns
-  them red, which is how we know they were testing it and not themselves.
-
-
 - **Minimap button** (Arn: "the / commands are so convoluted between all the addons"). Left
   click: the **Hub** - every tool on one list; click a row to open its window (shift-click
   drags the window to the middle of the screen - "I have no idea where the farm window is
@@ -19,6 +8,11 @@
   Jeck / interact key / at-stone yards / rows / linger, the minimap button itself, the BiS
   channel switch, and "reset window positions". Drag the button around the minimap rim.
   `/bt hub`, `/bt options`, `/bt minimap` are the slash fallbacks.
+
+- Fix: "SUMMON from someone" raid warning when somebody ELSE got summoned. The client fires
+  `CONFIRM_SUMMON` on bystanders too, with no summoner, area or clock; the nag took it as an
+  offer and the lib announced a phantom OFFER to every summoner. LibBiSComm minor 5 asks the
+  client whether a summon is really pending (`HasPendingSummon`) and both now stay quiet.
 
 ## 0.2.0
 
