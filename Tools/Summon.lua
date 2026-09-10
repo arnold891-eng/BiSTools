@@ -1179,11 +1179,13 @@ NS.Registry:Register({
   end,
   OnLogin = function(self, db) SM.Hook(db) end,
   -- the Hub: pin the window open; recenter drags it to the middle
+  IsOpen = function(self, db) return SM.shown and true or false end,
   OnOpen = function(self, db, recenter)
     SM.Build(db)
     if recenter and SM.frame then
       db.pos = { "CENTER", 0, -120, "CENTER" }
       SM.frame:ClearAllPoints() SM.frame:SetPoint("CENTER", UIParent, "CENTER", 0, -120)
+      if SM.frame.Raise then SM.frame:Raise() end
     end
     SM.SetMode(db, "on")
   end,

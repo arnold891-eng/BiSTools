@@ -1543,10 +1543,17 @@ do
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
   ok(BiSToolsFarm:IsShown() and F.db.pos[1] == "TOPLEFT", "click: farm window shown where it was")
+  -- click again while it is open = "bring it to me" (Arn: "can't find the window for the farm")
+  F.db.collapsed = true
+  hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
+  ok(F.db.pos[1] == "CENTER" and F.db.collapsed == false and BiSToolsFarm.point[1] == "CENTER", "second click: dragged to the middle and uncollapsed")
+  F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" } BiSToolsFarm:Hide() BiSToolsFarm.point = nil
   W.shift = true
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
   W.shift = false
   ok(F.db.pos[1] == "CENTER" and F.db.pos[2] == 0 and BiSToolsFarm.point[1] == "CENTER" and BiSToolsFarm.point[2] == UIParent, "shift-click: farm window dragged to the middle of the screen")
+  -- every seg label fits its button (the screenshot showed "alw...")
+  for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
   ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "1 of 2 on", "right click: summon off, row and count follow")
@@ -1581,6 +1588,11 @@ do
   -- seg: farm sound
   local snd = find("find sound")
   ok(snd and #snd.ctl == 3 and snd.ctl[1].label.text == "first", "sound is a 3-way seg")
+  for _, r in ipairs(opt.rows) do
+    if type(r.ctl) == "table" and r.ctl[1] and r.ctl[1].label then
+      for _, sg in ipairs(r.ctl) do ok(not tostring(sg.label.text):find("%.%.%."), "seg label whole, no ellipsis: " .. tostring(sg.label.text)) end
+    end
+  end
   snd.ctl[3].scripts.OnClick(snd.ctl[3])
   ok(db.sound == "off", "seg click sets db.sound = off")
   snd.ctl[1].scripts.OnClick(snd.ctl[1])
