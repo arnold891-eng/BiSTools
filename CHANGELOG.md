@@ -1,5 +1,16 @@
 ## 0.3.0 (dev)
 
+## 0.2.1 - 10 Sep 2026
+
+- **The options window moved out.** `Window`, `Fit`, `Box` and `Control` left
+  `Tools/Hub.lua` for `BiSTheme/Options.lua`, embedded under `Libs\` like
+  `Console.lua`, because Arn wants every BiS addon's options to look like this
+  one. The Hub kept what is actually about BiSTools: the minimap button, the
+  tools list, and which option belongs to which tool. Nothing about the window
+  changed - all 497 checks pass untouched, and breaking the lifted file turns
+  them red, which is how we know they were testing it and not themselves.
+
+
 - **Minimap button** (Arn: "the / commands are so convoluted between all the addons"). Left
   click: the **Hub** - every tool on one list; click a row to open its window (shift-click
   drags the window to the middle of the screen - "I have no idea where the farm window is
