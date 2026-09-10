@@ -29,7 +29,7 @@ NS.Hub = H
 
 H.W, H.OPT_W = 170, 230
 H.ROW = 16
-H.SEG_W, H.STEP_W, H.BOX = 30, 18, 10
+H.SEG_W, H.STEP_W, H.BOX = 36, 18, 10   -- seg: "always" at 8 pt is ~29 px, keep 36
 
 -- ---------------------------------------------------------------- db
 function H.DB()
@@ -207,7 +207,7 @@ function H.BuildHub()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(self.tool.name)
         GameTooltip:AddLine(self.tool.desc or "", 1, 1, 1, true)
-        GameTooltip:AddLine("click: open  |  shift-click: open in the middle of the screen  |  right-click: on/off", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("click: open (again: bring it to the middle)  |  shift-click: open in the middle  |  right-click: on/off", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
       end
     end)
@@ -246,13 +246,16 @@ function H.PaintHub()
 end
 
 -- open a tool's window: switch it on if it was off, then hand it to the tool.
--- recenter = true drags the window to the middle of the screen (Arn: "I have no
--- idea where the farm window is at").
+-- recenter = true drags the window to the middle of the screen. Clicking a tool
+-- whose window is ALREADY open means "bring it to me" (Arn, 10 Sep: "this is
+-- beautiful but I can't find the window for the farm") - so that recenters too.
 function H.Open(key, recenter)
   local tool = R:Get(key)
   if not tool then return false end
   if not R:Enabled(key) then R:SetEnabled(key, true) end
-  if tool.OnOpen then tool:OnOpen(R:DBFor(tool), recenter and true or false) return true end
+  local db = R:DBFor(tool)
+  if not recenter and tool.IsOpen and tool:IsOpen(db) then recenter = true end
+  if tool.OnOpen then tool:OnOpen(db, recenter and true or false) return true end
   return false
 end
 

@@ -500,11 +500,15 @@ NS.Registry:Register({
   OnLogin = function(self, db) F.Hook(db) end,
   -- the Hub: open the window; recenter drags it to the middle (Arn: "no idea
   -- where the farm window is at")
+  IsOpen = function(self, db) return F.frame ~= nil and F.frame:IsShown() end,
   OnOpen = function(self, db, recenter)
     F.Toggle(db, true)
     if recenter and F.frame then
       db.pos = { "CENTER", 0, 0, "CENTER" }
+      db.collapsed = false
       F.frame:ClearAllPoints() F.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+      if F.frame.Raise then F.frame:Raise() end
+      F.Refresh(db)
     end
   end,
   options = {
