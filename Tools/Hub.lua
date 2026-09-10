@@ -117,74 +117,24 @@ function H.ApplyMinimap()
 end
 
 -- ---------------------------------------------------------------- shared bits
-local function Window(name, w, title)
-  local f = CreateFrame("Frame", name, UIParent)
-  f:SetSize(w, K.HEADER)
-  f:SetFrameStrata("MEDIUM")
-  f:SetMovable(true) f:EnableMouse(true) f:SetClampedToScreen(true)
-  K.tex(f, "BACKGROUND", "frame", K.BODY_A)
-  K.border(f, "edge", 0.35)
-  local head = CreateFrame("Frame", nil, f)
-  head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT") head:SetHeight(K.HEADER)
-  K.tex(head, "BACKGROUND", "header", K.HEAD_A)
-  local hair = head:CreateTexture(nil, "BORDER")
-  hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
-  do local r, g, b = K.color("edge") hair:SetColorTexture(r, g, b, 1) end
-  -- header budget: 4 + prompt (<= w - 15 - 8) | x(12)@-3. Nothing else.
-  local fs = K.fs(head, "", 8, "ink")
-  fs:SetPoint("LEFT", head, "LEFT", 4, 0)
-  local con = BiSTheme.Console(fs, { width = w - 15 - 8 })
-  con:Set("name", title, "accent")
-  head:EnableMouse(true)
-  head:RegisterForDrag("LeftButton")
-  head:SetScript("OnDragStart", function() if not InCombatLockdown() then f:StartMoving() end end)
-  head:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
-  local close = K.HeaderButton(head, -3, "x", "Close", nil, function() f:Hide() end, "warn")
-  local body = CreateFrame("Frame", nil, f)
-  body:SetPoint("TOPLEFT", head, "BOTTOMLEFT") body:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT")
-  body:SetHeight(1)
-  f.head, f.body, f.con, f.title, f.closeBtn = head, body, con, fs, close
-  f:Hide()   -- a new frame is shown by default; the toggle decides
-  f:SetScript("OnUpdate", function(_, dt)
-    f.elapsed = (f.elapsed or 0) + dt
-    if f.elapsed >= 0.1 then f.elapsed = 0 con:Paint() end
-  end)
-  return f
-end
-
-local function Fit(f, bodyH, footH)
-  f.body:SetHeight(math.max(bodyH, 1))
-  f:SetHeight(K.HEADER + math.max(bodyH, 1) + (footH or 0))
-end
-
--- a 10 px on/off box: filled accent when on, empty edge when off
-local function Box(parent)
-  local b = CreateFrame("Button", nil, parent)
-  b:SetSize(H.BOX, H.BOX)
-  b.fill = K.tex(b, "BACKGROUND", "accent", 1)
-  b.edge = K.border(b, "edge", 1)
-  function b:Set(on)
-    self.on = on and true or false
-    if self.on then self.fill:Show() self.edge:set("accent", 1) else self.fill:Hide() self.edge:set("edge", 1) end
-  end
-  b:Set(false)
-  return b
-end
-
+-- Window / Fit / Box / Control USED TO LIVE HERE. Arn, 10 Sep: "this is
+-- beautiful ... I want all option windows to look like this", so they moved out
+-- to Libs\BiSTheme\Options.lua and this file kept only what is actually about
+-- BiSTools: the minimap button, the tools list, and which option belongs to
+-- which tool. See claude/bis-options.md for the law, and note the copy under
+-- Libs\ is byte-identical to BiSTheme's - never edit it in place.
 -- ---------------------------------------------------------------- the Hub
 function H.BuildHub()
   if H.hub then return H.hub end
-  local f = Window("BiSToolsHub", H.W, "Tools")
+  -- The list is not an options list, but it is the same chrome: the kit builds
+  -- the frame, the prompt header and the 16 px rows, and the Hub decorates them.
+  local f = BiSTheme.Options("BiSToolsHub", H.W, "Tools")
   H.hub = f
-  f:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
-  f.rows = {}
+  f:Recenter(120)
   local i = 0
   for key, tool in R:Each() do
     i = i + 1
-    local r = CreateFrame("Button", "BiSToolsHubRow" .. i, f.body)
-    r:SetHeight(H.ROW)
-    r:SetPoint("TOPLEFT", 0, -(i - 1) * H.ROW)
-    r:SetPoint("TOPRIGHT", 0, -(i - 1) * H.ROW)
+    local r = f:AddRow("Button", "BiSToolsHubRow" .. i)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     r.bg = K.tex(r, "BACKGROUND", "sunken", 0)
     r.name = K.fs(r, tool.name, 9, "ink")
@@ -212,7 +162,6 @@ function H.BuildHub()
       end
     end)
     r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0) if GameTooltip then GameTooltip:Hide() end end)
-    f.rows[i] = r
   end
   -- footer: one button, full width
   local foot = CreateFrame("Button", "BiSToolsHubOptions", f)
@@ -226,7 +175,7 @@ function H.BuildHub()
   foot:SetScript("OnEnter", function() foot.edge:set("accent", 1) end)
   foot:SetScript("OnLeave", function() foot.edge:set("edge", 1) end)
   f.foot = foot
-  Fit(f, #f.rows * H.ROW + 4, K.HEADER)
+  f:Fit(K.HEADER)   -- the footer is the Hub's own; an options window has none
   H.PaintHub()
   return f
 end
@@ -261,92 +210,13 @@ end
 
 function H.ToggleHub(want)
   local f = H.BuildHub()
-  if want == nil then want = not f:IsShown() end
-  if want then H.PaintHub() f:Show() else f:Hide() end
+  H.PaintHub()   -- the kit's Paint walks r.paint; the tool rows are painted here
+  f:Toggle(want)
 end
 
 -- ---------------------------------------------------------------- Options
--- one row per option. Kinds:
---   toggle  { label, get(db), set(db, on) }
---   seg     { label, values = {...}, get, set }         3 small buttons, the live one accent
---   step    { label, min, max, step, unit, get, set }   < value >
---   button  { label, action(db) }
-local function Control(row, opt, db, f)
-  local kind = opt.kind
-  if kind == "toggle" then
-    local b = Box(row)
-    b:SetPoint("RIGHT", -6, 0)
-    b:SetScript("OnClick", function()
-      opt.set(db, not opt.get(db))
-      H.PaintOptions()
-      f.con:Say(opt.label .. (opt.get(db) and " on" or " off"), opt.get(db) and "good" or "warn")
-    end)
-    row.ctl = b
-    row.paint = function() b:Set(opt.get(db) and true or false) end
-  elseif kind == "seg" then
-    local segs = {}
-    for i, v in ipairs(opt.values) do
-      local s = CreateFrame("Button", nil, row)
-      s:SetSize(H.SEG_W, 12)
-      s:SetPoint("RIGHT", -6 - (#opt.values - i) * (H.SEG_W + 2), 0)
-      K.tex(s, "BACKGROUND", "field", 0.9)
-      s.edge = K.border(s, "edge", 1)
-      s.label = K.fs(s, v, 8, "muted")
-      s.label:SetPoint("CENTER")
-      BiSTheme.Fit(s.label, v, H.SEG_W - 4)
-      s:SetScript("OnClick", function() opt.set(db, v) H.PaintOptions() f.con:Say(opt.label .. ": " .. v, "ink2") end)
-      segs[i] = s
-    end
-    row.ctl = segs
-    row.paint = function()
-      local cur = opt.get(db)
-      for i, s in ipairs(segs) do
-        local on = opt.values[i] == cur
-        s.edge:set(on and "accent" or "edge", 1)
-        local r, g, b = K.color(on and "accent" or "muted")
-        s.label:SetTextColor(r, g, b, 1)
-      end
-    end
-  elseif kind == "step" then
-    local plus = CreateFrame("Button", nil, row)
-    plus:SetSize(H.STEP_W, 12) plus:SetPoint("RIGHT", -6, 0)
-    K.tex(plus, "BACKGROUND", "field", 0.9) plus.edge = K.border(plus, "edge", 1)
-    plus.label = K.fs(plus, ">", 8, "muted") plus.label:SetPoint("CENTER")
-    local val = K.fs(row, "", 8, "ink2")
-    val:SetPoint("RIGHT", plus, "LEFT", -4, 0)
-    local minus = CreateFrame("Button", nil, row)
-    minus:SetSize(H.STEP_W, 12) minus:SetPoint("RIGHT", plus, "LEFT", -46, 0)
-    K.tex(minus, "BACKGROUND", "field", 0.9) minus.edge = K.border(minus, "edge", 1)
-    minus.label = K.fs(minus, "<", 8, "muted") minus.label:SetPoint("CENTER")
-    local function bump(dir)
-      local v = tonumber(opt.get(db)) or opt.min
-      v = v + dir * opt.step
-      if v < opt.min then v = opt.min elseif v > opt.max then v = opt.max end
-      opt.set(db, v)
-      H.PaintOptions()
-      f.con:Say(opt.label .. ": " .. opt.show(db), "ink2")
-    end
-    plus:SetScript("OnClick", function() bump(1) end)
-    minus:SetScript("OnClick", function() bump(-1) end)
-    for _, b in ipairs({ plus, minus }) do
-      b:SetScript("OnEnter", function() b.edge:set("accent", 1) end)
-      b:SetScript("OnLeave", function() b.edge:set("edge", 1) end)
-    end
-    row.ctl = { minus = minus, plus = plus, val = val }
-    row.paint = function() BiSTheme.Fit(val, opt.show(db), 40) end
-  elseif kind == "button" then
-    local b = CreateFrame("Button", nil, row)
-    b:SetSize(60, 12) b:SetPoint("RIGHT", -6, 0)
-    K.tex(b, "BACKGROUND", "field", 0.9) b.edge = K.border(b, "edge", 1)
-    b.label = K.fs(b, opt.button or "go", 8, "muted") b.label:SetPoint("CENTER")
-    BiSTheme.Fit(b.label, opt.button or "go", 56)
-    b:SetScript("OnClick", function() opt.action(db) H.PaintOptions() f.con:Say(opt.label, "ink2") end)
-    b:SetScript("OnEnter", function() b.edge:set("accent", 1) end)
-    b:SetScript("OnLeave", function() b.edge:set("edge", 1) end)
-    row.ctl = b
-    row.paint = function() end
-  end
-end
+-- The four control kinds - toggle / seg / step / button - are the kit's now.
+-- A setting that fits none of them is a slash command, not a fifth kind.
 
 -- the Hub's own options, listed under "tools"
 function H.OwnOptions()
@@ -363,73 +233,37 @@ function H.ResetPositions()
   for key, tool in R:Each() do
     if tool.OnOpen and R:Enabled(key) then tool:OnOpen(R:DBFor(tool), true) end
   end
-  for _, f in ipairs({ H.hub, H.opt }) do
-    if f then f:ClearAllPoints() f:SetPoint("CENTER", UIParent, "CENTER", 0, 120) end
-  end
+  if H.hub then H.hub:Recenter(120) end
+  if H.opt then H.opt:Recenter(60) end
 end
 
 function H.BuildOptions()
   if H.opt then return H.opt end
-  local f = Window("BiSToolsOptions", H.OPT_W, "Options")
+  local f = BiSTheme.Options("BiSToolsOptions", H.OPT_W, "Options")
   H.opt = f
-  f:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-  f.rows = {}
-  local y = 0
-  local function row(name)
-    local r = CreateFrame("Frame", name, f.body)
-    r:SetHeight(H.ROW)
-    r:SetPoint("TOPLEFT", 0, -y) r:SetPoint("TOPRIGHT", 0, -y)
-    y = y + H.ROW
-    f.rows[#f.rows + 1] = r
-    return r
-  end
-  local function section(title, key)
-    local r = row()
-    r.bg = K.tex(r, "BACKGROUND", "header", 0.6)
-    r.name = K.fs(r, T.text("accent", title), 9, "ink")
-    r.name:SetPoint("LEFT", 6, 0)
-    if key then
-      local b = Box(r)
-      b:SetPoint("RIGHT", -6, 0)
-      b:SetScript("OnClick", function()
-        R:SetEnabled(key, not R:Enabled(key))
-        H.PaintOptions() H.PaintHub()
-        f.con:Say(key .. (R:Enabled(key) and " on" or " off"), R:Enabled(key) and "good" or "warn")
-      end)
-      r.ctl = b
-      r.paint = function() b:Set(R:Enabled(key)) end
-    end
-    return r
-  end
-  local function optRow(opt, db)
-    local r = row()
-    r.name = K.fs(r, opt.label, 8, "ink2")
-    r.name:SetPoint("LEFT", 12, 0)
-    BiSTheme.Fit(r.name, opt.label, H.OPT_W - 12 - 110)
-    Control(r, opt, db, f)
-    return r
-  end
-  section("tools")
-  for _, opt in ipairs(H.OwnOptions()) do optRow(opt, nil) end
+  f:Recenter(60)
+  -- the tools list shows on/off too, so it repaints whenever a section box does
+  f.onChange = function() H.PaintHub() end
+
+  f:Section("tools")
+  for _, opt in ipairs(H.OwnOptions()) do f:Row(opt, nil) end
   for key, tool in R:Each() do
-    section(tool.name, key)
-    for _, opt in ipairs(tool.options or {}) do optRow(opt, R:DBFor(tool)) end
+    f:Section(tool.name, {
+      get = function() return R:Enabled(key) end,
+      set = function(on) R:SetEnabled(key, on) end,
+    })
+    for _, opt in ipairs(tool.options or {}) do f:Row(opt, R:DBFor(tool)) end
   end
-  Fit(f, y + 4, 0)
-  H.PaintOptions()
+  f:Fit()
   return f
 end
 
 function H.PaintOptions()
-  local f = H.opt
-  if not f then return end
-  for _, r in ipairs(f.rows) do if r.paint then r.paint() end end
+  if H.opt then H.opt:Paint() end
 end
 
 function H.ToggleOptions(want)
-  local f = H.BuildOptions()
-  if want == nil then want = not f:IsShown() end
-  if want then H.PaintOptions() f:Show() else f:Hide() end
+  H.BuildOptions():Toggle(want)
 end
 
 -- ---------------------------------------------------------------- boot
