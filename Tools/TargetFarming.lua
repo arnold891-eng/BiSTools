@@ -289,7 +289,7 @@ function F.Build(db)
   logo:SetSize(11, 11)
   logo:SetPoint("LEFT", head, "LEFT", 4, 0)
   logo:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_8")
-  local title = F.fs(head, "Target |cffb980ffFarming|r", 9, "ink")
+  local title = F.fs(head, "Target " .. T.text("accent", "Farming"), 9, "ink")
   title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
 
   F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bt farm reopens it. The scanner keeps going.",

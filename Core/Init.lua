@@ -3,7 +3,11 @@
 local ADDON, NS = ...
 _G.BiSTools = NS
 
-NS.VERSION = GetAddOnMetadata(ADDON, "Version") or "dev"
+-- version from the TOC, never a literal that drifts (house law); the literal is the
+-- fallback only and the harness holds it equal to ## Version
+local VERSION_FALLBACK = "0.2.0"   -- == ## Version in the TOC; the harness scans for this
+NS.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version"))
+  or (GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version")) or VERSION_FALLBACK
 
 -- Palette: prefer BiSTheme (loads before us? no - alphabetical, BiSTheme > BiSTools,
 -- so resolve lazily on first use), fall back to the inline BiS palette.
@@ -48,7 +52,7 @@ end
 -- The shared BiS channel (Libs/LibBiSComm-1.0, embedded from _bisdev). It is
 -- NOT a tool: no Registry entry, no on/off in /bt. Every tool may be switched
 -- off and this client still answers the raid, or "one addon gets you half way"
--- dies quietly. The lib has no SavedVariables, so the off switch (/bis off)
+-- dies quietly. The lib has no SavedVariables, so the off switch (/biscomm off)
 -- is remembered here and restored on the next login.
 NS.Comm = {}
 function NS.Comm.Lib() return _G.LibBiSComm end

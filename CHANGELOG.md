@@ -2,7 +2,7 @@
 
 - **LibBiSComm** embedded (`Libs/LibBiSComm-1.0`): the shared BiS raid channel. Just having
   BiSTools installed makes you answer "where are you" and "did the summon go through" to any
-  BiS summoner, with nothing to configure. `/bis` shows status; `/bis off` is the only mute
+  BiS summoner, with nothing to configure. `/biscomm` shows status; `/biscomm off` is the only mute
   and is remembered across sessions.
 - `summon` tool: SummonScan folded in. `/bt summon` pins the window, auto mode brings it up
   when you mouse over a summoning stone. Furthest first; click a name to target, right-click
@@ -54,6 +54,16 @@
   short of answer him (minor 2 had 8 people zoning into Karazhan turn into 30 HIs and every
   promote into 22); a throttled answer now waits instead of being dropped (a reload right
   after a join lost a third of the raid). Whole simulated night: ~140 messages, ~4 KB.
+- **RezComm** embedded (`Libs/RezComm-1.0`, byte-identical to `_bisdev`): a BiSTools priest,
+  paladin or shaman now puts rez claims on BiSInnervate's wire (`4|RCLAIM|name`, `RFREE`, `RDONE`
+  on prefix `BiSInn`) the instant the cast starts, so an Innervate raid coordinates around them
+  without them running Innervate. Announce-only, no rez code in Tools, stands down when Innervate
+  is installed. Rebirth excluded on purpose.
+- LibBiSComm minor 4: the lib's slash is `/biscomm` (`/bis` belongs to LoonBestInSlot).
+- House standard: version read from the TOC (the lib announces the real one); the harness loads
+  exactly what the TOC lists, in TOC order; no toggle can gate the comm lib (every one is
+  flipped in the suite); `dev/theme.lua` runs the suite with a poisoned accent and caught two
+  hardcoded purples in the farm titles - now `T.text("accent", ...)` like everything else.
 - Pin button dropped: the window opens itself when summons are available; `/bt summon
   show|auto|hide` is the manual way. Logo dropped too - the prompt is the brand.
 - Summon window header drags without shift now.

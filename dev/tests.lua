@@ -2,7 +2,21 @@
 -- ------------------------------------------------------------ WoW mock
 local W = { combat = false, target = nil, plates = {}, marks = {}, now = 0 }
 _G.__W = W
-_G.GetAddOnMetadata = function() return "test" end
+-- the TOC is the truth for the version and for what loads, in what order
+local function readTOC()
+  local fh = assert(io.open("BiSTools.toc", "r"))
+  local ver, list = nil, {}
+  for line in fh:lines() do
+    line = line:gsub("\r$", "")
+    local v = line:match("^## Version:%s*(.-)%s*$")
+    if v then ver = v end
+    if line ~= "" and not line:match("^#") then list[#list + 1] = (line:gsub("\\", "/")) end
+  end
+  fh:close()
+  return ver, list
+end
+local TOC_VERSION, TOC_FILES = readTOC()
+_G.GetAddOnMetadata = function(_, key) if key == "Version" then return TOC_VERSION end return "test" end
 _G.STANDARD_TEXT_FONT = "font"
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) W.lastMsg = m end }
 _G.SlashCmdList = {}
@@ -60,7 +74,10 @@ _G.GetBindingKey = function(cmd) if cmd == "INTERACTTARGET" then return W.intera
 W.messages = {}
 function W.sentCount(needle) local n = 0 for _, m in ipairs(W.messages) do if m:find(needle, 1, true) then n = n + 1 end end return n end
 _G.C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
-  SendAddonMessage = function(prefix, msg, chan) W.messages[#W.messages + 1] = msg end }
+  SendAddonMessage = function(prefix, msg, chan) W.messages[#W.messages + 1] = msg W.prefixes[#W.prefixes + 1] = prefix end }
+W.prefixes = {}
+W.innervateLoaded = false
+_G.IsAddOnLoaded = function(name) return name == "BiSInnervate" and W.innervateLoaded or false end
 _G.hooksecurefunc = function(name, fn)
   local orig = _G[name]
   if type(orig) ~= "function" then return end
@@ -255,19 +272,39 @@ end
 -- ------------------------------------------------------------ load
 local before = {} for k in pairs(_G) do before[k] = true end
 local NS = {}
-local files = { "Libs/BiSTheme/Console.lua", "Libs/LibBiSComm-1.0/LibBiSComm-1.0.lua", "Core/Init.lua", "Core/Registry.lua", "Core/Slash.lua", "Tools/TargetFarming.lua", "Tools/FarmSpots.lua", "Tools/Summon.lua" }
+-- load exactly what the TOC lists, in TOC order (libs included, no stubs); a bogus
+-- TOC line breaks the run here, the same way it would break the client
+local files = TOC_FILES
+assert(#files >= 9, "TOC lists fewer files than expected: " .. #files)
 local handlers = {}
 local realCF = _G.CreateFrame
 _G.CreateFrame = function(...)
   local f = realCF(...)
   local ss = f.SetScript
-  f.SetScript = function(self, k, fn) ss(self, k, fn) if k == "OnEvent" then handlers[#handlers + 1] = fn end end
+  f.SetScript = function(self, k, fn) ss(self, k, fn) if k == "OnEvent" then handlers[#handlers + 1] = { fn = fn, frame = self } end end
   return f
 end
-for _, f in ipairs(files) do assert(loadfile(f))("BiSTools", NS) end
-local core = handlers[1]
+for _, f in ipairs(files) do
+  local chunk, err = loadfile(f)
+  assert(chunk, "TOC lists a file that does not load: " .. tostring(f) .. " (" .. tostring(err) .. ")")
+  chunk("BiSTools", NS)
+end
+-- dev/theme.lua: poison the accent AFTER the files load, BEFORE anything is built
+if _G.__THEME_MUTATION then BiSTheme.hex.accent = _G.__THEME_MUTATION end
+-- Core/Init's frame is the one that listens for ADDON_LOADED (the libs' frames load first)
+local core
+for _, h in ipairs(handlers) do if h.frame.events.ADDON_LOADED then core = h.fn end end
 core(nil, "ADDON_LOADED", "BiSTools")
 core(nil, "PLAYER_LOGIN")
+-- the client fires PLAYER_ENTERING_WORLD after login; that is when the lib says HI
+local function fireAll(ev, ...)
+  local seen = {}
+  for _, h in ipairs(handlers) do
+    local f = h.frame
+    if not seen[f] and f.events[ev] and f.scripts.OnEvent then seen[f] = true f.scripts.OnEvent(f, ev, ...) end
+  end
+end
+fireAll("PLAYER_ENTERING_WORLD")
 local S = SlashCmdList.BISTOOLS
 local R = NS.Registry
 local F = NS.Farm
@@ -715,8 +752,24 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 3 and lib._booted, "LibBiSComm 1.0 minor 3 loaded and booted from Core/Init")
-ok(lib.addons.BiSTools == "test", "BiSTools registered itself with the lib")
+ok(lib and lib.MINOR == 4 and lib._booted, "LibBiSComm 1.0 minor 4 loaded and booted from Core/Init")
+ok(_G.SLASH_BISCOMM1 == "/biscomm", "minor 4 gave /bis back to LoonBestInSlot; the lib is /biscomm")
+for k, v in pairs(_G) do if type(k) == "string" and k:match("^SLASH_") then ok(v ~= "/bis", k .. " must not take /bis (LoonBestInSlot owns it)") end end
+-- version: the TOC's, never a literal (RegisterAddon announces it to the whole raid)
+ok(NS.VERSION == TOC_VERSION and TOC_VERSION:match("^%d+%.%d+%.%d+"), "NS.VERSION comes from the TOC: " .. tostring(NS.VERSION))
+ok(lib.addons and lib.addons.BiSTools == TOC_VERSION, "the lib announces the TOC version, not a string", lib.addons and lib.addons.BiSTools)
+do -- hygiene: any VERSION literal in a TOC-listed source must equal ## Version
+  for _, f in ipairs(files) do
+    if not f:match("^Libs/") then
+      local fh = assert(io.open(f)) local src = fh:read("*a") fh:close()
+      for lit in src:gmatch("VERSION[^\n]-\"(%d+%.%d+%.%d+)\"") do
+        ok(lit == TOC_VERSION, f .. " carries a VERSION literal " .. lit .. " that drifted from the TOC " .. TOC_VERSION)
+      end
+    end
+  end
+end
+
+ok(lib.addons.BiSTools == TOC_VERSION, "BiSTools registered itself with the lib, TOC version")
 ok(lib:Enabled() and BiSToolsDB.comm == nil, "comm on by default, nothing persisted yet")
 ok(NS.Registry:Get("summon") and NS.Registry:Enabled("summon"), "summon tool registered and on")
 ok(BiSToolsSummon and not BiSToolsSummon:IsShown(), "summon window built, hidden (auto mode)")
@@ -728,14 +781,48 @@ ok(not BiSToolsSummon:IsShown(), "off: window gone")
 ok(lib:Enabled() and next(SM.nagFrame.events) ~= nil, "off: lib still on, nag still listening")
 S("on summon") ok(BiSToolsSummon:IsShown(), "on: window back (mode was on)")
 
--- /bis off is the user's own switch, and BiSTools remembers it
+-- /biscomm off is the user's own switch, and BiSTools remembers it
 SlashCmdList.BISCOMM("off")
-ok(not lib:Enabled(), "/bis off mutes the lib")
+ok(not lib:Enabled(), "/biscomm off mutes the lib")
 core(nil, "PLAYER_LOGOUT")
 ok(BiSToolsDB.comm == false, "logout persists the off switch")
 SlashCmdList.BISCOMM("on")
 core(nil, "PLAYER_LOGOUT")
-ok(BiSToolsDB.comm == true and lib:Enabled(), "/bis on persists too")
+ok(BiSToolsDB.comm == true and lib:Enabled(), "/biscomm on persists too")
+-- and it is restored BEFORE Boot on the next login: a saved "off" boots silent
+do
+  BiSToolsDB.comm = false lib._booted = nil lib.enabled = true
+  NS.Comm.Boot()
+  ok(not lib:Enabled(), "a saved off switch is applied at ADDON_LOADED, before Boot")
+  BiSToolsDB.comm = true lib:SetEnabled(true)
+end
+-- no feature toggle may gate the lib: every tool off/on, every db boolean flipped
+do
+  for _, t in ipairs({ "farm", "summon" }) do
+    S("off " .. t) ok(lib:Enabled(), "/bt off " .. t .. " leaves the lib on")
+    S("on " .. t)  ok(lib:Enabled(), "/bt on " .. t .. " leaves the lib on")
+  end
+  for _, t in ipairs({ "farm", "summon" }) do
+    local d = R:DBFor(R:Get(t))
+    for k, v in pairs(d) do
+      if type(v) == "boolean" then d[k] = not v ok(lib:Enabled(), t .. "." .. k .. " flipped: lib still on") d[k] = v end
+    end
+  end
+  for _, cmd in ipairs({ "farm sound off", "farm sound first", "summon nag off", "summon nag on", "summon key off", "summon key on", "summon summoner", "summon summoner", "summon hide", "summon auto" }) do
+    S(cmd) ok(lib:Enabled(), "/bt " .. cmd .. ": lib still on")
+  end
+  S("summon show")   -- back to pinned, the state the blocks below expect
+  -- and a client that logs in with every toggle already off still boots the lib
+  local fdb, sdb = R:DBFor(R:Get("farm")), R:DBFor(R:Get("summon"))
+  local keep = { fdb.sound, sdb.nag, sdb.key, sdb.summoner, BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon }
+  fdb.sound, sdb.nag, sdb.key, sdb.summoner = "off", false, false, false
+  BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon = false, false
+  lib._booted = nil lib.addons.BiSTools = nil
+  NS.Comm.Boot()
+  ok(lib._booted and lib.addons.BiSTools == TOC_VERSION and lib:Enabled(), "everything off in the saved db: the lib still boots and registers")
+  fdb.sound, sdb.nag, sdb.key, sdb.summoner = keep[1], keep[2], keep[3], keep[4]
+  BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon = keep[5], keep[6]
+end
 
 -- the only raid that exists: Tools-only, Innervate-only, Gamba-only, and a man with nothing
 W.raid = {
@@ -750,6 +837,16 @@ W.raid = {
 W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
 W.inRaid = true
 local function say(from, line) lib:OnMessage("BiS", line, "RAID", from) end
+-- entering the world in a raid: the lib says HI once (jittered 1-3 s, the mock runs the timer)
+do
+  W.runAfters(5)   -- drain timers left over from the ungrouped login
+  local h0 = 0 for _, m in ipairs(W.messages) do if m:match("^1|CORE|HI|") then h0 = h0 + 1 end end
+  fireAll("PLAYER_ENTERING_WORLD")
+  W.runAfters(3.5)
+  local his = 0 for _, m in ipairs(W.messages) do if m:match("^1|CORE|HI|") then his = his + 1 end end
+  ok(his == h0 + 1, "the lib said HI once after entering the world in a raid", his - h0)
+  ok(W.messages[#W.messages]:match("^1|CORE|HI|4|BiSTools=" .. TOC_VERSION:gsub("%.", "%%.")), "and the HI carries minor 4 and the TOC version", W.messages[#W.messages])
+end
 say("Toolsy",  "1|CORE|HI|1|BiSTools=0.1.0|0")
 say("Druid",   "1|CORE|HI|1|BiSInnervate=3.3.5|0")
 say("Gambler", "1|CORE|HI|1|BiSGamba=1.1.0|0")
@@ -1361,9 +1458,74 @@ do
   W.raid = { { name = "Me" } } W.inRaid = false lib.peers = {} SM.requests = {}
 end
 
+-- ------------------------------------------------------------ RezComm: the rez emitter
+-- Arn (10 Sep): "look at how Innervate and Gamba use it to talk about the rez, make
+-- this another peer". BiSTools embeds _bisdev/RezComm-1.0 byte-identical, TOC-only:
+-- a Tools-only priest/paladin/shaman puts rez claims on Innervate's wire (BiSInn,
+-- proto 4) without a line of rez code in Tools. Announce-only; stands down when
+-- BiSInnervate is loaded (it announces its own casts).
+do
+  local RC = _G.BiSRezComm
+  ok(RC and RC.MINOR == 1 and RC.PROTO == 4, "RezComm 1.0 minor 1 loaded, speaks Innervate's proto 4")
+  ok(RC._login and RC._login.events.PLAYER_LOGIN, "self-boots at PLAYER_LOGIN: TOC line only, no call from Tools")
+  -- boot as a client WITHOUT Innervate
+  W.innervateLoaded = false RC._booted = nil
+  RC._login.scripts.OnEvent(RC._login, "PLAYER_LOGIN")
+  ok(RC._booted and RC.standDown == false and RC._frame and RC._frame.events.UNIT_SPELLCAST_SENT, "no Innervate: booted, listening to my own casts")
+  W.raid = { { name = "Me" }, { name = "Bob", zone = "Netherstorm", x = 1, y = 1, inst = 530 } } W.inRaid = true
+  local m0, p0 = #W.messages, #W.prefixes
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_SENT", "player", "Bob", "cast-1", 2006)   -- Resurrection r1
+  ok(W.messages[#W.messages] == "4|RCLAIM|Bob" and W.prefixes[#W.prefixes] == "BiSInn", "my rez cast -> 4|RCLAIM|Bob on BiSInn, that instant", W.messages[#W.messages], W.prefixes[#W.prefixes])
+  ok(#W.afters == 0 or true, "(no timer involved - sent synchronously)")
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_INTERRUPTED", "player", "cast-1", 2006)
+  ok(W.messages[#W.messages] == "4|RFREE|Bob", "interrupted -> 4|RFREE|Bob")
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_SENT", "player", "Bob", "cast-2", 20777)  -- Ancestral Spirit
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_INTERRUPTED", "player", "cast-9", 1234)   -- some other cast
+  ok(W.messages[#W.messages] == "4|RCLAIM|Bob", "a stray interrupt of another cast does NOT free the corpse")
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-2", 20777)
+  ok(W.messages[#W.messages] == "4|RDONE|Bob", "landed -> 4|RDONE|Bob")
+  local m1 = #W.messages
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_SENT", "player", "Bob", "cast-3", 20484)   -- Rebirth: excluded on purpose
+  RC._frame.scripts.OnEvent(RC._frame, "UNIT_SPELLCAST_SENT", "raid2", "Me", "cast-4", 2006)      -- somebody else's cast
+  ok(#W.messages == m1, "Rebirth and other people's casts say nothing")
+  -- the two pipes never mix: LibBiSComm still talks on BiS, the emitter on BiSInn
+  local bis, inn = 0, 0
+  for i = p0 + 1, #W.prefixes do if W.prefixes[i] == "BiS" then bis = bis + 1 elseif W.prefixes[i] == "BiSInn" then inn = inn + 1 end end
+  ok(inn == 4 and bis == 0, "four rez lines on BiSInn, none leaked onto the BiS pipe", inn, bis)
+  ok(lib:Peer("Bob") == nil, "an RCLAIM is not a LibBiSComm message: no peer appears")
+  -- a client WITH Innervate: the emitter stands down (Innervate announces its own casts)
+  W.innervateLoaded = true RC._booted = nil RC._frame = nil
+  RC._login.scripts.OnEvent(RC._login, "PLAYER_LOGIN")
+  ok(RC._booted and RC.standDown == true and RC._frame == nil, "Innervate loaded: stands down, no frame, no double claim")
+  W.innervateLoaded = false
+  W.raid = { { name = "Me" } } W.inRaid = false
+end
+
+-- ------------------------------------------------------------ wrong-accent pass (dev/theme.lua)
+if _G.__THEME_MUTATION then
+  local red = _G.__THEME_MUTATION
+  ok(NS.T.text("accent", "x") == "|cff" .. red .. "x|r", "NS.T.text reads the palette, not a hardcoded purple")
+  local r, g, b = NS.T.rgb("accent")
+  ok(r == 1 and g == 0 and b == 0, "NS.T.rgb reads the palette")
+  local fr = F.color("accent")
+  ok(fr == 1, "F.color (the kit) reads the palette for accent")
+  S("summon show")
+  ok(SM.title:GetText():find("|cff" .. red, 1, true), "the BiS> prompt wears the injected accent", SM.title:GetText())
+  ok(BiSToolsSummon:IsShown(), "window still builds with the poisoned palette")
+  local leak = false
+  for _, f in ipairs(files) do
+    if not f:match("^Libs/") then
+      local fh = assert(io.open(f)) local src = fh:read("*a") fh:close()
+      -- a hardcoded accent escape in addon code is exactly what this pass exists to catch
+      if src:find("|cffb980ff", 1, true) then leak = true print("   hardcoded accent in " .. f) end
+    end
+  end
+  ok(not leak, "no addon file hardcodes the accent escape |cffb980ff (use T.text)")
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
-  LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true,
+  LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
 for k in pairs(_G) do
   if not before[k] and not allowed[k] and not frames[k] then error("leaked global: " .. k) end

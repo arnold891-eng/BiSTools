@@ -413,7 +413,7 @@ function S.Build(db)
   local hair = head:CreateTexture(nil, "BORDER")
   hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
   do local r, g, b = F.color("edge") hair:SetColorTexture(r, g, b, 1) end
-  S.title = F.fs(head, "|cffb980ffSpawns|r", 9, "ink")
+  S.title = F.fs(head, T.text("accent", "Spawns"), 9, "ink")
   S.title:SetPoint("LEFT", 6, 0)
   -- the zone you are in, as its mark, right after the title
   S.zoneIcon = head:CreateTexture(nil, "ARTWORK")
