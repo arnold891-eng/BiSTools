@@ -1033,6 +1033,11 @@ SM.nagFrame:RegisterEvent("CANCEL_SUMMON")
 SM.nagFrame:SetScript("OnEvent", function(_, ev)
   local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
   if ev == "CONFIRM_SUMMON" then
+    -- the 2.5.x client fires this on bystanders too, with no summoner / area /
+    -- clock (Arn, 10 Sep: "randomly if any other person gets a summon it says
+    -- SUMMON by someone"). Not my summon: no nag, my request stands.
+    local lib = SM.Lib()
+    if lib and lib.HasPendingSummon and not lib:HasPendingSummon() then return end
     -- an offer landed: my request is answered
     if SM.myRequest then SM.Request(db, false) end
     -- the lib's own CONFIRM_SUMMON handler runs too; order between frames is
