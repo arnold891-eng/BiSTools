@@ -1,3 +1,11 @@
+## 0.3.2
+
+- The farm window's header is the `BiS>` prompt now, like Summon and the Hub: `BiS> Farm_`
+  cycling `farming <mob>` and `N spots`, "farming X" said in the header instead of chat. The
+  skull logo and the old title are gone.
+- Shared console minor 3: a slot that toggles on and off no longer gets a second (third,
+  sixth) turn in the rotation. Summon's `N asking` and `summon incoming` were the ones bleeding.
+
 ## 0.3.1
 
 - Fix: the Hub and the options window threw `attempt to call field 'Options'` for anyone

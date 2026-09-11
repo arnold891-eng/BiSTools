@@ -159,11 +159,27 @@ function F.SetActive(db, name)
   if name then
     if not NS.Registry:Enabled("farm") then db.active = nil return end
     F.Start(db)
-    NS.Print("farming %s - skull follows a free one", T.text("accent", name))
+    F.Log("farming " .. name, "accent")
   else
     F.Stop()
   end
   F.Refresh(db)
+end
+
+-- ---------------------------------------------------------------- the prompt
+-- Window events go to the header prompt, never chat (chat is for slash answers).
+function F.Log(text, colour)
+  if F.con then F.con:Say(text, colour) else NS.Print("%s", text) end
+end
+
+-- standing slots: name (always), what is being farmed, how many spots are learned
+function F.PaintSlots(db)
+  local c = F.con
+  if not c then return end
+  c:Set("active", db.active and ("farming " .. db.active) or nil, "gold")
+  local spots = 0
+  if F.Spots and db.active and db.spots and db.spots[db.active] then spots = #db.spots[db.active] end
+  c:Set("spots", spots > 0 and (spots .. (spots == 1 and " spot" or " spots")) or nil, "good")
 end
 
 -- ---------------------------------------------------------------- target key
@@ -285,12 +301,21 @@ function F.Build(db)
   hair:SetPoint("BOTTOMLEFT") hair:SetPoint("BOTTOMRIGHT") hair:SetHeight(1)
   do local r, g, b = F.color("edge") hair:SetColorTexture(r, g, b, 1) end
 
-  local logo = head:CreateTexture(nil, "ARTWORK")
-  logo:SetSize(11, 11)
-  logo:SetPoint("LEFT", head, "LEFT", 4, 0)
-  logo:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_8")
-  local title = F.fs(head, "Target " .. T.text("accent", "Farming"), 9, "ink")
-  title:SetPoint("LEFT", logo, "RIGHT", 4, 0)
+  -- the title is the prompt (the law, bis-theme 1.1.0; Summon has worn it since 8 Sep,
+  -- the farm window kept its logo + title until 11 Sep): "BiS> Farm_" cycling the
+  -- state slots, events said over them. Header budget: 4 + prompt (<= W-43-8 = 119 px)
+  -- ... buttons from the right x@-3, _@-17, t@-31 -> the strip is 43 px. No logo.
+  F.title = F.fs(head, "", 8, "ink")
+  F.title:SetPoint("LEFT", head, "LEFT", 4, 0)
+  F.con = BiSTheme.Console(F.title, { width = F.W - 43 - 8 })
+  F.con:Set("name", "Farm", "accent")
+  -- the words fade; something has to tick Paint while the window is up (OnUpdate only
+  -- runs while shown, so a hidden window costs nothing)
+  local acc = 0
+  f:SetScript("OnUpdate", function(_, dt)
+    acc = acc + (dt or 0)
+    if acc >= 0.1 then acc = 0 if F.con then F.con:Paint() end end
+  end)
 
   F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bt farm reopens it. The scanner keeps going.",
     function() F.Toggle(db, false) end, "warn")
@@ -386,6 +411,7 @@ end
 
 function F.Refresh(db)
   if not F.frame then return end
+  F.PaintSlots(db)
   local entries = db.collapsed and {} or F.Entries(db)
   local y = 0
   for i = 1, math.max(#entries, #F.rows) do
