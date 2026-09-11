@@ -994,6 +994,16 @@ ok(SM.tried.Druid == nil, "a SUM from the peer clears our park")
 local d
 for _, e in ipairs(SM.list) do if e.name == "Druid" then d = e end end
 ok(d and d.why == "offer" and math.abs(d.waiting - 60) < 1e-6, "Druid waits on his real 60 s offer")
+-- a peer still on lib minor 4 announces a bystander's CONFIRM_SUMMON as an OFFER with no
+-- summoner: not an offer here, he is not parked on it
+say("Druid", "1|CORE|SUM|NO|||") W.now = W.now + 1 SM.Refresh(db_summon())
+say("Druid", "1|CORE|SUM|OFFER|||120")
+d = nil for _, e in ipairs(SM.list) do if e.name == "Druid" then d = e end end
+ok(d and d.why ~= "offer" and d.summon == nil, "a phantom OFFER (no summoner) from an old peer is ignored", d and d.why)
+say("Druid", "1|CORE|SUM|NO|||") SM.Refresh(db_summon())
+say("Druid", "1|CORE|SUM|OFFER|Me|Karazhan|60")
+d = nil for _, e in ipairs(SM.list) do if e.name == "Druid" then d = e end end
+ok(d and d.why == "offer", "a real one still parks him")
 W.now = 5030
 say("Druid", "1|CORE|SUM|NO|||")
 ok(SM.list[1].name == "Druid", "NO -> Druid is back on top that second, not two minutes later")
@@ -1681,6 +1691,24 @@ if _G.__THEME_MUTATION then
     end
   end
   ok(not leak, "no addon file hardcodes the accent escape |cffb980ff (use T.text)")
+end
+
+-- ------------------------------------------------------------ embedded libs are the canonical bytes
+-- The lib is edited in _bisdev and copied out; a stale copy in an addon is how three addons
+-- were still announcing phantom OFFERs after minor 5 fixed it. When the sibling folders are
+-- there (they are, in the AddOns tree), every embedded file must be byte-identical.
+do
+  local function bytes(path) local fh = io.open(path, "rb") if not fh then return nil end local b = fh:read("*a") fh:close() return b end
+  local pairs_ = {
+    { "Libs/LibBiSComm-1.0/LibBiSComm-1.0.lua", "../_bisdev/LibBiSComm-1.0/LibBiSComm-1.0.lua" },
+    { "Libs/RezComm-1.0/RezComm-1.0.lua",       "../_bisdev/RezComm-1.0/RezComm-1.0.lua" },
+    { "Libs/BiSTheme/Console.lua",              "../BiSTheme/Console.lua" },
+  }
+  for _, pr in ipairs(pairs_) do
+    local mine, ref = bytes(pr[1]), bytes(pr[2])
+    if ref then ok(mine == ref, "embedded " .. pr[1] .. " is byte-identical to " .. pr[2] .. " (run _bisdev/sync.ps1)")
+    else print("   (canonical " .. pr[2] .. " not beside this checkout - embed check skipped)") end
+  end
 end
 
 -- leaked globals
