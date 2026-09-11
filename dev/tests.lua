@@ -219,7 +219,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
-  function f:CreateTexture() return Texture() end
+  function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
   function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
   function f:SetHeight(h) self.h = h end
@@ -599,6 +599,32 @@ ok(zones[1].subs[1].mark == 1 and zones[1].subs[2].mark == 3, "stable on re-entr
 BiSToolsFarmRow1.scripts.OnClick(BiSToolsFarmRow1)
 F.edit:SetText("Boar") F.edit.scripts.OnEnterPressed(F.edit)
 ok(db.active == "Boar", "farming Boar")
+-- the farm header is the BiS> prompt now (11 Sep; Summon since 8 Sep). No logo, name
+-- slot "Farm", "farming X" slot while active, events said over them, chat untouched.
+do
+  local function fshown() return (tostring(F.con:Text()):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+  local function fadv(dt) W.now = W.now + dt F.con:Paint() W.now = W.now + 0.3 F.con:Paint() W.now = W.now + 0.3 F.con:Paint() end
+  ok(F.con ~= nil and F.title ~= nil, "the farm title FontString is a BiSTheme console")
+  ok(F.con.slots.name and F.con.slots.name.text == "Farm", "name slot is Farm")
+  ok(F.con.slots.active and F.con.slots.active.text == "farming Boar", "active slot names the mob", F.con.slots.active and F.con.slots.active.text)
+  local chatF = 0 local oldAddF = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function() chatF = chatF + 1 end
+  F.SetActive(db, nil) F.SetActive(db, "Boar")
+  DEFAULT_CHAT_FRAME.AddMessage = oldAddF
+  ok(chatF == 0, "a row click says it in the prompt, not chat", chatF)
+  ok(F.con.slots.active == nil or F.con.slots.active.text == "farming Boar", "slot follows db.active")
+  F.con:Clear() fadv(4)
+  local seenName, seenActive = false, false
+  for _ = 1, 6 do fadv(3) local t = fshown() if t:find("Farm[_ ]") then seenName = true end if t:find("farming Boar") then seenActive = true end end
+  ok(seenName and seenActive, "both slots take their turn in the rotation")
+  -- budget: prompt never runs into the three header boxes (strip 43 px)
+  local wF = F.con:Width()
+  ok(wF <= F.W - 43 - 8, "farm prompt fits its budget", wF)
+  -- no header logo left behind
+  local logos = 0
+  for _, r in ipairs(F.head.regions or {}) do if r.file and tostring(r.file):find("RaidTargetingIcon_8") then logos = logos + 1 end end
+  ok(logos == 0, "the skull logo is gone from the header", logos)
+end
 W.px = 0.530
 F.spotsBtn.scripts.OnClick(F.spotsBtn)
 ok(BiSToolsFarmSpots:IsShown() and db.shelf == true and Sp.ticker and Sp.ticker.alive, "t opens the shelf + ticker")
