@@ -255,7 +255,12 @@ function SM.Gather()
     if lib and lib:HasLib(name) then
       e.fact = true
       local p = lib:Peer(name)
-      if p then e.where, e.summon = p.where, p.summon end
+      if p then
+        e.where, e.summon = p.where, p.summon
+        -- a peer still on lib minor 4 announces a bystander's CONFIRM_SUMMON as an
+        -- OFFER with no summoner: not an offer, do not park him on it
+        if e.summon and e.summon.state == "OFFER" and (e.summon.summoner or "") == "" then e.summon = nil end
+      end
     end
     e.asked = SM.Asked(name, GetTime())
     local near = (SM.db and SM.db.near) or SM.DEFAULT_NEAR
