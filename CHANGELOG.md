@@ -1,4 +1,4 @@
-## 0.3.0 (dev)
+## 0.3.0
 
 - **Minimap button** (Arn: "the / commands are so convoluted between all the addons"). Left
   click: the **Hub** - every tool on one list; click a row to open its window (shift-click
