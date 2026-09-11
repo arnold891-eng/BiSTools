@@ -1,3 +1,8 @@
+## 0.3.3
+
+- Shared console minor 4: the blinking cursor in the `BiS>` header is its own text now, so
+  the words beside it no longer shift a hair every half second.
+
 ## 0.3.2
 
 - The farm window's header is the `BiS>` prompt now, like Summon and the Hub: `BiS> Farm_`

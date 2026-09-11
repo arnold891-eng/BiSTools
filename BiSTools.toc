@@ -2,7 +2,7 @@
 ## Title: |cffb980ffBiS|r Tools
 ## Notes: Bundle of small BiS utilities. /bt for the list.
 ## Author: Arn
-## Version: 0.3.2
+## Version: 0.3.3
 ## OptionalDeps: BiSTheme, FojjiCore
 ## SavedVariables: BiSToolsDB
 ## X-Curse-Project-ID: 1686340
