@@ -14,6 +14,10 @@
   offer and the lib announced a phantom OFFER to every summoner. LibBiSComm minor 5 asks the
   client whether a summon is really pending (`HasPendingSummon`) and both now stay quiet.
 
+- Drift guard: `release.ps1` refuses to zip if an embedded lib differs from its canonical
+  copy; the harness asserts the same bytes; `_bisdev\sync.ps1` pushes the canonical libs into
+  every addon. A phantom OFFER from a peer still on an older lib is ignored on this side too.
+
 ## 0.2.0
 
 - **LibBiSComm** embedded (`Libs/LibBiSComm-1.0`): the shared BiS raid channel. Just having
