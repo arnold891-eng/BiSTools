@@ -1,3 +1,11 @@
+## 0.3.1
+
+- Fix: the Hub and the options window threw `attempt to call field 'Options'` for anyone
+  without the BiSTheme addon installed. `Libs\BiSTheme\Options.lua` was embedded but never
+  listed in the TOC, so it only ever loaded off Arn's own BiSTheme. It is in the TOC now, and
+  the harness asserts the line is there.
+- Options window: Escape closes it (shared kit minor 2, synced from BiSTheme).
+
 ## 0.3.0
 
 - **Minimap button** (Arn: "the / commands are so convoluted between all the addons"). Left
