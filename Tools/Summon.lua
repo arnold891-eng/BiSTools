@@ -987,8 +987,11 @@ SM.nag = {}
 function SM.NagText()
   local lib = SM.Lib()
   local s = lib and lib.summon
-  local who = s and s.summoner ~= "" and s.summoner or (GetSummonConfirmSummoner and GetSummonConfirmSummoner()) or "someone"
-  local area = s and s.area ~= "" and s.area or (GetSummonConfirmAreaName and GetSummonConfirmAreaName()) or ""
+  -- 2.5.6.69795 has these only at C_SummonInfo.* (BiSProbe, 16 Sep); the globals are the fallback
+  local getWho = (C_SummonInfo and C_SummonInfo.GetSummonConfirmSummoner) or GetSummonConfirmSummoner
+  local getArea = (C_SummonInfo and C_SummonInfo.GetSummonConfirmAreaName) or GetSummonConfirmAreaName
+  local who = s and s.summoner ~= "" and s.summoner or (getWho and getWho()) or "someone"
+  local area = s and s.area ~= "" and s.area or (getArea and getArea()) or ""
   return ("SUMMON from %s%s"):format(who, area ~= "" and (" to " .. area) or "")
 end
 
@@ -1052,7 +1055,10 @@ SM.nagFrame:SetScript("OnEvent", function(_, ev)
     SM.NagStop()
   end
 end)
-if hooksecurefunc and type(_G.ConfirmSummon) == "function" then
+-- the accept popup calls C_SummonInfo.ConfirmSummon on 2.5.6.69795; the global on older clients
+if hooksecurefunc and C_SummonInfo and C_SummonInfo.ConfirmSummon then
+  hooksecurefunc(C_SummonInfo, "ConfirmSummon", function() SM.NagStop() end)
+elseif hooksecurefunc and type(_G.ConfirmSummon) == "function" then
   hooksecurefunc("ConfirmSummon", function() SM.NagStop() end)
 end
 
@@ -1168,7 +1174,10 @@ function SM.Slash(db, args)
   elseif cmd == "testaccept" then
     -- live unknown: does ConfirmSummon() need a hardware event? A timer is the
     -- opposite of one. Run this with an offer pending and see if you land.
-    C_Timer.After(1, function() if ConfirmSummon then ConfirmSummon() end end)
+    C_Timer.After(1, function()
+      local confirm = (C_SummonInfo and C_SummonInfo.ConfirmSummon) or ConfirmSummon
+      if confirm then confirm() end
+    end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
     NS.Print("/bt summon [me|all|key|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
