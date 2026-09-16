@@ -1,3 +1,8 @@
+## 0.3.4
+
+- LibBiSComm minor 6: summon API moved to C_SummonInfo on 2.5.6 — the phantom-summon filter works again.
+- Summon accept hook on C_SummonInfo.
+
 ## 0.3.3
 
 - Shared console minor 4: the blinking cursor in the `BiS>` header is its own text now, so
