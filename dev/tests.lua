@@ -1530,7 +1530,7 @@ end
 -- BiSInnervate is loaded (it announces its own casts).
 do
   local RC = _G.BiSRezComm
-  ok(RC and RC.MINOR == 1 and RC.PROTO == 4, "RezComm 1.0 minor 1 loaded, speaks Innervate's proto 4")
+  ok(RC and RC.MINOR == 2 and RC.PROTO == 4, "RezComm 1.0 minor 2 loaded, speaks Innervate's proto 4")
   ok(RC._login and RC._login.events.PLAYER_LOGIN, "self-boots at PLAYER_LOGIN: TOC line only, no call from Tools")
   -- boot as a client WITHOUT Innervate
   W.innervateLoaded = false RC._booted = nil
