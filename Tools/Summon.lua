@@ -607,7 +607,7 @@ function SM.PaintSlots()
   if not c then return end
   local n = SM.stoneCount or 0
   c:Set("stone", n > 0 and (SM.TITLE_ICON .. n .. " at stone") or nil, "good")
-  -- "N asking" is the summoner's slot: at the stone or in Summoner mode. A random
+  -- "N asking" is the summoner's slot: at the stone or in summoner mode. A random
   -- raid member far away does not need it (Arn, 8 Sep).
   local db = SM.db
   local asks, now = 0, GetTime()
@@ -673,7 +673,7 @@ function SM.Build(db)
     function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
   SM.askBtn = K.HeaderButton(head, -17, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
-  SM.summonerBtn = K.HeaderButton(head, -38, "J", "Summoner mode - I am the summoner",
+  SM.summonerBtn = K.HeaderButton(head, -38, "S", "Summoner mode - I am the summoner",
     "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon summoner",
     function() SM.SetSummoner(db, not db.summoner) end)
   SM.summonerBtn:SetSize(18, 12)
@@ -756,11 +756,25 @@ function SM.Build(db)
   return f
 end
 
+--- ONE TIME, AT LOGIN: the old key's value into the new one, then the old key goes.
+---
+--- The mode was named after a person until 19 Sep 2026 - the repo went public and a guildmate's
+--- name went with it. Renaming the setting means anyone who had it switched on would silently
+--- lose it, so the value is carried: read `summoner`, write `summoner`, drop `summoner`. Runs once
+--- because after it runs there is no `summoner` left to read.
+function SM.Migrate(db)
+  if type(db) ~= "table" then return false end
+  if db.summoner == nil then return false end
+  if db.summoner == nil then db.summoner = db.summoner and true or false end
+  db.summoner = nil
+  return true
+end
+
 function SM.SetSummoner(db, on)
   db.summoner = on and true or false
   SM.PaintPin(db)
   if on then SM.SetMode(db, "on") end
-  NS.Print("Summoner mode %s%s", db.summoner and T.text("gold", "on") or T.text("muted", "off"),
+  NS.Print("summoner mode %s%s", db.summoner and T.text("gold", "on") or T.text("muted", "off"),
     db.summoner and " - you are the summoner; requests come through loud" or "")
 end
 
@@ -1193,6 +1207,7 @@ NS.Registry:Register({
     rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil,
     summoner = false, stones = {}, key = true },
   OnInit = function(self, db)
+    SM.Migrate(db)
     SM.events = CreateFrame("Frame")
     SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
   end,
@@ -1213,7 +1228,7 @@ NS.Registry:Register({
       get = function(db) return db.mode or "auto" end, set = function(db, v) SM.SetMode(db, v) end },
     { kind = "toggle", label = "nag me when summoned", get = function(db) return db.nag ~= false end,
       set = function(db, on) db.nag = on and true or false end },
-    { kind = "toggle", label = "Summoner mode (I summon)", get = function(db) return db.summoner and true or false end,
+    { kind = "toggle", label = "summoner mode (I summon)", get = function(db) return db.summoner and true or false end,
       set = function(db, on) SM.SetSummoner(db, on) end },
     { kind = "toggle", label = "interact key over window", get = function(db) return db.key ~= false end,
       set = function(db, on) db.key = on and true or false end },

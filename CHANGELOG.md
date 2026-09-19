@@ -31,7 +31,7 @@
   drags the window to the middle of the screen - "I have no idea where the farm window is
   at"), right-click a row to switch the tool on/off. Right click on the button: **Options** -
   on/off per tool, farm find-sound / spot radius / burst / prune, summon window mode / nag /
-  Summoner / interact key / at-stone yards / rows / linger, the minimap button itself, the BiS
+  summoner mode / interact key / at-stone yards / rows / linger, the minimap button itself, the BiS
   channel switch, and "reset window positions". Drag the button around the minimap rim.
   `/bt hub`, `/bt options`, `/bt minimap` are the slash fallbacks.
 
@@ -64,7 +64,7 @@
 - Summoning stones are learned, not looked up: hover one (or a peer lands on one after
   accepting) and its position is saved and shared with the raid. "At the stone" is then a
   distance to the stone, wherever the summoner stands; the header shows `N at stone`.
-- **Summoner mode** (`J` on the header, `/bt summon summoner`): you are the summoner tonight - window
+- **Summoner mode** (`S` on the header, `/bt summon summoner`): you are the summoner tonight - window
   pinned, every request reaches you as a raid warning + sound + voice, wherever you are.
 - Summon list order: whoever asked, then the other world (Azeroth/Outland, named in the row),
   then same world other zone (`far`), then same zone by yards, furthest first. People inside
@@ -93,7 +93,7 @@
 - LibBiSComm minor 3: a client no longer listens to its own echo. The game hands every group
   addon message back to the sender; minor 2 took it and made you your own peer, so a summoner
   at the stone counted himself twice (`2 at stone` with one person there) and a requester saw
-  his own `1 asking`. `N asking` now shows only to summoners (at a stone, or Summoner mode).
+  his own `1 asking`. `N asking` now shows only to summoners (at a stone, or summoner mode).
 - 25-man rehearsal (`_bisdev/comm/raid25.lua`, 41 checks; Tools harness gained a 25-man block):
   forming a raid is one HI per client; a zone line is one WHERE and never a HI; a roster tick
   that changes nobody costs nothing; only the man who joined says HI and only the people he is

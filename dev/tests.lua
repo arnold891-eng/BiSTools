@@ -1262,11 +1262,11 @@ chat0 = 0
 say("Druid", "1|SUMMON|REQ|1") adv(0)
 ok(chat0 == 0 and shown():find("Druid asks", 1, true), "a request prints in the prompt, not chat", shown())
 -- "N asking" is for summoners only (Arn, 8 Sep: "a random person should not see 1 asking")
-ok(SM.con.slots.asks == nil, "far from any stone, not Summoner: no asking slot for me")
+ok(SM.con.slots.asks == nil, "far from any stone, not the summoner: no asking slot for me")
 dbs.summoner = true SM.Refresh(dbs)
-ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "Summoner (the summoner) sees the asking slot")
+ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "the summoner sees the asking slot")
 dbs.summoner = false SM.Refresh(dbs)
-ok(SM.con.slots.asks == nil, "Summoner off: gone again")
+ok(SM.con.slots.asks == nil, "summoner mode off: gone again")
 SM.stoneSeen = W.now SM.Refresh(dbs)
 ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "standing at a stone: the asking slot shows")
 SM.stoneSeen = nil
@@ -1443,10 +1443,11 @@ ok(db.pos[1] == "TOPLEFT" and db.pos[4] == "CENTER" and db.pos[2] == 12, "drag s
 -- Arn (8 Sep): "run some tests with 25 people using this addon". 21 facts (12-char
 -- names, the ugly kind), 3 without any addon, me at the stone in Netherstorm.
 do
-  local names = { "Kumlance", "Summoneralicious", "Brimstonefel", "Fojjiwarlock", "Hexadecimal", "Moonwhisper",
-    "Quillfeather", "Ravenmourne", "Sylvanasfan", "Kessandra", "Lorthemar", "Nyxathid", "Pyrelight",
-    "Ithiliel", "Elaria", "Fenwick", "Jorvak", "Bree", "Cato", "Nebbin", "Arn", "Dorn", "Gorrmash", "Oggrim" }
-  local nolib = { Dorn = true, Gorrmash = true, Oggrim = true }
+  -- 24 in the raid. The names were real people's characters until 19 Sep 2026, when this repo
+  -- went public; Kumlance is Arn's own and stays. The long ones matter: the window has to cope
+  -- with a name that does not fit, which is why Raider10 and up are deliberately longer.
+  local names = { "Kumlance", "Raider1", "Raider2", "Raider3", "Raider4", "Raider5", "Raider6", "Raider7", "Raider8", "Raider9", "Raider10", "Raider11", "Raider12", "Raider13", "Raider14", "Raider15", "Raider16", "Raider17", "Raider18", "Raider19", "Raider20", "Raider21", "Raider22", "Raider23" }
+  local nolib = { Raider21 = true, Raider22 = true, Raider23 = true }
   W.raid = { { name = "Me" } }
   for i, n in ipairs(names) do
     W.raid[#W.raid + 1] = { name = n, zone = "Netherstorm", x = 1000 + i * 40, y = 1000, inst = 530 }
@@ -1471,10 +1472,10 @@ do
       end
     end
   end
-  say("Kessandra", "1|SUMMON|REQ|1") say("Pyrelight", "1|SUMMON|REQ|1")   -- an addon-less man cannot ask
+  say("Raider9", "1|SUMMON|REQ|1") say("Raider12", "1|SUMMON|REQ|1")   -- an addon-less man cannot ask
   S("summon show") SM.Refresh(dbx)
   ok(lib:Count() == 21, "21 facts on the lib, 3 addon-less men are not", lib:Count())
-  -- Kessandra is inside Karazhan AND asked: a request beats every filter, so 4 count as inside
+  -- Raider9 is inside Karazhan AND asked: a request beats every filter, so 4 count as inside
   ok(SM.atStone == 6 and SM.inside == 4, "6 at the stone, 4 inside - counted, not listed (the asking one is listed)", SM.atStone, SM.inside)
   ok(SM.stoneCount == 7, "the stone slot counts me too: 7", SM.stoneCount)
   ok(SM.con.slots.stone.text:find("7 at stone", 1, true) and SM.con:Width() <= SM.W - 56 - 8, "header prompt fits with 7 at stone")
@@ -1485,7 +1486,7 @@ do
   ok(SM.list[3].score >= SM.SCORE_OTHER_WORLD and SM.list[5].score >= SM.SCORE_OTHER_WORLD and SM.list[6].score < SM.SCORE_OTHER_WORLD, "then the three in the other world, then Netherstorm", SM.list[3].name)
   ok(SM.list[6].score > SM.list[11].score, "Netherstorm furthest first")
   local guessSeen = false
-  for _, e in ipairs(SM.list) do if e.name == "Gorrmash" and not e.fact then guessSeen = true end end
+  for _, e in ipairs(SM.list) do if e.name == "Raider22" and not e.fact then guessSeen = true end end
   ok(guessSeen, "an addon-less man still ranks, as a guess")
   -- rows: capped at db.rows, every row's name + info fit inside 170 px
   local shown, widest = 0, 0
@@ -1499,7 +1500,7 @@ do
   end
   ok(shown == 6, "six rows shown of fourteen (db.rows)", shown)
   ok(widest <= SM.W, "the widest row (12-char name + info) fits the window", widest)
-  -- Summoner mode: the asking slot appears for the summoner
+  -- the summoner mode: the asking slot appears for the summoner
   dbx.summoner = true SM.Refresh(dbx)
   ok(SM.con.slots.asks and SM.con.slots.asks.text == "2 asking", "2 asking for the summoner", SM.con.slots.asks and SM.con.slots.asks.text)
   ok(SM.con:Width() <= SM.W - 56 - 8, "header still fits")
