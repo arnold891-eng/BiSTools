@@ -445,7 +445,7 @@ function SM.OnRequest(sender, flag)
     if fresh then
       SM.Log(sender .. " asks", "gold")
       local db0 = SM.db
-      if db0 and db0.jeck then
+      if db0 and db0.summoner then
         -- the summoner: this is his job tonight, it should reach him mid-fight
         if RaidNotice_AddMessage and RaidWarningFrame then
           RaidNotice_AddMessage(RaidWarningFrame, sender .. " asks for a summon",
@@ -607,11 +607,11 @@ function SM.PaintSlots()
   if not c then return end
   local n = SM.stoneCount or 0
   c:Set("stone", n > 0 and (SM.TITLE_ICON .. n .. " at stone") or nil, "good")
-  -- "N asking" is the summoner's slot: at the stone or in Jeck mode. A random
+  -- "N asking" is the summoner's slot: at the stone or in summoner mode. A random
   -- raid member far away does not need it (Arn, 8 Sep).
   local db = SM.db
   local asks, now = 0, GetTime()
-  local summoner = db and (db.jeck or SM.MeAtStone(db))
+  local summoner = db and (db.summoner or SM.MeAtStone(db))
   if summoner then
     for name in pairs(SM.requests) do if SM.Asked(name, now) then asks = asks + 1 end end
   end
@@ -673,10 +673,10 @@ function SM.Build(db)
     function() SM.SetMode(db, "auto") SM.ApplyVisible(false) end, "warn")
   SM.askBtn = K.HeaderButton(head, -17, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
-  SM.jeckBtn = K.HeaderButton(head, -38, "J", "Jeck mode - I am the summoner",
-    "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon jeck",
-    function() SM.SetJeck(db, not db.jeck) end)
-  SM.jeckBtn:SetSize(18, 12)
+  SM.summonerBtn = K.HeaderButton(head, -38, "S", "Summoner mode - I am the summoner",
+    "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon summoner",
+    function() SM.SetSummoner(db, not db.summoner) end)
+  SM.summonerBtn:SetSize(18, 12)
   head:SetScript("OnEnter", function() SM.seenAt = GetTime() end)
   -- the header is the drag handle: plain drag, no shift needed (rows need shift
   -- because a plain click on a row is the target action)
@@ -756,19 +756,33 @@ function SM.Build(db)
   return f
 end
 
-function SM.SetJeck(db, on)
-  db.jeck = on and true or false
+--- ONE TIME, AT LOGIN: the old key's value into the new one, then the old key goes.
+---
+--- The mode was named after a person until 19 Sep 2026 - the repo went public and a guildmate's
+--- name went with it. Renaming the setting means anyone who had it switched on would silently
+--- lose it, so the value is carried: read `jeck`, write `summoner`, drop `jeck`. Runs once
+--- because after it runs there is no `jeck` left to read.
+function SM.Migrate(db)
+  if type(db) ~= "table" then return false end
+  if db.jeck == nil then return false end
+  if db.summoner == nil then db.summoner = db.jeck and true or false end
+  db.jeck = nil
+  return true
+end
+
+function SM.SetSummoner(db, on)
+  db.summoner = on and true or false
   SM.PaintPin(db)
   if on then SM.SetMode(db, "on") end
-  NS.Print("Jeck mode %s%s", db.jeck and T.text("gold", "on") or T.text("muted", "off"),
-    db.jeck and " - you are the summoner; requests come through loud" or "")
+  NS.Print("summoner mode %s%s", db.summoner and T.text("gold", "on") or T.text("muted", "off"),
+    db.summoner and " - you are the summoner; requests come through loud" or "")
 end
 
 function SM.PaintPin(db)
-  if SM.jeckBtn then
-    SM.jeckBtn.edge:set(db.jeck and "gold" or "edge", 1)
-    local jr, jg, jb = K.color(db.jeck and "gold" or "muted")
-    SM.jeckBtn.label:SetTextColor(jr, jg, jb, 1)
+  if SM.summonerBtn then
+    SM.summonerBtn.edge:set(db.summoner and "gold" or "edge", 1)
+    local jr, jg, jb = K.color(db.summoner and "gold" or "muted")
+    SM.summonerBtn.label:SetTextColor(jr, jg, jb, 1)
   end
 end
 
@@ -1101,7 +1115,7 @@ function SM.Hook(db)
     lib:RegisterCallback("PEER", function() bump() end)
   end
   SM.Refresh(db)
-  SM.ApplyVisible(db.mode == "on" or db.jeck)
+  SM.ApplyVisible(db.mode == "on" or db.summoner)
 end
 
 function SM.Unhook()
@@ -1132,8 +1146,8 @@ function SM.Slash(db, args)
     NS.Print("interact key over the window: %s (mouse on the window, press Interact With Target: targets the top name, press again: the stone)",
       db.key ~= false and T.text("good", "on") or T.text("warn", "off"))
   elseif cmd == "all" then SM.SetUnrolled(db, not SM.unrolled) NS.Print("summon list: %s", SM.unrolled and "everyone" or "who needs it")
-  elseif cmd == "jeck" then
-    if rest:lower() == "on" then SM.SetJeck(db, true) elseif rest:lower() == "off" then SM.SetJeck(db, false) else SM.SetJeck(db, not db.jeck) end
+  elseif cmd == "summoner" then
+    if rest:lower() == "on" then SM.SetSummoner(db, true) elseif rest:lower() == "off" then SM.SetSummoner(db, false) else SM.SetSummoner(db, not db.summoner) end
   elseif cmd == "stones" then
     local n = 0
     for _, st in pairs(db.stones or {}) do n = n + 1 DEFAULT_CHAT_FRAME:AddMessage(("  %s  %.0f, %.0f"):format(T.text("accent", st.zone), st.x, st.y)) end
@@ -1180,7 +1194,7 @@ function SM.Slash(db, args)
     end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [me|all|key|jeck|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bt summon [me|all|key|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 
@@ -1191,8 +1205,9 @@ NS.Registry:Register({
   usage = "/bt summon [show|auto|hide|...]",
   defaults = { mode = "auto", near = SM.DEFAULT_NEAR, linger = SM.DEFAULT_LINGER, retry = SM.DEFAULT_RETRY,
     rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil,
-    jeck = false, stones = {}, key = true },
+    summoner = false, stones = {}, key = true },
   OnInit = function(self, db)
+    SM.Migrate(db)
     SM.events = CreateFrame("Frame")
     SM.events:SetScript("OnEvent", function(_, ev) SM.OnEvent(db, ev) end)
   end,
@@ -1213,8 +1228,8 @@ NS.Registry:Register({
       get = function(db) return db.mode or "auto" end, set = function(db, v) SM.SetMode(db, v) end },
     { kind = "toggle", label = "nag me when summoned", get = function(db) return db.nag ~= false end,
       set = function(db, on) db.nag = on and true or false end },
-    { kind = "toggle", label = "Jeck mode (I summon)", get = function(db) return db.jeck and true or false end,
-      set = function(db, on) SM.SetJeck(db, on) end },
+    { kind = "toggle", label = "summoner mode (I summon)", get = function(db) return db.summoner and true or false end,
+      set = function(db, on) SM.SetSummoner(db, on) end },
     { kind = "toggle", label = "interact key over window", get = function(db) return db.key ~= false end,
       set = function(db, on) db.key = on and true or false end },
     { kind = "step", label = "at the stone within", min = 20, max = 200, step = 10,

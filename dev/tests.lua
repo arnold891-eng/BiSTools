@@ -849,19 +849,19 @@ do
       if type(v) == "boolean" then d[k] = not v ok(lib:Enabled(), t .. "." .. k .. " flipped: lib still on") d[k] = v end
     end
   end
-  for _, cmd in ipairs({ "farm sound off", "farm sound first", "summon nag off", "summon nag on", "summon key off", "summon key on", "summon jeck", "summon jeck", "summon hide", "summon auto" }) do
+  for _, cmd in ipairs({ "farm sound off", "farm sound first", "summon nag off", "summon nag on", "summon key off", "summon key on", "summon summoner", "summon summoner", "summon hide", "summon auto" }) do
     S(cmd) ok(lib:Enabled(), "/bt " .. cmd .. ": lib still on")
   end
   S("summon show")   -- back to pinned, the state the blocks below expect
   -- and a client that logs in with every toggle already off still boots the lib
   local fdb, sdb = R:DBFor(R:Get("farm")), R:DBFor(R:Get("summon"))
-  local keep = { fdb.sound, sdb.nag, sdb.key, sdb.jeck, BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon }
-  fdb.sound, sdb.nag, sdb.key, sdb.jeck = "off", false, false, false
+  local keep = { fdb.sound, sdb.nag, sdb.key, sdb.summoner, BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon }
+  fdb.sound, sdb.nag, sdb.key, sdb.summoner = "off", false, false, false
   BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon = false, false
   lib._booted = nil lib.addons.BiSTools = nil
   NS.Comm.Boot()
   ok(lib._booted and lib.addons.BiSTools == TOC_VERSION and lib:Enabled(), "everything off in the saved db: the lib still boots and registers")
-  fdb.sound, sdb.nag, sdb.key, sdb.jeck = keep[1], keep[2], keep[3], keep[4]
+  fdb.sound, sdb.nag, sdb.key, sdb.summoner = keep[1], keep[2], keep[3], keep[4]
   BiSToolsDB.enabled.farm, BiSToolsDB.enabled.summon = keep[5], keep[6]
 end
 
@@ -987,9 +987,9 @@ ok(SM.body.h == h0 + 12, "status text adds a 12 px line under the rows (GetText,
 SM.Refresh(db_summon())
 -- header overlap guard: nothing but title + buttons lives in the header
 ok(SM.count.parent == SM.body, "the count line lives under the rows, not in the header")
-ok(SM.jeckBtn.point[4] == -38 and SM.askBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
+ok(SM.summonerBtn.point[4] == -38 and SM.askBtn.point[4] == -17 and SM.closeBtn.point[4] == -3, "header buttons at their computed slots")
 ok(SM.pinBtn == nil, "no pin button (auto-open covers it; /bt summon show|auto|hide is the manual way)")
-ok(SM.jeckBtn.w == 18 and SM.jeckBtn.point[4] - SM.jeckBtn.w == -56, "J's left edge is the 56 px strip")
+ok(SM.summonerBtn.w == 18 and SM.summonerBtn.point[4] - SM.summonerBtn.w == -56, "J's left edge is the 56 px strip")
 
 -- lib 1 peers sent no mapId outdoors: a fact standing next to me must not read "far"
 say("Druid", "1|CORE|WHERE|0|none||Netherstorm|1300.0|1000.0|")   -- empty mapId
@@ -1262,11 +1262,11 @@ chat0 = 0
 say("Druid", "1|SUMMON|REQ|1") adv(0)
 ok(chat0 == 0 and shown():find("Druid asks", 1, true), "a request prints in the prompt, not chat", shown())
 -- "N asking" is for summoners only (Arn, 8 Sep: "a random person should not see 1 asking")
-ok(SM.con.slots.asks == nil, "far from any stone, not Jeck: no asking slot for me")
-dbs.jeck = true SM.Refresh(dbs)
-ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "Jeck (the summoner) sees the asking slot")
-dbs.jeck = false SM.Refresh(dbs)
-ok(SM.con.slots.asks == nil, "Jeck off: gone again")
+ok(SM.con.slots.asks == nil, "far from any stone, not the summoner: no asking slot for me")
+dbs.summoner = true SM.Refresh(dbs)
+ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "the summoner sees the asking slot")
+dbs.summoner = false SM.Refresh(dbs)
+ok(SM.con.slots.asks == nil, "summoner mode off: gone again")
 SM.stoneSeen = W.now SM.Refresh(dbs)
 ok(SM.con.slots.asks and SM.con.slots.asks.text == "1 asking", "standing at a stone: the asking slot shows")
 SM.stoneSeen = nil
@@ -1342,19 +1342,19 @@ W.interactKey = "NUMPADMULTIPLY" W.mouseOver = nil W.target = nil SM.Watch(dbs, 
 S("off summon") ok(W.binds[kb] == nil, "tool off clears the override") S("on summon")
 S("summon hide")
 
--- jeck mode: the summoner opts in; window pinned, requests come through like a raid warning
-S("summon jeck on")
-ok(dbs.jeck and dbs.mode == "on" and BiSToolsSummon:IsShown(), "jeck: pinned")
-ok(SM.jeckBtn.label.color[1] == select(1, F.color("gold")), "J lit gold")
+-- summoner mode: the summoner opts in; window pinned, requests come through like a raid warning
+S("summon summoner on")
+ok(dbs.summoner and dbs.mode == "on" and BiSToolsSummon:IsShown(), "summoner: pinned")
+ok(SM.summonerBtn.label.color[1] == select(1, F.color("gold")), "J lit gold")
 local n0 = #W.notices
 say("Nolib", "1|SUMMON|REQ|1")
-ok(#W.notices == n0 + 1 and W.notices[#W.notices]:find("Nolib") and W.sounds[#W.sounds] == 8959 and W.spoken[#W.spoken] == "Summon", "jeck: request = raid warning + sound + voice")
+ok(#W.notices == n0 + 1 and W.notices[#W.notices]:find("Nolib") and W.sounds[#W.sounds] == 8959 and W.spoken[#W.spoken] == "Summon", "summoner: request = raid warning + sound + voice")
 say("Nolib", "1|SUMMON|REQ|0")
-S("summon jeck off")
+S("summon summoner off")
 say("Nolib", "1|SUMMON|REQ|1")
-ok(#W.notices == n0 + 1 and W.sounds[#W.sounds] == 3081, "not jeck: quiet ping only")
+ok(#W.notices == n0 + 1 and W.sounds[#W.sounds] == 3081, "not summoner: quiet ping only")
 say("Nolib", "1|SUMMON|REQ|0")
-SM.jeckBtn.scripts.OnClick(SM.jeckBtn) ok(dbs.jeck, "J button toggles") SM.jeckBtn.scripts.OnClick(SM.jeckBtn) ok(not dbs.jeck, "and back")
+SM.summonerBtn.scripts.OnClick(SM.summonerBtn) ok(dbs.summoner, "J button toggles") SM.summonerBtn.scripts.OnClick(SM.summonerBtn) ok(not dbs.summoner, "and back")
 S("summon hide") dbs.stones = {}
 
 -- stone mouseover brings the window up in auto mode, asks the raid once, lingers, hides
@@ -1443,10 +1443,11 @@ ok(db.pos[1] == "TOPLEFT" and db.pos[4] == "CENTER" and db.pos[2] == 12, "drag s
 -- Arn (8 Sep): "run some tests with 25 people using this addon". 21 facts (12-char
 -- names, the ugly kind), 3 without any addon, me at the stone in Netherstorm.
 do
-  local names = { "Kumlance", "Jeckalicious", "Brimstonefel", "Fojjiwarlock", "Hexadecimal", "Moonwhisper",
-    "Quillfeather", "Ravenmourne", "Sylvanasfan", "Kessandra", "Lorthemar", "Nyxathid", "Pyrelight",
-    "Ithiliel", "Elaria", "Fenwick", "Jorvak", "Bree", "Cato", "Nebbin", "Arn", "Dorn", "Gorrmash", "Oggrim" }
-  local nolib = { Dorn = true, Gorrmash = true, Oggrim = true }
+  -- 24 in the raid. The names were real people's characters until 19 Sep 2026, when this repo
+  -- went public; Kumlance is Arn's own and stays. The long ones matter: the window has to cope
+  -- with a name that does not fit, which is why Raider10 and up are deliberately longer.
+  local names = { "Kumlance", "Raider1", "Raider2", "Raider3", "Raider4", "Raider5", "Raider6", "Raider7", "Raider8", "Raider9", "Raider10", "Raider11", "Raider12", "Raider13", "Raider14", "Raider15", "Raider16", "Raider17", "Raider18", "Raider19", "Raider20", "Raider21", "Raider22", "Raider23" }
+  local nolib = { Raider21 = true, Raider22 = true, Raider23 = true }
   W.raid = { { name = "Me" } }
   for i, n in ipairs(names) do
     W.raid[#W.raid + 1] = { name = n, zone = "Netherstorm", x = 1000 + i * 40, y = 1000, inst = 530 }
@@ -1454,7 +1455,7 @@ do
   W.inRaid = true
   local dbx = db_summon()
   dbx.stones = { ["530|Netherstorm"] = { map = 530, zone = "Netherstorm", x = 1000, y = 1000 } }
-  dbx.rows = 6 dbx.jeck = false
+  dbx.rows = 6 dbx.summoner = false
   W.me = { zone = "Netherstorm", x = 1000, y = 1000, inst = 530 }
   lib.peers = {} SM.requests = {} SM.tried = {}
   for i, n in ipairs(names) do
@@ -1471,10 +1472,10 @@ do
       end
     end
   end
-  say("Kessandra", "1|SUMMON|REQ|1") say("Pyrelight", "1|SUMMON|REQ|1")   -- an addon-less man cannot ask
+  say("Raider9", "1|SUMMON|REQ|1") say("Raider12", "1|SUMMON|REQ|1")   -- an addon-less man cannot ask
   S("summon show") SM.Refresh(dbx)
   ok(lib:Count() == 21, "21 facts on the lib, 3 addon-less men are not", lib:Count())
-  -- Kessandra is inside Karazhan AND asked: a request beats every filter, so 4 count as inside
+  -- Raider9 is inside Karazhan AND asked: a request beats every filter, so 4 count as inside
   ok(SM.atStone == 6 and SM.inside == 4, "6 at the stone, 4 inside - counted, not listed (the asking one is listed)", SM.atStone, SM.inside)
   ok(SM.stoneCount == 7, "the stone slot counts me too: 7", SM.stoneCount)
   ok(SM.con.slots.stone.text:find("7 at stone", 1, true) and SM.con:Width() <= SM.W - 56 - 8, "header prompt fits with 7 at stone")
@@ -1485,7 +1486,7 @@ do
   ok(SM.list[3].score >= SM.SCORE_OTHER_WORLD and SM.list[5].score >= SM.SCORE_OTHER_WORLD and SM.list[6].score < SM.SCORE_OTHER_WORLD, "then the three in the other world, then Netherstorm", SM.list[3].name)
   ok(SM.list[6].score > SM.list[11].score, "Netherstorm furthest first")
   local guessSeen = false
-  for _, e in ipairs(SM.list) do if e.name == "Gorrmash" and not e.fact then guessSeen = true end end
+  for _, e in ipairs(SM.list) do if e.name == "Raider22" and not e.fact then guessSeen = true end end
   ok(guessSeen, "an addon-less man still ranks, as a guess")
   -- rows: capped at db.rows, every row's name + info fit inside 170 px
   local shown, widest = 0, 0
@@ -1499,11 +1500,11 @@ do
   end
   ok(shown == 6, "six rows shown of fourteen (db.rows)", shown)
   ok(widest <= SM.W, "the widest row (12-char name + info) fits the window", widest)
-  -- Jeck mode: the asking slot appears for the summoner
-  dbx.jeck = true SM.Refresh(dbx)
+  -- the summoner mode: the asking slot appears for the summoner
+  dbx.summoner = true SM.Refresh(dbx)
   ok(SM.con.slots.asks and SM.con.slots.asks.text == "2 asking", "2 asking for the summoner", SM.con.slots.asks and SM.con.slots.asks.text)
   ok(SM.con:Width() <= SM.W - 56 - 8, "header still fits")
-  dbx.jeck = false
+  dbx.summoner = false
   -- the ticker's Refresh must stay cheap with 25 on the roster
   local t0 = os.clock()
   for _ = 1, 200 do SM.Refresh(dbx) end
