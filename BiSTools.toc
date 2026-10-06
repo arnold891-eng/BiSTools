@@ -1,8 +1,9 @@
 ## Interface: 20506, 16001
 ## Title: |cffb980ffBiS|r Tools
+## Category: |cffb980ffBiS|r
 ## Notes: Bundle of small BiS utilities. /bt for the list.
 ## Author: Arn
-## Version: 0.3.4
+## Version: 0.4.0
 ## OptionalDeps: BiSTheme, FojjiCore
 ## SavedVariables: BiSToolsDB
 ## X-Curse-Project-ID: 1686340

@@ -1,3 +1,14 @@
+## 0.4.0
+
+- **Runs clean on WoW Forever.** The farm tool used to hear kills through the combat log, and on
+  Forever even asking for it is blocked - every login showed "BiSTools tried to call the
+  protected function". On Forever it now counts kills from the game's own kill event instead.
+  TBC is unchanged.
+- All BiS addons sit under one **BiS** heading in the addon list.
+- The shared comm layer sends at the pace the client allows (one message a second) and waits out
+  chat lockdown, so a burst of summon traffic no longer goes missing.
+- The release zip holds only files the project tracks - nothing stray can ship.
+
 ## 0.3.4
 
 - LibBiSComm minor 6: summon API moved to C_SummonInfo on 2.5.6 — the phantom-summon filter works again.

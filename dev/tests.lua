@@ -213,7 +213,19 @@ local frames = {}
 _G.CreateFrame = function(kind, name, parent, template)
   local f = { kind = kind, name = name, parent = parent, template = template,
     shown = true, scripts = {}, attrs = {}, events = {}, h = 0 }
-  function f:RegisterEvent(e) self.events[e] = true end
+  -- ON FOREVER, REGISTERING THE COMBAT LOG IS A PROTECTED ACTION (6 Oct 2026, Arn's BugGrabber:
+  -- "AddOn 'BiSTools' tried to call the protected function 'Frame:RegisterEvent()'"). The client
+  -- does not throw - it records the blame and fires ADDON_ACTION_FORBIDDEN later, which is why a
+  -- pcall never saw it. This mock always took the registration, so the suite could not tell. With
+  -- W.restricted on it behaves like that client: the event is NOT registered and the call is blamed.
+  W.forbidden = {}
+  function f:RegisterEvent(e)
+    if W.restricted and e == "COMBAT_LOG_EVENT_UNFILTERED" then
+      W.forbidden[#W.forbidden + 1] = "Frame:RegisterEvent(" .. e .. ")"
+      return
+    end
+    self.events[e] = true
+  end
   function f:UnregisterAllEvents() self.events = {} end
   function f:UnregisterEvent(e) self.events[e] = nil end
   function f:IsMouseOver() return W.mouseOver == self end
@@ -1748,6 +1760,85 @@ do
     if ref then ok(mine == ref, "embedded " .. pr[1] .. " is byte-identical to " .. pr[2] .. " (run _bisdev/sync.ps1)")
     else print("   (canonical " .. pr[2] .. " not beside this checkout - embed check skipped)") end
   end
+end
+
+-- ---------------------------------------------------------------- Forever: kills without the combat log
+-- (6 Oct 2026) The farm tool heard kills through COMBAT_LOG_EVENT_UNFILTERED, and on WoW Forever
+-- even REGISTERING it is a protected action. On a client that says it hides values, the tool must
+-- never ask for it, and must count kills from the plain PARTY_KILL event instead - in either of the
+-- two shapes Overlord handles, with any argument possibly a secret.
+do
+  -- A SECRET STRING SAYS "string" (on Forever type() still answers the real type) and refuses
+  -- everything else: a match, a find, a comparison. A plain table would be caught by any type
+  -- check by luck - the mock must not be kinder than that.
+  local secretMeta = { __secret = true, __index = function(_, k)
+    error("attempt to use a secret value (" .. tostring(k) .. ")", 2) end,
+    __eq = function() error("attempt to compare a secret value", 2) end }
+  local function secret() return setmetatable({}, secretMeta) end
+  local realType = type
+  local names = {}
+  local keep = { C_Secrets = _G.C_Secrets, issecretvalue = _G.issecretvalue, UnitNameFromGUID = _G.UnitNameFromGUID,
+                 type = _G.type }
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  _G.UnitNameFromGUID = function(g) return names[g] end
+  W.restricted = true
+  W.forbidden = {}
+
+  S("off farm") S("on farm")
+  ok(#W.forbidden == 0, "Forever: the farm tool never asks for the combat log (nothing blamed on BiSTools)")
+  ok(not F.events.events.COMBAT_LOG_EVENT_UNFILTERED, "Forever: and is not listening to it")
+  ok(F.events.events.PARTY_KILL, "Forever: it listens to PARTY_KILL instead")
+
+  S("farm clear")
+  local g = "Creature-0-0-0-0-777-Raptor"
+  names[g] = "Raptor"
+  fire("PARTY_KILL", "Player-1", g)
+  ok(db.last and db.last.name == "Raptor" and db.last.guid == g, "Forever: my kill, GUID shape, is recorded by name")
+  fire("PARTY_KILL", "Player-1", g)
+  ok(db.last.count == 2, "Forever: and counted again")
+
+  fire("PARTY_KILL", "Player-99", "Creature-0-0-0-0-778-Raptor")
+  ok(db.last.count == 2, "Forever: somebody else's kill does not count, as with the combat log")
+  fire("PARTY_KILL", "Pet-1", g)
+  ok(db.last.count == 3, "Forever: my pet's kill counts")
+  fire("PARTY_KILL", "Player-1", "Player-2")
+  ok(db.last.count == 3, "Forever: a player dying is not a farm kill")
+
+  ok(pcall(fire, "PARTY_KILL", secret(), g), "Forever: a SECRET attacker does not throw")
+  ok(pcall(fire, "PARTY_KILL", "Player-1", secret()), "Forever: nor a secret victim")
+  ok(db.last.count == 3, "Forever: and neither is counted - nothing secret was read")
+
+  -- the name is not resolved yet: the client says "Unknown". Fall back to the target, if it is the one
+  local g2 = "Creature-0-0-0-0-779-Boar"
+  names[g2] = "Unknown"
+  W.target = { name = "Boar", guid = g2 }
+  fire("PARTY_KILL", "Player-1", g2)
+  W.target = nil
+  ok(db.last.name == "Boar", "Forever: an unresolved name is taken from the target with that GUID")
+  names[g2] = "Unknown"
+  local before = db.last.count
+  fire("PARTY_KILL", "Player-1", g2)
+  ok(db.last.count == before, "Forever: and with no way to name it, it is not recorded as 'Unknown'")
+
+  -- the old shape: one unit token, the victim
+  W.target = { name = "Boar", guid = g2 }
+  before = db.last.count
+  fire("PARTY_KILL", "target")
+  W.target = nil
+  ok(db.last.name == "Boar" and db.last.count == before + 1, "Forever: the unit-token shape is understood too")
+
+  -- and on a client WITHOUT restrictions the combat log is still the road (TBC, unchanged)
+  W.restricted = false
+  _G.C_Secrets = { HasSecretRestrictions = function() return false end }
+  S("off farm") S("on farm")
+  ok(F.events.events.COMBAT_LOG_EVENT_UNFILTERED and not F.events.events.PARTY_KILL,
+     "a client that hides nothing keeps the combat log, and does not listen twice")
+
+  _G.C_Secrets, _G.issecretvalue, _G.UnitNameFromGUID = keep.C_Secrets, keep.issecretvalue, keep.UnitNameFromGUID
+  _G.type = keep.type
+  S("farm clear")
 end
 
 -- leaked globals

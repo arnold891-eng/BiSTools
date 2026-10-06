@@ -472,26 +472,89 @@ function F.Toggle(db, want)
 end
 
 -- ---------------------------------------------------------------- events
+-- WHERE A KILL COMES FROM, PER CLIENT (6 Oct 2026). On WoW Forever, REGISTERING
+-- COMBAT_LOG_EVENT_UNFILTERED is itself a protected action: Arn's BugGrabber, "AddOn 'BiSTools'
+-- tried to call the protected function 'Frame:RegisterEvent()'", twice per login, from F.Hook. A
+-- pcall cannot catch it - the refusal arrives later as an event - so the only fix is never to ask.
+-- On a client that hides values (C_Secrets says so, the same test BiSHealing makes) the kill comes
+-- from the plain PARTY_KILL event instead, the road Overlord Forever takes for the same reason.
+function F.Restricted()
+  local ok, v = pcall(function()
+    return C_Secrets and C_Secrets.HasSecretRestrictions and C_Secrets.HasSecretRestrictions()
+  end)
+  if ok and type(v) == "boolean" and not (issecretvalue and issecretvalue(v)) then return v end
+  return C_Secrets ~= nil and C_Secrets.HasSecretRestrictions ~= nil
+end
+
+-- a value the client will let us look at, or nil
+local function plain(v)
+  if v == nil then return nil end
+  if issecretvalue then
+    local ok, secret = pcall(issecretvalue, v)
+    if not ok or secret then return nil end
+  end
+  return v
+end
+
+-- The kill itself, whichever road it came by: a creature, by name, with its GUID.
+function F.OnKill(db, dstName, dstGUID)
+  -- locked on something? then only that mob counts; the page does not
+  -- swap to whatever else you killed on the way
+  if db.active and dstName ~= db.active then return end
+  if db.active and db.custom == dstName and not (db.last and db.last.name == dstName) then
+    db.customKills = (db.customKills or 0) + 1
+  else
+    F.Record(db, dstName, dstGUID)
+  end
+  if F.Spots then
+    -- the mark it died wearing tells the spot apart better than where you stood
+    local mark
+    local tg = UnitExists("target") and plain(UnitGUID("target"))
+    if tg and tg == dstGUID then mark = GetRaidTargetIndex("target") end
+    F.Spots.Kill(db, dstName, mark)
+  end
+  F.Refresh(db)
+end
+
+-- PARTY_KILL arrives in one of two shapes, and Overlord handles both because nobody has written
+-- down which this client uses: (attackerGUID, targetGUID), or the old (unitToken) of the victim.
+-- Any argument may be a secret value, so each is asked about before anything reads it.
+function F.FromPartyKill(db, a1, a2)
+  local s1 = plain(a1)
+  if type(s1) ~= "string" then return end
+  local guid, name
+  if s1:find("%-") then
+    -- the GUID shape: only our own kills (or the pet's) count, as with the combat log
+    if not F.OwnGUID(s1) then return end
+    guid = plain(a2)
+    if type(guid) ~= "string" or not guid:find("^Creature") then return end
+    if UnitNameFromGUID then
+      local ok, n = pcall(UnitNameFromGUID, guid)
+      n = ok and plain(n) or nil
+      -- "Unknown" is the client's placeholder for a name it has not resolved yet
+      if type(n) == "string" and n ~= "" and n ~= (UNKNOWNOBJECT or "Unknown") then name = n end
+    end
+    if not name and UnitExists("target") and plain(UnitGUID("target")) == guid then
+      name = plain(UnitName("target"))
+    end
+  else
+    -- the unit-token shape: the victim is that unit; the killer is somebody in the group
+    guid = plain(UnitGUID(s1))
+    if type(guid) ~= "string" or not guid:find("^Creature") then return end
+    name = plain(UnitName(s1))
+  end
+  if type(name) ~= "string" or name == "" then return end
+  F.OnKill(db, name, guid)
+end
+
 function F.OnEvent(db, event, ...)
-  if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+  if event == "PARTY_KILL" then
+    F.FromPartyKill(db, ...)
+  elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
     local _, sub, _, srcGUID, _, _, _, dstGUID, dstName = CombatLogGetCurrentEventInfo()
     if sub == "PARTY_KILL" and F.OwnGUID(srcGUID) and dstName
       and dstGUID and dstGUID:find("^Creature") then
-      -- locked on something? then only that mob counts; the page does not
-      -- swap to whatever else you killed on the way
-      if db.active and dstName ~= db.active then return end
-      if db.active and db.custom == dstName and not (db.last and db.last.name == dstName) then
-        db.customKills = (db.customKills or 0) + 1
-      else
-        F.Record(db, dstName, dstGUID)
-      end
-      if F.Spots then
-        -- the mark it died wearing tells the spot apart better than where you stood
-        local mark
-        if UnitExists("target") and UnitGUID("target") == dstGUID then mark = GetRaidTargetIndex("target") end
-        F.Spots.Kill(db, dstName, mark)
-      end
-      F.Refresh(db)
+      F.OnKill(db, dstName, dstGUID)
     end
   elseif event == "PLAYER_REGEN_ENABLED" then
     if F.keyDirty then F.ApplyKey(db) end
@@ -503,7 +566,12 @@ function F.OnEvent(db, event, ...)
 end
 
 function F.Hook(db)
-  F.events:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+  if F.Restricted() then
+    -- never even ask for the combat log here; an unknown event name would throw, so it is pcalled
+    pcall(F.events.RegisterEvent, F.events, "PARTY_KILL")
+  else
+    F.events:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+  end
   F.events:RegisterEvent("PLAYER_REGEN_ENABLED")
   F.events:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
   F.events:RegisterEvent("PLAYER_TARGET_CHANGED")
