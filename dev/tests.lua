@@ -786,7 +786,11 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 7 and lib._booted, "LibBiSComm 1.0 minor 7 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 8 and lib._booted, "LibBiSComm 1.0 minor 8 loaded and booted from Core/Init")
+-- Minor 8 sends one message a second, as the client allows. This suite is about summons and
+-- farming, fires dozens of sends with the clock standing still and jumps it without running
+-- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
+lib.sendGap = 0
 -- the options kit must come from OUR embed via the TOC, not from the BiSTheme addon happening
 -- to be installed: 0.3.0 shipped without the TOC line and the Hub threw "attempt to call field
 -- 'Options'" for anyone without BiSTheme (found 11 Sep 2026, fixed 0.3.1). Minor 2 = Escape closes.
