@@ -21,6 +21,8 @@ _G.STANDARD_TEXT_FONT = "font"
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) W.lastMsg = m end }
 _G.SlashCmdList = {}
 _G.GetTime = function() return W.now end
+-- every client answers this; the suite is the TBC client unless a test says otherwise
+_G.GetBuildInfo = function() return "2.5.6", "69795", "Sep 1 2026", W.iface or 20506 end
 W.afters = {}
 function W.runAfters(dt)
   W.now = W.now + (dt or 1)
@@ -1839,6 +1841,22 @@ do
   _G.C_Secrets, _G.issecretvalue, _G.UnitNameFromGUID = keep.C_Secrets, keep.issecretvalue, keep.UnitNameFromGUID
   _G.type = keep.type
   S("farm clear")
+end
+
+-- NO SUMMONING STONES ON FOREVER (6 Oct 2026). Arn: sunset the summon module there, keep it for
+-- TBC. On a Forever interface number Summon.lua stops at its first lines: no tool, no window, no
+-- nag, no /bt summon. The whole suite above ran it as TBC, where it is untouched.
+do
+  ok(NS.Registry:Get("summon") ~= nil, "TBC (20506): the summon tool is there")
+  W.iface = 16001
+  local registered = 0
+  local fresh = { T = NS.T, Farm = NS.Farm,
+                  Registry = { Register = function() registered = registered + 1 end } }
+  local chunk = assert(loadfile("Tools/Summon.lua"))
+  chunk("BiSTools", fresh)
+  ok(fresh.SummonSunset == true and fresh.Summon == nil, "Forever (16001): Summon.lua stops at the top")
+  ok(registered == 0, "Forever: and registers no tool - no window, no nag, no /bt summon")
+  W.iface = nil
 end
 
 -- leaked globals

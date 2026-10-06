@@ -1,6 +1,6 @@
 ## Interface: 20506, 16001
 ## Title: |cffb980ffBiS|r Tools
-## Category: |cffb980ffBiS|r
+## Category: |cffb980ffBiS>|rAddons
 ## Notes: Bundle of small BiS utilities. /bt for the list.
 ## Author: Arn
 ## Version: 0.4.0

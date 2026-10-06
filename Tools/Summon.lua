@@ -16,6 +16,24 @@
 --     a summon offer makes noise until they answer it. /bt summon nag off is
 --     its own switch. The tool toggle only kills the summoner's window.
 local ADDON, NS = ...
+
+-- NOT ON WOW FOREVER (6 Oct 2026). Arn: "no more summoning stone so let's sunset the summon
+-- module" - and then "off on Forever only": TBC players keep it. So on Forever this file stops
+-- here: no tool registered, no window, no nag, no /bt summon, no `the key`. The saved keys are left
+-- alone, because the same account may still play TBC.
+--
+-- Asked by INTERFACE NUMBER, not by a feature, on purpose: whether stones exist is game content,
+-- not an API, and Forever carries every API a summon needs. 16000-19999 is Forever's range (it says
+-- 16001; NovaInstanceTracker and ProfessionMaster draw the same line). WOW_PROJECT_ID cannot tell
+-- them apart - on the beta it still reads 1, retail's (Overlord, Sync.lua).
+do
+  local iface = GetBuildInfo and select(4, GetBuildInfo())
+  if type(iface) == "number" and iface >= 16000 and iface < 20000 then
+    NS.SummonSunset = true
+    return
+  end
+end
+
 local T = NS.T
 local K = NS.Farm                -- the Innervate-style kit: tex / fs / border / HeaderButton / color
 

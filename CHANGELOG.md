@@ -4,7 +4,9 @@
   Forever even asking for it is blocked - every login showed "BiSTools tried to call the
   protected function". On Forever it now counts kills from the game's own kill event instead.
   TBC is unchanged.
-- All BiS addons sit under one **BiS** heading in the addon list.
+- **The summon tool is off on WoW Forever** - there are no summoning stones there. No window, no
+  nag, no `/bt summon`. On TBC it is unchanged.
+- All BiS addons sit under one **BiS>Addons** heading in the addon list.
 - The shared comm layer sends at the pace the client allows (one message a second) and waits out
   chat lockdown, so a burst of summon traffic no longer goes missing.
 - The release zip holds only files the project tracks - nothing stray can ship.
