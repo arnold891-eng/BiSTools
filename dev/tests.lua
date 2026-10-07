@@ -2354,15 +2354,17 @@ do
   ok(A.none.shown and not A.arrow.shown, "no spot on this map: no arrow, a line saying so")
   W.map = 1952
 
-  -- IT LIVES IN THE SPAWNS WINDOW (Arn: "we put that arrow in the current spawn list window ...
-  -- keep the name spawns"): its top row, under the title, with the list hanging below it
-  ok(BiSToolsFarmArrow.parent == BiSToolsFarmSpots, "the arrow is a row of the Spawns window, not a window of its own")
-  ok(A.label.text and A.label.text:find("next"), "labelled as the estimate of the next spawn")
-  ok(F.Spots.body.point and F.Spots.body.point[2] == BiSToolsFarmArrow, "the list hangs below the arrow row")
-  S("farm arrow off")
-  ok(F.Spots.body.point and F.Spots.body.point[2] == F.Spots.head, "with the arrow off, the list moves back up under the title")
-  S("farm arrow on")
-  ok(F.Spots.title.text:find("Spawns"), "the window keeps its name: Spawns")
+  -- BIG AND ON ITS OWN, LIKE RESTEDXP'S (Arn: the row was "a little crowded ... can we make it big
+  -- like the rested one"): floating, a big arrow, mark + timer under it, then the distance
+  A.Refresh(fdb)                          -- back on the map with the spots
+  ok(BiSToolsFarmArrow.parent == UIParent, "the arrow floats on its own, not inside the Spawns window")
+  ok(A.arrow.w and A.arrow.w >= 48, "and it is BIG", A.arrow.w)
+  ok(A.dist.text and A.dist.text:find("yd%)$"), "the distance under it, RestedXP-style: (N yd)", A.dist.text)
+  ok(F.Spots.body.point and F.Spots.body.point[2] == F.Spots.head, "the Spawns window has no arrow row any more")
+  ok(F.Spots.title.text:find("Spawns"), "and keeps its name: Spawns")
+  BiSToolsFarmArrow.scripts.OnDragStop(BiSToolsFarmArrow)
+  ok(type(fdb.arrowPos) == "table" and fdb.arrowPos[1], "a dragged arrow remembers where it was left")
+  fitsIn(BiSToolsFarmArrow, "the floating arrow")
 
   S("farm arrow off")
   ok(not BiSToolsFarmArrow:IsShown() and fdb.arrow == false, "/bist farm arrow off hides it")
@@ -2388,7 +2390,7 @@ do
   ok(fdb.active == nil, "clicking the farmed mob again stops farming it")
   ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil, "and its pins leave both maps at once")
   ok(F.Spots.empty.shown and F.Spots.empty.text == "pick a mob to farm", "the Spawns window empties", F.Spots.empty.text)
-  ok(A.none.shown and not A.arrow.shown, "the arrow points at nothing")
+  ok(not BiSToolsFarmArrow:IsShown(), "and the arrow leaves the screen - nothing farmed, nothing to point at")
   -- Arn's screenshot, this exact state: both lines ran out of the window
   fitsIn(BiSToolsFarmSpots, "Spawns, no mob picked")
   ok(fdb.spots.Arrowbear and #fdb.spots.Arrowbear == 3, "but the spots and what they learned are KEPT")

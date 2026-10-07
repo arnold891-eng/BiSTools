@@ -598,8 +598,7 @@ function S.Refresh(db)
   else S.empty:Hide() end
   local h = math.max(#shown * S.ROW, S.ROW) + 4
   S.body:SetHeight(h)
-  local arrowH = (F.Arrow and F.Arrow.frame and F.Arrow.frame:IsShown()) and F.Arrow.H or 0
-  S.frame:SetHeight(F.HEADER + arrowH + h)
+  S.frame:SetHeight(F.HEADER + h)
 end
 
 function S.Toggle(db, want)

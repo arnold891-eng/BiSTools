@@ -12,14 +12,8 @@
 -- yet - the one killed LONGEST ago. A tie goes to the nearer spot. Only spots on the map you are
 -- on: a bearing across two maps is not a thing the client can give.
 --
--- IT LIVES IN THE SPAWNS WINDOW (Arn: "we put that arrow in the current spawn list window ... keep
--- the name spawns and the arrow estimate of next spawn"). The top row, under the title, above the
--- list; it moves and closes with the window:
---
---   +- Spawns ----------------- r x -+
---   | next [mark] 0:17      84y   ^   |    the arrow turns with you; the mark says which spot
---   |  ...the spots, soonest first... |
---   +---------------------------------+
+-- It spent an afternoon as the top row of the Spawns window ("we put that arrow in the current
+-- spawn list window"); that was "a little crowded", so it floats on its own now - see A.Build.
 local _, NS = ...
 local F = NS.Farm
 local S = F and F.Spots
@@ -27,7 +21,6 @@ local T = NS.T
 
 local A = {}
 F.Arrow = A
-A.H = 26
 
 --- The spot most likely up next, on this map: spot, its timer text, colour, yards, its mark.
 function A.Next(db)
@@ -59,40 +52,64 @@ function A.Next(db)
   return best, bestText, bestColour, bestD, bestMark, px, py
 end
 
+-- BIG AND ON ITS OWN, LIKE RESTEDXP'S (6 Oct 2026). The row in the Spawns window was "a little
+-- crowded"; Arn: "can we make it big like the rested one" - RestedXP's waypoint arrow, floating
+-- on screen with "Step 76 (46yd)" under it. So:
+--
+--          ^          a big arrow that turns with you
+--     [mark] 1:33     which spot, and its timer (up / due in / since the last kill)
+--       (10 yd)       how far
+--
+-- Drag it anywhere; it remembers. It shows only while a mob is being farmed - nothing to point at
+-- is nothing on the screen.
+A.W, A.H = 120, 86
+A.ARROW = 56
+
 function A.Build(db)
   if A.frame then return A.frame end
-  S.Build(db)
-  local f = CreateFrame("Frame", "BiSToolsFarmArrow", S.frame)
+  local f = CreateFrame("Frame", "BiSToolsFarmArrow", UIParent)
   A.frame = f
-  f:SetHeight(A.H)
-  f:SetPoint("TOPLEFT", S.head, "BOTTOMLEFT")
-  f:SetPoint("TOPRIGHT", S.head, "BOTTOMRIGHT")
-  -- a hairline under the row, so "next" reads apart from the list below it
-  local hair = f:CreateTexture(nil, "BORDER")
-  hair:SetPoint("BOTTOMLEFT", 4, 0) hair:SetPoint("BOTTOMRIGHT", -4, 0) hair:SetHeight(1)
-  do local r, g, b = F.color("edge") hair:SetColorTexture(r, g, b, 0.6) end
+  f:SetSize(A.W, A.H)
+  f:SetFrameStrata("MEDIUM")
+  local p = db.arrowPos or { "CENTER", 0, 160 }
+  f:SetPoint(p[1], UIParent, p[1], p[2], p[3])
+  f:SetMovable(true)
+  f:EnableMouse(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  f:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, _, x, y = self:GetPoint()
+    db.arrowPos = { point or "CENTER", math.floor((x or 0) + 0.5), math.floor((y or 0) + 0.5) }
+  end)
 
-  A.label = F.fs(f, T.text("accent", "next"), 9, "ink")
-  A.label:SetPoint("LEFT", 6, 0)
-  A.mark = f:CreateTexture(nil, "ARTWORK")
-  A.mark:SetSize(16, 16)
-  A.mark:SetPoint("LEFT", A.label, "RIGHT", 4, 0)
-  A.id = F.fs(f, "", 9, "muted")
-  A.id:SetPoint("CENTER", A.mark, "CENTER", 0, 0)
-  A.clock = F.fs(f, "", 11, "ink")
-  A.clock:SetPoint("LEFT", A.mark, "RIGHT", 4, 0)
-  A.dist = F.fs(f, "", 9, "muted")
-  A.dist:SetPoint("RIGHT", -28, 0)
   A.arrow = f:CreateTexture(nil, "ARTWORK")
-  A.arrow:SetSize(22, 22)
-  A.arrow:SetPoint("RIGHT", -4, 0)
+  A.arrow:SetSize(A.ARROW, A.ARROW)
+  A.arrow:SetPoint("TOP", 0, 0)
   A.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
-  A.none = F.fs(f, "no spot here", 9, "muted")
-  A.none:SetPoint("LEFT", A.label, "RIGHT", 6, 0)
-  A.none:Hide()
 
-  -- the arrow turns with the player, so it is redrawn often while shown - 20 times a second,
-  -- and only while shown (OnUpdate is silent on a hidden frame)
+  -- the line under it: the mark (or #number) and the timer, centred as one
+  A.line = CreateFrame("Frame", nil, f)
+  A.line:SetSize(A.W, 18)
+  A.line:SetPoint("TOP", A.arrow, "BOTTOM", 0, 0)
+  A.mark = A.line:CreateTexture(nil, "ARTWORK")
+  A.mark:SetSize(16, 16)
+  A.mark:SetPoint("LEFT", 0, 0)
+  A.id = F.fs(A.line, "", 11, "muted")
+  A.id:SetPoint("LEFT", 0, 0)
+  A.clock = F.fs(A.line, "", 13, "ink")
+  A.clock:SetPoint("LEFT", A.mark, "RIGHT", 4, 0)
+  A.dist = F.fs(f, "", 10, "muted")
+  A.dist:SetPoint("TOP", A.line, "BOTTOM", 0, -1)
+  A.none = F.fs(f, "no spot here", 10, "muted")
+  A.none:SetPoint("TOP", A.arrow, "BOTTOM", 0, -2)
+  A.none:Hide()
+  for _, fs in ipairs({ A.id, A.clock, A.dist, A.none }) do
+    if fs.SetShadowOffset then fs:SetShadowOffset(1, -1) end       -- readable over any ground
+  end
+
+  -- the arrow turns with the player, so it is redrawn 20 times a second while shown (OnUpdate is
+  -- silent on a hidden frame)
   local acc = 0
   f:SetScript("OnUpdate", function(_, el)
     acc = acc + (el or 0)
@@ -104,8 +121,15 @@ function A.Build(db)
   return f
 end
 
+--- Should it be on screen at all: the farm tool on, the arrow not switched off, a mob being farmed.
+function A.Wanted(db)
+  return db.arrow ~= false and db.active ~= nil and NS.Registry:Enabled("farm")
+end
+
 function A.Refresh(db)
-  if not A.frame then return end
+  if not A.Wanted(db) then return A.Hide() end
+  A.Build(db)
+  if not A.frame:IsShown() then A.frame:Show() end
   local sp, text, colour, d, mark, px, py = A.Next(db)
   if not sp then
     A.mark:Hide() A.id:SetText("") A.clock:SetText("") A.dist:SetText("") A.arrow:Hide()
@@ -113,52 +137,44 @@ function A.Refresh(db)
     return
   end
   A.none:Hide()
+  local markW
   if mark then
     A.mark:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_" .. mark)
     A.mark:Show()
     A.id:SetText("")
+    markW = 16
   else
     A.mark:Hide()
     A.id:SetText("#" .. tostring(sp.id or "?"))
+    markW = A.id.GetStringWidth and A.id:GetStringWidth() or 14
   end
+  A.clock:ClearAllPoints()
+  A.clock:SetPoint("LEFT", mark and A.mark or A.id, "RIGHT", 4, 0)
   A.clock:SetText(text or "")
   local r, g, b = F.color(colour or "ink")
   A.clock:SetTextColor(r, g, b, 1)
-  A.dist:SetText(("%dy"):format(d or 0))
+  -- centre mark + timer as one line under the arrow
+  local cw = A.clock.GetStringWidth and A.clock:GetStringWidth() or 30
+  local total = markW + 4 + cw
+  A.mark:ClearAllPoints() A.mark:SetPoint("LEFT", (A.W - total) / 2, 0)
+  A.id:ClearAllPoints() A.id:SetPoint("LEFT", (A.W - total) / 2, 0)
+  A.dist:SetText(("(%d yd)"):format(d or 0))
   local rot = S.Bearing(px, py, sp.x, sp.y)
   if rot then A.arrow:SetRotation(rot) A.arrow:Show() else A.arrow:Hide() end
   A.current = sp
 end
 
---- On when the farm tool is on and the arrow is not switched off; off with the farm tool.
--- the list hangs under the arrow row when it is shown, under the title when it is not
-local function dock(under)
-  if not S.body then return end
-  S.body:ClearAllPoints()
-  S.body:SetPoint("TOPLEFT", under, "BOTTOMLEFT")
-  S.body:SetPoint("TOPRIGHT", under, "BOTTOMRIGHT")
-end
+function A.Show(db) A.Refresh(db) end
 
-function A.Show(db)
-  if db.arrow == false then return A.Hide(db) end
-  A.Build(db)
-  A.frame:Show()
-  dock(A.frame)
-  A.Refresh(db)
-  if S.frame and S.frame:IsShown() then S.Refresh(db) end      -- the window grows by the row
-end
-
-function A.Hide(db)
+function A.Hide()
   if A.frame then A.frame:Hide() end
-  if S.head then dock(S.head) end
-  if db and S.frame and S.frame:IsShown() then S.Refresh(db) end
 end
 
 --- /bist farm arrow [on|off]
 function A.Set(db, want)
   if want == nil then want = db.arrow == false end
   db.arrow = want and true or false
-  if want then A.Show(db) else A.Hide(db) end
+  A.Refresh(db)
   return db.arrow
 end
 
@@ -166,5 +182,5 @@ end
 local hook = F.Hook
 function F.Hook(db)
   hook(db)
-  A.Show(db)
+  A.Refresh(db)
 end

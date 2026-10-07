@@ -4,9 +4,10 @@
   when it is up, dim while it waits to respawn; hover for the mob, the kills and the time left.
   `/bist farm pins off` hides them. Drawn with HereBeDragons, the library Questie uses (BSD; see
   `Libs/THIRD-PARTY.txt`).
-- **"next" - an arrow at the top of the Spawns window** to the spot most likely up next: what is up
+- **A big floating arrow, RestedXP-style,** to the spot most likely up next: what is up
   first, then what is due soonest by its learned respawn time, then the one killed longest ago.
-  Its mark (or #number), its timer and its distance. `/bist farm arrow off` hides the row.
+  Its mark (or #number) and timer under it, then the distance. Drag it anywhere; it shows only
+  while you farm a mob. `/bist farm arrow off` hides it.
 - **RestedXP's Active Targets in the farm window**: whatever your guide step wants killed shows
   under your own kills, tagged RXP; click one to farm it. It follows the guide as it moves on.
   `/bist farm guide off` hides them. Needs RestedXP installed; without it nothing changes.
