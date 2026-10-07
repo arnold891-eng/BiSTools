@@ -108,8 +108,9 @@ function P.Update(db)
       b.map = sp.map or (parent and parent.map)
       b.mark = sp.mark or (parent and parent.mark)
       b.tex:SetTexture(P.ICON .. b.mark)
-      H:AddMinimapIconMap(P, b, b.map, sp.x, sp.y, true, false)
-      H:AddWorldMapIconMap(P, b, b.map, sp.x, sp.y, HBD_PINS_WORLDMAP_SHOW_PARENT)
+      -- each add answers false for coordinates it cannot place; kept for /bist farm pins why
+      P.lastMini = H:AddMinimapIconMap(P, b, b.map, sp.x, sp.y, true, false)
+      P.lastWorld = H:AddWorldMapIconMap(P, b, b.map, sp.x, sp.y, HBD_PINS_WORLDMAP_SHOW_PARENT)
     end
     local text, _, key = S.Describe(sp, now)
     local up = key and key < 0
@@ -144,6 +145,45 @@ local hook = F.Hook
 function F.Hook(db)
   hook(db)
   P.Start(db)
+end
+
+--- /bist farm pins why - every step between a recorded spot and a pin on the map, printed, so a
+--- "nothing shows" is one paste instead of an evening of guessing (6 Oct 2026, Arn: "pins do not
+--- show on minimap or big map").
+function P.Why(db)
+  local say = NS.Print
+  local HBD = LibStub and LibStub("HereBeDragons-2.0", true)
+  local H = lib()
+  local iface = select(4, GetBuildInfo())
+  say("pins: HereBeDragons %s, Pins %s", HBD and ("minor " .. tostring(select(2, LibStub:GetLibrary("HereBeDragons-2.0", true)))) or "NOT LOADED",
+      H and "loaded" or "NOT LOADED")
+  say("pins: client interface %s, WOW_PROJECT_ID %s, WOW_PROJECT_CAMELOT %s, WOW_PROJECT_CLASSIC %s",
+      tostring(iface), tostring(WOW_PROJECT_ID), tostring(WOW_PROJECT_CAMELOT), tostring(WOW_PROJECT_CLASSIC))
+  say("pins: setting %s, ticker %s, drawn now %d",
+      db.pins == false and "OFF" or "on", P.ticker and "running" or "STOPPED", (function() local n = 0 for _ in pairs(P.pins) do n = n + 1 end return n end)())
+  local spots, mob = P.Spots(db)
+  local all = mob and db.spots and db.spots[mob]
+  say("pins: mob %s, zones recorded %d, pinnable spots %d", tostring(mob), all and #all or 0, #spots)
+  local sp = spots[1]
+  if sp then
+    local map = sp.map or (all and all[1] and all[1].map)
+    say("pins: first spot map %s at %.3f, %.3f, mark %s", tostring(map), sp.x or -1, sp.y or -1, tostring(sp.mark))
+    if HBD and HBD.GetWorldCoordinatesFromZone then
+      local ok, wx, wy, inst = pcall(HBD.GetWorldCoordinatesFromZone, HBD, sp.x, sp.y, map)
+      say("pins: its world position %s", ok and (wx and ("%.1f, %.1f in instance %s"):format(wx, wy, tostring(inst)) or "NONE - HereBeDragons does not know this map") or ("error: " .. tostring(wx)))
+    end
+  end
+  if HBD and HBD.GetPlayerZone then
+    local ok, m = pcall(HBD.GetPlayerZone, HBD)
+    say("pins: HereBeDragons says you are on map %s", ok and tostring(m) or ("error: " .. tostring(m)))
+  end
+  if HBD and HBD.GetPlayerWorldPosition then
+    local ok, x, y, inst = pcall(HBD.GetPlayerWorldPosition, HBD)
+    say("pins: your world position %s", ok and (x and ("%.1f, %.1f in instance %s"):format(x, y, tostring(inst)) or "NONE") or ("error: " .. tostring(x)))
+  end
+  local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+  say("pins: the client says you are on map %s", tostring(map))
+  say("pins: last add - minimap %s, world map %s", tostring(P.lastMini), tostring(P.lastWorld))
 end
 
 --- /bist farm pins [on|off]

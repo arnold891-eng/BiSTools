@@ -749,6 +749,7 @@ NS.Registry:Register({
     end
     if cmd == "pins" and F.Pins then
       local r = rest:lower()
+      if r == "why" then return F.Pins.Why(db) end
       local on = F.Pins.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
       return NS.Print("map pins %s", on and T.text("accent", "on") or "off")
     end

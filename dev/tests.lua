@@ -2106,6 +2106,15 @@ do
   ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil and fdb.pins == false, "/bist farm pins off clears both maps")
   S("farm pins on")
   ok(next(W.pins.minimap) ~= nil and fdb.pins == true, "/bist farm pins on brings them back")
+  -- the diagnosis, for "nothing shows": prints every step and never throws, whatever is missing
+  local said = {}
+  local realChat = DEFAULT_CHAT_FRAME
+  _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) said[#said + 1] = m end }
+  ok(pcall(S, "farm pins why"), "/bist farm pins why never throws")
+  _G.DEFAULT_CHAT_FRAME = realChat
+  local all = table.concat(said, "\n")
+  ok(all:find("HereBeDragons") and all:find("WOW_PROJECT_ID") and all:find("pinnable spots") and all:find("last add"),
+     "and says what is loaded, which client it thinks this is, what it has to pin, and what the last add answered")
   S("off farm")
   ok(next(W.pins.minimap) == nil, "switching the farm tool off takes its pins off")
   S("on farm")
