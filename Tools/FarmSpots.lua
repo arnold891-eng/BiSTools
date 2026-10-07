@@ -368,13 +368,14 @@ function S.Want(db)
 end
 
 function S.Sync(db)
+  -- Forever: SetRaidTarget is protected (BugGrabber, 6 Oct) - the farm key's /tm marks instead.
+  -- FIRST, before the target's name or flags are read: either can be a secret there.
+  if NS.Farm and NS.Farm.Restricted and NS.Farm.Restricted() then return end
   local name = db.active
   if not name or not UnitExists("target") or UnitName("target") ~= name then return end
   if UnitIsDead("target") or (UnitIsTapDenied and UnitIsTapDenied("target")) then return end
-  -- Forever: SetRaidTarget is protected (BugGrabber, 6 Oct) - the farm key's /tm marks instead
-  if NS.Farm and NS.Farm.Restricted and NS.Farm.Restricted() then return end
   local want = S.Want(db)
-  if want and GetRaidTargetIndex("target") ~= want then
+  if want and NS.Farm.Mark("target") ~= want then
     SetRaidTarget("target", want)
     return want
   end

@@ -51,14 +51,63 @@ function F.Record(db, name, guid)
 end
 
 -- ---------------------------------------------------------------- scan
+-- A VALUE THE CLIENT WILL LET US LOOK AT, OR NIL (6 Oct 2026). On WoW Forever a unit's raid mark
+-- comes back as a SECRET number - in the open world, measured by Arn's BugGrabber: "attempt to
+-- compare local 'm' (a secret number value)" from the scanner, and the same from the farm spots
+-- one kill later. A secret refuses comparison, arithmetic and being a table key; even `==` taints.
+-- So the question "is it secret" comes FIRST, before anything else touches the value.
+function F.Plain(v)
+  if issecretvalue then
+    local ok, secret = pcall(issecretvalue, v)
+    if not ok or secret then return nil end
+  end
+  return v
+end
+
+--- A unit's raid mark as a plain number, or nil when it has none OR the client will not say.
+--- Every read of a mark in BiSTools goes through here.
+function F.Mark(u)
+  local ok, m = pcall(GetRaidTargetIndex, u)
+  if not ok then return nil end
+  m = F.Plain(m)
+  if type(m) ~= "number" then return nil end
+  return m
+end
+
+--- A unit's name, plain, or nil (nameplate names can be secret inside an instance).
+function F.Name(u)
+  local n = F.Plain(UnitName(u))
+  if type(n) ~= "string" then return nil end
+  return n
+end
+
 function F.Plates()
   if not C_NamePlate or not C_NamePlate.GetNamePlates then return {} end
   return C_NamePlate.GetNamePlates()
 end
 
+-- Every flag here can be a secret BOOLEAN on Forever, and `not secret` is refused outright - so
+-- each is asked about first, and one the client will not tell us makes the unit NOT clean: a
+-- skull on a mob we could not check is worse than no skull.
+function F.Secret(v)
+  if not issecretvalue then return false end
+  local ok, s = pcall(issecretvalue, v)
+  return (not ok) or (s and true or false)
+end
+
 function F.Clean(u)
-  return UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)
-    and not UnitAffectingCombat(u) and not (UnitIsTapDenied and UnitIsTapDenied(u))
+  for _, fn in ipairs({ UnitExists, function(x) return UnitCanAttack("player", x) end }) do
+    local v = fn(u)
+    if F.Secret(v) or not v then return false end       -- must be a plain yes
+  end
+  local flags = { UnitIsDead, UnitAffectingCombat }
+  if UnitIsTapDenied then flags[#flags + 1] = UnitIsTapDenied end
+  for _, fn in ipairs(flags) do
+    local v = fn(u)
+    if F.Secret(v) then return false end                 -- cannot tell: not clean
+    if v then return false end
+  end
+  return true
 end
 
 -- ---------------------------------------------------------------- sound
@@ -103,9 +152,9 @@ end
 function F.Scan(name, db)
   local canMark = not F.Restricted()
   -- the mouse first: hovering works from any distance, nameplates do not
-  if UnitExists("mouseover") and UnitName("mouseover") == name and F.Clean("mouseover") then
+  if UnitExists("mouseover") and F.Name("mouseover") == name and F.Clean("mouseover") then
     -- already wearing anything (scanner mark, hand mark, skull)? leave it alone
-    if canMark and not GetRaidTargetIndex("mouseover") then
+    if canMark and not F.Mark("mouseover") then
       SetRaidTarget("mouseover", SKULL)
       if db then F.Found(db, "Skull") end
     end
@@ -119,8 +168,8 @@ function F.Scan(name, db)
   end
   for _, plate in ipairs(F.Plates()) do
     local u = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
-    if u and UnitName(u) == name and F.Clean(u) then
-      local m = GetRaidTargetIndex(u)
+    if u and F.Name(u) == name and F.Clean(u) then
+      local m = F.Mark(u)
       if m and m >= 1 and m <= SCAN_MARKS then
         used[m] = true
         first = first or u
@@ -140,7 +189,7 @@ function F.Scan(name, db)
     dealt = dealt + 1
     first = first or u
   end
-  if dealt > 0 and db then F.Found(db, F.MARK_NAMES[dealt == 1 and GetRaidTargetIndex(unmarked[1]) or 0] or "Target") end
+  if dealt > 0 and db then F.Found(db, F.MARK_NAMES[dealt == 1 and F.Mark(unmarked[1]) or 0] or "Target") end
   return first
 end
 
@@ -512,15 +561,7 @@ function F.Restricted()
   return C_Secrets ~= nil and C_Secrets.HasSecretRestrictions ~= nil
 end
 
--- a value the client will let us look at, or nil
-local function plain(v)
-  if v == nil then return nil end
-  if issecretvalue then
-    local ok, secret = pcall(issecretvalue, v)
-    if not ok or secret then return nil end
-  end
-  return v
-end
+local plain = F.Plain
 
 -- The kill itself, whichever road it came by: a creature, by name, with its GUID.
 function F.OnKill(db, dstName, dstGUID)
@@ -536,7 +577,7 @@ function F.OnKill(db, dstName, dstGUID)
     -- the mark it died wearing tells the spot apart better than where you stood
     local mark
     local tg = UnitExists("target") and plain(UnitGUID("target"))
-    if tg and tg == dstGUID then mark = GetRaidTargetIndex("target") end
+    if tg and tg == dstGUID then mark = F.Mark("target") end
     F.Spots.Kill(db, dstName, mark)
   end
   F.Refresh(db)

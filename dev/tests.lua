@@ -147,7 +147,14 @@ _G.SetRaidTarget = function(u, i)
   for k, v in pairs(W.marks) do if v == i then W.marks[k] = nil end end -- one skull at a time
   W.marks[u] = i
 end
-_G.GetRaidTargetIndex = function(u) return W.marks[u] end
+-- A MARK IS A SECRET NUMBER ON FOREVER (6 Oct 2026, Arn's BugGrabber, open world: "attempt to
+-- compare local 'm' (a secret number value)" in the scanner, and in the farm spots a kill later).
+-- With W.secretMarks set, every read hands back a secret instead of the number - the mock used to
+-- answer plainly, which is how two comparisons shipped.
+_G.GetRaidTargetIndex = function(u)
+  if W.secretMarks then return W.secretMarks() end
+  return W.marks[u]
+end
 W.tickers = {}
 _G.C_Timer = { After = function(delay, fn) W.afters[#W.afters + 1] = { at = W.now + delay, fn = fn } end,
   NewTicker = function(iv, fn)
@@ -1880,6 +1887,45 @@ do
     F.Spots.Want = realWant
   end
   db.spots = keepSpots
+
+  -- SECRET MARKS, SECRET NAMES, SECRET FLAGS (6 Oct 2026, the BugGrabber paste): the scanner
+  -- compared a plate's mark (`m >= 1`) and the farm spots compared the target's mark at a kill.
+  W.secretMarks = secret
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" },
+               nameplate2 = { name = "Raptor", guid = "Creature-0-0-0-0-801-Raptor" } }
+  F.marked = nil
+  ok(pcall(F.Tick, db), "Forever: a SECRET mark on every plate does not throw in the scanner")
+  ok(F.marked ~= nil, "Forever: and a clean copy is still found")
+  -- (Lua 5.1 cannot make `5 == secret` throw the way the client does - a number compared with a
+  -- table is just false - so the test checks the promise instead: the farm spots are never HANDED
+  -- a secret mark. In Arn's paste they were, and MatchZone's `z.mark == mark` threw.)
+  W.target = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" }
+  local handed
+  local realKill = F.Spots.Kill
+  F.Spots.Kill = function(d, n, mark) handed = { mark } return realKill(d, n, mark) end
+  ok(pcall(F.OnKill, db, "Raptor", "Creature-0-0-0-0-800-Raptor"),
+     "Forever: a kill on a secret-marked target does not throw")
+  ok(handed and not F.Secret(handed[1]), "Forever: and the farm spots are handed no secret mark (nil = cannot say)")
+  F.Spots.Kill = realKill
+  W.target = nil
+  ok(F.Mark("nameplate1") == nil, "Forever: a secret mark reads as 'cannot say', never as a number")
+  W.secretMarks = nil
+  W.plates = { nameplate1 = { name = secret(), guid = "Creature-0-0-0-0-802-Raptor" } }
+  F.marked = nil
+  ok(pcall(F.Tick, db), "Forever: a SECRET name on a plate does not throw")
+  ok(F.marked == nil, "Forever: and a plate whose name we may not read is not taken for the mob")
+  -- (the client REFUSES `if secretBoolean`; a Lua 5.1 table is always true, so the mock cannot.
+  -- The promise tested is that every flag is ASKED ABOUT before it is tested.)
+  local deadFlag = secret()
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-803-Raptor", dead = deadFlag } }
+  local asked = {}
+  local realIs = _G.issecretvalue
+  _G.issecretvalue = function(v) asked[v] = true return realIs(v) end
+  ok(pcall(F.Clean, "nameplate1") and F.Clean("nameplate1") == false,
+     "Forever: a SECRET dead flag does not throw, and the unit is not called clean")
+  ok(asked[deadFlag], "Forever: the dead flag was asked about before it was tested")
+  _G.issecretvalue = realIs
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
 
   -- the spot sync, which used to SetRaidTarget the target to its spot's mark
   W.target = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" }
