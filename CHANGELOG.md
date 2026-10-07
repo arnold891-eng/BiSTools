@@ -4,6 +4,12 @@
   when it is up, dim while it waits to respawn; hover for the mob, the kills and the time left.
   `/bist farm pins off` hides them. Drawn with HereBeDragons, the library Questie uses (BSD; see
   `Libs/THIRD-PARTY.txt`).
+- **"next" - an arrow at the top of the Spawns window** to the spot most likely up next: what is up
+  first, then what is due soonest by its learned respawn time, then the one killed longest ago.
+  Its mark (or #number), its timer and its distance. `/bist farm arrow off` hides the row.
+- **Every spot is on the map now**, not only the eight that have a raid mark: the rest are gold dots.
+- **Clicking the farmed mob again clears its pins and the Spawns window**; clicking it back brings
+  them back. What the spots learned is kept - the window's `r` button is what forgets a mob.
 - **The farm key hands out the next mark**: skull, then cross, square and down, remembering which
   mob has which; a kill frees its mark.
 - **The command is `/bist` now**, to match the family (`/bish` BiS Healing, `/bisg` BiS Guild).

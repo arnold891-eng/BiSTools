@@ -23,6 +23,7 @@ F.Pins = P
 
 P.ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_"
 P.SIZE = 14
+P.DOT = 7
 P.DIM, P.BRIGHT = 0.45, 1.0
 
 local function lib()
@@ -68,15 +69,18 @@ end
 --- Every spot worth a pin: the zones, and the subs inside them, each with its own mark.
 function P.Spots(db)
   local out = {}
-  local mob = S and S.Mob(db)
+  local mob = S and S.Shown(db)
   if not mob or not db.spots or not db.spots[mob] then return out, mob end
   for _, z in ipairs(db.spots[mob]) do
-    if type(z.map) == "number" and type(z.x) == "number" and type(z.y) == "number" and z.mark then
+    -- EVERY spot, marked or not (6 Oct 2026). There are only eight raid marks and Arn's lion had
+    -- seventeen zones: the first version pinned only the marked ones, so #9 to #17 were missing
+    -- from the map. An unmarked spot is a small gold dot.
+    if type(z.map) == "number" and type(z.x) == "number" and type(z.y) == "number" then
       out[#out + 1] = z
     end
     for _, sb in ipairs(z.subs or {}) do
       local map = sb.map or z.map
-      if type(map) == "number" and type(sb.x) == "number" and type(sb.y) == "number" and (sb.mark or z.mark) then
+      if type(map) == "number" and type(sb.x) == "number" and type(sb.y) == "number" then
         out[#out + 1] = sb
       end
     end
@@ -112,7 +116,15 @@ function P.Update(db)
       local mark = sp.mark or (parent and parent.mark)
       pair = { mini = newPin(), world = newPin(), map = map, mark = mark }
       P.pins[sp] = pair
-      for _, b in pairs({ pair.mini, pair.world }) do b.tex:SetTexture(P.ICON .. mark) end
+      for _, b in pairs({ pair.mini, pair.world }) do
+        if mark then
+          b:SetSize(P.SIZE, P.SIZE)
+          b.tex:SetTexture(P.ICON .. mark)
+        else
+          b:SetSize(P.DOT, P.DOT)
+          b.tex:SetColorTexture(1.0, 0.82, 0.2, 1)     -- gold dot: a spot with no mark of its own
+        end
+      end
       -- each add answers false for coordinates it cannot place; kept for /bist farm pins why
       P.lastMini = H:AddMinimapIconMap(P, pair.mini, map, sp.x, sp.y, true, false)
       P.lastWorld = H:AddWorldMapIconMap(P, pair.world, map, sp.x, sp.y, HBD_PINS_WORLDMAP_SHOW_PARENT)

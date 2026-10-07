@@ -264,6 +264,11 @@ function F.SetActive(db, name)
     F.Stop()
   end
   F.Refresh(db)
+  -- what is SHOWN follows the farmed mob (S.Shown): clicking it again clears the pins and the
+  -- Spawns window at once, not a tick later; clicking it back brings everything back
+  if F.Pins then F.Pins.Update(db) end
+  if F.Spots and F.Spots.frame and F.Spots.frame:IsShown() then F.Spots.Refresh(db) end
+  if F.Arrow and F.Arrow.Refresh then F.Arrow.Refresh(db) end
 end
 
 -- ---------------------------------------------------------------- the prompt
@@ -692,7 +697,7 @@ end
 NS.Registry:Register({
   name = "farm",
   desc = "click a kill; skull auto-follows a free copy nearby",
-  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off | radius <yd> | burst <sec> | prune <sec>|off]",
+  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off|why | arrow on|off | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
     active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
   OnInit = function(self, db)
@@ -735,6 +740,7 @@ NS.Registry:Register({
     F.events:UnregisterAllEvents()
     if F.Spots then F.Spots.Hide() end
     if F.Pins then F.Pins.Stop() end
+    if F.Arrow then F.Arrow.Hide() end
     F.Stop()
     if F.tbtn and not InCombatLockdown() then ClearOverrideBindings(F.tbtn) end
     if F.frame then F.frame:Hide() end
@@ -752,6 +758,11 @@ NS.Registry:Register({
       if r == "why" then return F.Pins.Why(db) end
       local on = F.Pins.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
       return NS.Print("map pins %s", on and T.text("accent", "on") or "off")
+    end
+    if cmd == "arrow" and F.Arrow then
+      local r = rest:lower()
+      local on = F.Arrow.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("spawn arrow %s", on and T.text("accent", "on") or "off")
     end
     if cmd == "burst" and F.Spots then
       if rest ~= "" then F.Spots.SetBurst(db, rest) end

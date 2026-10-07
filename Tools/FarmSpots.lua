@@ -120,6 +120,15 @@ function S.Mob(db)
   return db.active or (db.last and db.last.name) or db.custom
 end
 
+--- The mob whose spots are SHOWN - the window, the call-out, the map pins, the arrow - and that is
+--- the mob being farmed, nothing else (6 Oct 2026). Arn: clicking Mountain Lion again "should
+--- remove all the marks on the minimap and clear the spawn timers window". S.Mob falls back to the
+--- last kill, which kept them up after you stopped. The spots themselves are KEPT - pick the mob
+--- again and everything it learned is back; the window's r button is what forgets a mob.
+function S.Shown(db)
+  return db.active
+end
+
 -- lowest mark 1..7 no zone owns
 function S.FreeZoneMark(list)
   local used = {}
@@ -301,7 +310,7 @@ function S.Kill(db, name, mark)
 end
 
 function S.ClearMob(db)
-  local mob = S.Mob(db)
+  local mob = S.Shown(db)
   if mob and db.spots then db.spots[mob] = nil end
   S.Refresh(db)
   if mob then NS.Print("spots for %s reset", T.text("accent", mob)) end
@@ -385,7 +394,7 @@ end
 function S.Warn(db)
   S.DoPrune(db)
   if (db.sound or "first") == "off" then return end
-  local mob = S.Mob(db)
+  local mob = S.Shown(db)
   local list = mob and db.spots and db.spots[mob]
   if not list then return end
   local here = S.Assign(db, mob)
@@ -416,6 +425,7 @@ function S.Build(db)
   F.border(f, "edge", 0.35)
 
   local head = CreateFrame("Frame", nil, f)
+  S.head = head
   head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
   head:SetHeight(F.HEADER)
   F.tex(head, "BACKGROUND", "header", F.HEAD_A)
@@ -514,7 +524,7 @@ end
 function S.Refresh(db)
   S.Warn(db)
   if not S.frame or not S.frame:IsShown() then return end
-  local mob = S.Mob(db)
+  local mob = S.Shown(db)
   local list = mob and S.List(db, mob) or {}
   local now = time()
   local map, px, py = S.Here()
@@ -582,10 +592,14 @@ function S.Refresh(db)
       r:Hide()
     end
   end
-  if #shown == 0 then S.empty:Show() else S.empty:Hide() end
+  if #shown == 0 then
+    S.empty:SetText(mob and "kill it a few times" or "click a mob to see its spawns")
+    S.empty:Show()
+  else S.empty:Hide() end
   local h = math.max(#shown * S.ROW, S.ROW) + 4
   S.body:SetHeight(h)
-  S.frame:SetHeight(F.HEADER + h)
+  local arrowH = (F.Arrow and F.Arrow.frame and F.Arrow.frame:IsShown()) and F.Arrow.H or 0
+  S.frame:SetHeight(F.HEADER + arrowH + h)
 end
 
 function S.Toggle(db, want)

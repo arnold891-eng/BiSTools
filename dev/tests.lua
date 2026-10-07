@@ -2145,6 +2145,114 @@ do
   W.now = now
 end
 
+-- ---------------------------------------------------------------- the arrow to the next spawn
+-- (6 Oct 2026) Arn: "an arrow like the spawn window that directs us to the mark that ... might
+-- spawn soon, after a few kills it'll know this marker is spawning every x minutes". It points at
+-- the spot the Spawns window would put FIRST - up, then due soonest, then killed longest ago.
+do
+  local A = F.Arrow
+  ok(A ~= nil, "the arrow module loaded")
+  local fdb = db
+  local now = W.now
+  local keep = { spots = fdb.spots, active = fdb.active, arrow = fdb.arrow, pins = fdb.pins }
+  W.map, W.px, W.py, W.facing = 1952, 0.50, 0.50, 0
+  fdb.active = "Arrowbear"
+  fdb.spots = { Arrowbear = {
+    -- zone 1, skull: its one sub was killed 10 s ago and comes back every 60 s - not soon
+    { id = 1, map = 1952, x = 0.52, y = 0.50, mark = 8, kills = 3, last = now - 10, respawn = 60,
+      subs = { { x = 0.52, y = 0.50, mark = 8, kills = 3, last = now - 10, respawn = 60 } } },
+    -- zone 9: no mark left for it; killed 70 s ago, respawns every 60 s - it is UP
+    { id = 9, map = 1952, x = 0.48, y = 0.50, kills = 2, last = now - 70, respawn = 60, subs = {} },
+    -- a spot on another map: never pointed at, there is no bearing across maps
+    { id = 3, map = 1453, x = 0.10, y = 0.10, mark = 3, kills = 1, last = now - 999, respawn = 60, subs = {} },
+  } }
+  local sp, text, _, d, mark = A.Next(fdb)
+  ok(sp and sp.id == 9, "the arrow picks the spot that is UP over one still waiting", sp and sp.id)
+  ok(text == "up" and mark == nil, "and says it is up; it has no mark of its own")
+  ok(d and d > 0, "with a distance in yards")
+
+  S("farm arrow on")
+  ok(BiSToolsFarmArrow and BiSToolsFarmArrow:IsShown(), "/bist farm arrow on shows it")
+  A.Refresh(fdb)
+  ok(A.id.text == "#9" and not A.mark.shown, "an unmarked spot is named by its number, as in the Spawns window")
+  ok(type(A.arrow.rot) == "number", "the arrow is turned toward it")
+
+  -- the skull's sub comes up later and is NEARER - but zone 9 came up first, so it stays ahead
+  -- (the window's own order), until zone 9 is killed again
+  fdb.spots.Arrowbear[2].last = W.now
+  sp, text, _, _, mark = A.Next(fdb)
+  ok(sp and mark == 8, "after the up spot is killed, the arrow moves to the next one - the skull's")
+  A.Refresh(fdb)
+  ok(A.mark.shown and A.mark.file == "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8", "wearing its mark")
+
+  -- facing unknown (an instance): no arrow drawn, the rest still says where
+  W.facing = nil
+  A.arrow.shown = true
+  A.Refresh(fdb)
+  ok(not A.arrow.shown and A.clock.text ~= "", "no facing, no arrow - the timer and distance still show")
+  W.facing = 0
+
+  -- nothing on this map: it says so instead of pointing anywhere
+  W.map = 1453 W.px, W.py = 0.5, 0.5
+  fdb.spots.Arrowbear[3].map = 9999
+  A.Refresh(fdb)
+  ok(A.none.shown and not A.arrow.shown, "no spot on this map: no arrow, a line saying so")
+  W.map = 1952
+
+  -- IT LIVES IN THE SPAWNS WINDOW (Arn: "we put that arrow in the current spawn list window ...
+  -- keep the name spawns"): its top row, under the title, with the list hanging below it
+  ok(BiSToolsFarmArrow.parent == BiSToolsFarmSpots, "the arrow is a row of the Spawns window, not a window of its own")
+  ok(A.label.text and A.label.text:find("next"), "labelled as the estimate of the next spawn")
+  ok(F.Spots.body.point and F.Spots.body.point[2] == BiSToolsFarmArrow, "the list hangs below the arrow row")
+  S("farm arrow off")
+  ok(F.Spots.body.point and F.Spots.body.point[2] == F.Spots.head, "with the arrow off, the list moves back up under the title")
+  S("farm arrow on")
+  ok(F.Spots.title.text:find("Spawns"), "the window keeps its name: Spawns")
+
+  S("farm arrow off")
+  ok(not BiSToolsFarmArrow:IsShown() and fdb.arrow == false, "/bist farm arrow off hides it")
+  S("farm arrow on")
+  S("off farm")
+  ok(not BiSToolsFarmArrow:IsShown(), "switching the farm tool off hides the arrow")
+  S("on farm")
+  ok(BiSToolsFarmArrow:IsShown(), "and on brings it back")
+
+  -- CLICK THE MOB AGAIN: everything it shows goes; click it back: everything comes back (Arn:
+  -- "when i click the mountain lion again it should remove all the marks on the minimap and clear
+  -- the spawn timers window"). The spots themselves are kept.
+  W.pins = { minimap = {}, world = {} }
+  F.Pins.Stop() fdb.pins = nil
+  F.Pins.Update(fdb)
+  ok(next(W.pins.minimap) ~= nil, "farming: the spots are pinned")
+  F.Spots.Toggle(fdb, true)
+  -- as in game: the mob you stop farming is also the one you last KILLED - which is exactly what
+  -- the old fallback (S.Mob: active, else last kill) kept showing
+  local keepLast = fdb.last
+  fdb.last = { name = "Arrowbear", count = 3 }
+  F.SetActive(fdb, "Arrowbear")            -- the same mob again = stop farming it
+  ok(fdb.active == nil, "clicking the farmed mob again stops farming it")
+  ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil, "and its pins leave both maps at once")
+  ok(F.Spots.empty.shown and F.Spots.empty.text == "click a mob to see its spawns", "the Spawns window empties", F.Spots.empty.text)
+  ok(A.none.shown and not A.arrow.shown, "the arrow points at nothing")
+  ok(fdb.spots.Arrowbear and #fdb.spots.Arrowbear == 3, "but the spots and what they learned are KEPT")
+  F.SetActive(fdb, "Arrowbear")
+  ok(fdb.active == "Arrowbear" and next(W.pins.minimap) ~= nil, "clicking it back brings the pins straight back")
+  fdb.last = keepLast
+
+  -- the minimap pin for a spot with no mark: a gold dot, not nothing
+  W.pins = { minimap = {}, world = {} }
+  F.Pins.Stop() fdb.pins = nil
+  F.Pins.Update(fdb)
+  local dot
+  for icon in pairs(W.pins.minimap) do if icon.w == F.Pins.DOT then dot = icon end end
+  ok(dot and dot.tex.color, "a spot past the eighth mark is pinned as a dot, not skipped")
+  F.Pins.Stop()
+
+  fdb.spots, fdb.active, fdb.arrow, fdb.pins = keep.spots, keep.active, keep.arrow, keep.pins
+  A.Hide()
+  W.now = now
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
