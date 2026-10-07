@@ -1,11 +1,11 @@
 -- BiSTools / Core / Registry.lua
 -- Every tool registers here. A tool is a table:
---   { name = "foo", desc = "one line", usage = "/bt foo [args]",
+--   { name = "foo", desc = "one line", usage = "/bist foo [args]",
 --     defaults = {...},            -- per-tool saved settings
 --     OnInit = function(tool, db) end,   -- ADDON_LOADED, db is tool's sub-table
 --     OnLogin = function(tool, db) end,  -- PLAYER_LOGIN
 --     OnSlash = function(tool, db, args) end,
---     OnEnable / OnDisable = function(tool, db) end,  -- /bt on|off <name>
+--     OnEnable / OnDisable = function(tool, db) end,  -- /bist on|off <name>
 --     OnOpen = function(tool, db, recenter) end,  -- the Hub: show your window (recenter: to the middle)
 --     options = { { kind = "toggle"|"seg"|"step"|"button", label, get(db), set(db, v),
 --                   values (seg) | min, max, step, show(db) (step) | button, action(db) } },

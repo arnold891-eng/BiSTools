@@ -50,7 +50,7 @@ function NS.DB()
 end
 
 -- The shared BiS channel (Libs/LibBiSComm-1.0, embedded from _bisdev). It is
--- NOT a tool: no Registry entry, no on/off in /bt. Every tool may be switched
+-- NOT a tool: no Registry entry, no on/off in /bist. Every tool may be switched
 -- off and this client still answers the raid, or "one addon gets you half way"
 -- dies quietly. The lib has no SavedVariables, so the off switch (/biscomm off)
 -- is remembered here and restored on the next login.

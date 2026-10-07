@@ -430,7 +430,7 @@ function S.Build(db)
   S.zoneIcon:SetPoint("LEFT", S.title, "RIGHT", 4, 0)
   S.zoneIcon:Hide()
   S.closeBtn = F.HeaderButton(head, -3, "x", "Hide timers", "They keep counting.", function() S.Toggle(db, false) end, "warn")
-  S.resetBtn = F.HeaderButton(head, -17, "r", "Reset", "Forget every zone and timer for this mob. /bt farm spots clear wipes all mobs.",
+  S.resetBtn = F.HeaderButton(head, -17, "r", "Reset", "Forget every zone and timer for this mob. /bist farm spots clear wipes all mobs.",
     function() S.ClearMob(db) end)
 
   local body = CreateFrame("Frame", nil, f)

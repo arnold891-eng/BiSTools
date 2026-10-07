@@ -392,11 +392,11 @@ function F.Build(db)
     if acc >= 0.1 then acc = 0 if F.con then F.con:Paint() end end
   end)
 
-  F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bt farm reopens it. The scanner keeps going.",
+  F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist farm reopens it. The scanner keeps going.",
     function() F.Toggle(db, false) end, "warn")
   F.collapseBtn = F.HeaderButton(head, -17, "_", "Collapse", "Just the title bar.",
     function() F.SetCollapsed(db, not db.collapsed) end)
-  F.spotsBtn = F.HeaderButton(head, -31, "t", "Spawn timers", "Where you killed it and when it comes back. /bt farm spots",
+  F.spotsBtn = F.HeaderButton(head, -31, "t", "Spawn timers", "Where you killed it and when it comes back. /bist farm spots",
     function() if F.Spots then F.Spots.Toggle(db) end end)
 
   local body = CreateFrame("Frame", nil, f)
@@ -650,7 +650,7 @@ end
 NS.Registry:Register({
   name = "farm",
   desc = "click a kill; skull auto-follows a free copy nearby",
-  usage = "/bt farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | radius <yd> | burst <sec> | prune <sec>|off]",
+  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
     active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
   OnInit = function(self, db)

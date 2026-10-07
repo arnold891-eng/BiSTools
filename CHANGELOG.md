@@ -1,5 +1,8 @@
 ## 0.4.0
 
+- **The command is `/bist` now**, to match the family (`/bish` BiS Healing, `/bisg` BiS Guild).
+  `/bt` and `/bistools` still work, so old macros keep going.
+
 - **Runs clean on WoW Forever.** The farm tool used to hear kills through the combat log, and on
   Forever even asking for it is blocked - every login showed "BiSTools tried to call the
   protected function". On Forever it now counts kills from the game's own kill event instead.

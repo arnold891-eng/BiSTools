@@ -1961,8 +1961,21 @@ do
   W.iface = nil
 end
 
+-- /bist IS THE COMMAND (0.4.0, Arn: "let's make it consistent" - /bish, /bisg, /bist), and the
+-- two old names still reach the same handler so a 0.3.x macro keeps working
+ok(SLASH_BISTOOLS1 == "/bist", "the command is /bist")
+ok(SLASH_BISTOOLS2 == "/bistools" and SLASH_BISTOOLS3 == "/bt", "/bistools and /bt are kept as aliases")
+for _, name in ipairs({ "Core/Slash.lua", "Core/Registry.lua", "Tools/TargetFarming.lua", "Tools/FarmSpots.lua",
+                        "Tools/Hub.lua", "Tools/Summon.lua" }) do
+  local fh = assert(io.open(name)) local src = fh:read("*a") fh:close()
+  -- only text inside quotes is what the player reads; a comment may name the old alias
+  local stray = src:gsub('SLASH_BISTOOLS3 = "/bt"', ""):match('"[^"\n]-/bt[^%w]')
+  ok(not stray, name .. " still tells the player to type /bt: " .. tostring(stray))
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
+  SLASH_BISTOOLS3 = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
 for k in pairs(_G) do

@@ -274,7 +274,7 @@ H.frame:SetScript("OnEvent", function()
   H.BuildMinimap()
 end)
 
--- /bt hub | /bt options  (the slash is the fallback; the button is the way)
+-- /bist hub | /bist options  (the slash is the fallback; the button is the way)
 NS.HubSlash = function(cmd)
   if cmd == "options" or cmd == "opt" or cmd == "config" then H.ToggleOptions() return true end
   if cmd == "hub" or cmd == "tools" or cmd == "show" then H.ToggleHub() return true end
