@@ -7,6 +7,11 @@
 - **"next" - an arrow at the top of the Spawns window** to the spot most likely up next: what is up
   first, then what is due soonest by its learned respawn time, then the one killed longest ago.
   Its mark (or #number), its timer and its distance. `/bist farm arrow off` hides the row.
+- **RestedXP's Active Targets in the farm window**: whatever your guide step wants killed shows
+  under your own kills, tagged RXP; click one to farm it. It follows the guide as it moves on.
+  `/bist farm guide off` hides them. Needs RestedXP installed; without it nothing changes.
+- **Nothing runs out of the windows**: the Spawns window's empty lines were too long for it. The
+  test suite now measures every line of text against its window.
 - **Every spot is on the map now**, not only the eight that have a raid mark: the rest are gold dots.
 - **Clicking the farmed mob again clears its pins and the Spawns window**; clicking it back brings
   them back. What the spots learned is kept - the window's `r` button is what forgets a mob.

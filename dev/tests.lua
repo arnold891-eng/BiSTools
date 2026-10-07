@@ -82,10 +82,14 @@ _G.C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
 W.prefixes = {}
 W.innervateLoaded = false
 _G.IsAddOnLoaded = function(name) return name == "BiSInnervate" and W.innervateLoaded or false end
-_G.hooksecurefunc = function(name, fn)
-  local orig = _G[name]
+-- both forms, as the client has them: hooksecurefunc("Global", fn) and hooksecurefunc(tbl, "key", fn)
+-- (the table form was missing; the RestedXP listener hooks a method on RXP's own table)
+_G.hooksecurefunc = function(a, b, c)
+  local tbl, name, fn = _G, a, b
+  if type(a) == "table" then tbl, name, fn = a, b, c end
+  local orig = tbl[name]
   if type(orig) ~= "function" then return end
-  _G[name] = function(...) local r = orig(...) fn(...) return r end
+  tbl[name] = function(...) local r = orig(...) fn(...) return r end
 end
 W.offer = nil
 _G.GetSummonConfirmSummoner = function() return W.offer and W.offer.summoner end
@@ -183,11 +187,17 @@ end }
 local function num3(a, b, c) return type(a) == "number" and type(b) == "number" and type(c) == "number" end
 local function Texture()
   local t = { shown = true }
-  function t:SetAllPoints() end
-  function t:SetPoint() end
-  function t:SetHeight() end
-  function t:SetWidth() end
-  function t:SetSize() end
+  -- size and anchor are REMEMBERED: a label pinned beside an icon starts where the icon ends, and
+  -- the fit check below cannot know that if the icon forgot both (they were no-ops)
+  function t:SetAllPoints() self.all = true end
+  function t:SetPoint(p, rel, rp, x, y)
+    if type(rel) == "number" then self.anchor = { p, nil, p, rel, rp }
+    else self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
+  end
+  function t:ClearAllPoints() self.anchor = nil end
+  function t:SetHeight(h) self.h = h end
+  function t:SetWidth(w) self.w = w end
+  function t:SetSize(w, h) self.w, self.h = w, h end
   function t:SetTexture(x) self.file = x end
   function t:SetTexCoord() end
   function t:ClearAllPoints() end
@@ -200,11 +210,23 @@ local function Texture()
   function t:Show() self.shown = true end
   return t
 end
+-- EVERY LABEL, KEPT, WITH WHAT IT IS PINNED TO (6 Oct 2026). Arn's screenshot: "nothing here to
+-- point at" and "click a mob to see its spawns" ran straight out of the 124 px Spawns window. A
+-- label only remembered its x/y, so nothing could say where it STARTS - and "does it fit" needs
+-- that. W.labels is walked by fitsIn() below.
+W.labels = {}
 local function FontString()
   local s = { shown = true }
+  W.labels[#W.labels + 1] = s
   function s:SetFont(_, size) self.size = size end
-  function s:SetPoint(p, rel, rp, x, y) if type(rel) == "number" then self.x, self.y = rel, rp else self.x, self.y = x, y end end
-  function s:ClearAllPoints() end
+  function s:SetPoint(p, rel, rp, x, y)
+    if type(rel) == "number" then self.x, self.y = rel, rp self.anchor = { p, nil, p, rel, rp }
+    else self.x, self.y = x, y self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
+  end
+  function s:ClearAllPoints() self.anchor = nil end
+  function s:Show() self.shown = true end
+  function s:Hide() self.shown = false end
+  function s:IsShown() return self.shown end
   function s:SetText(x) self.text = x end
   function s:GetText() return self.text end
   function s:SetAlpha(a) self.alpha = a end
@@ -377,10 +399,20 @@ end
 -- dev/theme.lua: poison the accent AFTER the files load, BEFORE anything is built
 if _G.__THEME_MUTATION then BiSTheme.hex.accent = _G.__THEME_MUTATION end
 -- Core/Init's frame is the one that listens for ADDON_LOADED (the libs' frames load first)
+-- Core/Init's frame: the FIRST of ours to listen for ADDON_LOADED (Core loads before every tool).
+-- This picked the LAST one, which was Core's only until a tool listened too (FarmGuide, 6 Oct).
 local core
-for _, h in ipairs(handlers) do if h.frame.events.ADDON_LOADED then core = h.fn end end
-core(nil, "ADDON_LOADED", "BiSTools")
-core(nil, "PLAYER_LOGIN")
+for _, h in ipairs(handlers) do
+  if h.frame.events.ADDON_LOADED and h.frame.events.PLAYER_LOGOUT then core = h.fn break end
+end
+-- and the client hands an event to EVERY frame that registered it, not to one; so does this
+local function deliver(event, ...)
+  for _, h in ipairs(handlers) do
+    if h.frame.events[event] then h.fn(h.frame, event, ...) end
+  end
+end
+deliver("ADDON_LOADED", "BiSTools")
+deliver("PLAYER_LOGIN")
 -- the client fires PLAYER_ENTERING_WORLD after login; that is when the lib says HI
 local function fireAll(ev, ...)
   local seen = {}
@@ -2145,6 +2177,129 @@ do
   W.now = now
 end
 
+-- ---------------------------------------------------------------- does every label FIT its window
+-- (6 Oct 2026) Arn: "spawns window cut off make a check for cut offs or overflows that happens
+-- often". Every shown label inside a window is measured where it actually starts - following what it
+-- is pinned to: the window's edge, an icon, another label - and must end inside the window.
+--
+-- WIDTH, CALIBRATED ON THE CLIENT, NOT GUESSED: capitals and digits 0.75 px per point ("NEED MATS",
+-- BiSCraft, 11 Sep), lowercase 0.55 and spaces/punctuation 0.3 (Arn's screenshot: "click a mob to
+-- see its spawns" at 9 pt ran ~10 px past a 124 px window - this puts it at ~132). The mock's own
+-- GetStringWidth (0.6 flat) stays as it is: the addon's code trims by it, and changing it changes
+-- what the addon draws.
+local function realWidth(fs)
+  local t, tex = tostring(fs.text or ""), 0
+  t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
+  t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+  local size, px = fs.size or 9, 0
+  for ch in t:gmatch(".") do
+    if ch:match("[%u%d]") then px = px + 0.75 elseif ch:match("%l") then px = px + 0.55 else px = px + 0.3 end
+  end
+  return px * size + tex
+end
+local function regionWidth(r) if r.size or r.text ~= nil then return realWidth(r) end return r.w or 0 end
+local function insideShown(r, root)
+  local p = r.parent
+  while p do
+    if p.shown == false then return false end
+    if p == root then return true end
+    p = p.parent
+  end
+  return false
+end
+-- left edge in px from the window's left, following the anchor chain; nil when it cannot be followed
+local function leftOf(r, width, depth)
+  if (depth or 0) > 8 or not r.anchor then return nil end
+  local p, rel, rp, x = r.anchor[1], r.anchor[2], r.anchor[3], r.anchor[4] or 0
+  local relL, relW
+  if rel == nil or rel.kind then relL, relW = 0, width      -- a frame inside the window spans it
+  else relL, relW = leftOf(rel, width, (depth or 0) + 1), regionWidth(rel) end
+  if not relL then return nil end
+  local ax = rp:find("LEFT") and relL or rp:find("RIGHT") and (relL + relW) or (relL + relW / 2)
+  local w = regionWidth(r)
+  if p:find("LEFT") then return ax + x elseif p:find("RIGHT") then return ax + x - w end
+  return ax + x - w / 2
+end
+local function plainText(t) return (tostring(t):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+local function fitsIn(root, what)
+  local width, bad, measured = root.w, {}, 0
+  for _, fs in ipairs(W.labels) do
+    if fs.shown ~= false and fs.text and fs.text ~= "" and insideShown(fs, root) then
+      local l = leftOf(fs, width)
+      if l then
+        measured = measured + 1
+        local w = realWidth(fs)
+        if l < -1 or l + w > width + 1 then
+          bad[#bad + 1] = ("%q needs %d px from %d, the window is %d"):format(plainText(fs.text), w, l, width)
+        end
+      end
+    end
+  end
+  ok(measured > 0, what .. ": the fit check measured something (a check that sees nothing proves nothing)")
+  ok(#bad == 0, what .. ": every label fits - " .. table.concat(bad, "; "))
+end
+
+-- ---------------------------------------------------------------- RestedXP's Active Targets
+-- (6 Oct 2026) Arn: "is there a way to have a rested exp section so anytime its active targets
+-- update it adds it to our list". RXP is an AceAddon; its targets pass through
+-- addon.targeting:UpdateEnemyList(unitscan, mobs, addEntries). A stand-in RXP is registered the same
+-- way, and the real code path - hook, then their method called as they call it - is driven.
+do
+  local Gd = F.Guide
+  ok(Gd ~= nil and not Gd.hooked, "RestedXP not installed: nothing hooked, nothing said")
+  local rxp = { targeting = {} }
+  local seenByRXP
+  function rxp.targeting:UpdateEnemyList(unitscan, mobs, addEntries) seenByRXP = mobs end
+  local AA = LibStub:NewLibrary("AceAddon-3.0", 1)
+  function AA:GetAddon(name, silent) if name == "RXPGuides" then return rxp end if not silent then error("no " .. name) end end
+  deliver("ADDON_LOADED", "RXPGuides")
+  ok(Gd.hooked, "when RestedXP loads, its target list is listened to")
+
+  local fdb = db
+  local keep = { last = fdb.last, custom = fdb.custom, active = fdb.active, guide = fdb.guide }
+  fdb.last = { name = "Hillsbrad Farmer", count = 3 }
+  fdb.custom = nil fdb.active = nil fdb.guide = nil
+  rxp.targeting:UpdateEnemyList({ "Rare Lion" }, { "Hillsbrad Farmer", "Hillsbrad Peasant" }, nil)
+  ok(seenByRXP and seenByRXP[2] == "Hillsbrad Peasant", "RestedXP's own method still runs, untouched")
+  local names = {}
+  for _, e in ipairs(F.Entries(fdb)) do names[#names + 1] = e.name .. (e.guide and "*" or "") end
+  ok(table.concat(names, ",") == "Hillsbrad Farmer,Hillsbrad Peasant*,Rare Lion*",
+     "its targets join the list under your kills, the one you already farm not twice", table.concat(names, ","))
+  F.Refresh(fdb)
+  ok(BiSToolsFarmRow2.name.text == "Hillsbrad Peasant" and tostring(BiSToolsFarmRow2.count.text):find("RXP"),
+     "a guide row says RXP where a kill row says how many")
+  BiSToolsFarmRow2.scripts.OnClick(BiSToolsFarmRow2)
+  ok(fdb.active == "Hillsbrad Peasant", "clicking it farms it, like any other row")
+  F.SetActive(fdb, "Hillsbrad Peasant")
+
+  rxp.targeting:UpdateEnemyList({}, { "Hillsbrad Footman" }, true)
+  names = {}
+  for _, e in ipairs(Gd.mobs) do names[#names + 1] = e end
+  ok(table.concat(names, ",") == "Hillsbrad Farmer,Hillsbrad Peasant,Rare Lion,Hillsbrad Footman",
+     "RestedXP ADDING targets adds to ours", table.concat(names, ","))
+  rxp.targeting:UpdateEnemyList({}, { "Torn Fin Tidehunter" }, false)
+  ok(#Gd.mobs == 1 and Gd.mobs[1] == "Torn Fin Tidehunter", "a new guide step REPLACES them")
+
+  rxp.targeting:UpdateEnemyList({}, { "A1", "A2", "A3", "A4", "A5", "A6" }, false)
+  local guideRows = 0
+  for _, e in ipairs(F.Entries(fdb)) do if e.guide then guideRows = guideRows + 1 end end
+  ok(guideRows == Gd.MAX, "never more than " .. Gd.MAX .. " guide rows in a small window")
+
+  S("farm guide off")
+  guideRows = 0
+  for _, e in ipairs(F.Entries(fdb)) do if e.guide then guideRows = guideRows + 1 end end
+  ok(guideRows == 0 and fdb.guide == false, "/bist farm guide off hides them")
+  S("farm guide on")
+
+  rxp.targeting:UpdateEnemyList({}, { "Hillsbrad Farmhand Overseer" }, false)
+  F.Refresh(fdb)
+  fitsIn(BiSToolsFarm, "the farm window with a long RestedXP name")
+
+  fdb.last, fdb.custom, fdb.active, fdb.guide = keep.last, keep.custom, keep.active, keep.guide
+  Gd.mobs = {}
+  F.Refresh(fdb)
+end
+
 -- ---------------------------------------------------------------- the arrow to the next spawn
 -- (6 Oct 2026) Arn: "an arrow like the spawn window that directs us to the mark that ... might
 -- spawn soon, after a few kills it'll know this marker is spawning every x minutes". It points at
@@ -2232,11 +2387,17 @@ do
   F.SetActive(fdb, "Arrowbear")            -- the same mob again = stop farming it
   ok(fdb.active == nil, "clicking the farmed mob again stops farming it")
   ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil, "and its pins leave both maps at once")
-  ok(F.Spots.empty.shown and F.Spots.empty.text == "click a mob to see its spawns", "the Spawns window empties", F.Spots.empty.text)
+  ok(F.Spots.empty.shown and F.Spots.empty.text == "pick a mob to farm", "the Spawns window empties", F.Spots.empty.text)
   ok(A.none.shown and not A.arrow.shown, "the arrow points at nothing")
+  -- Arn's screenshot, this exact state: both lines ran out of the window
+  fitsIn(BiSToolsFarmSpots, "Spawns, no mob picked")
   ok(fdb.spots.Arrowbear and #fdb.spots.Arrowbear == 3, "but the spots and what they learned are KEPT")
   F.SetActive(fdb, "Arrowbear")
   ok(fdb.active == "Arrowbear" and next(W.pins.minimap) ~= nil, "clicking it back brings the pins straight back")
+  F.Spots.Refresh(fdb) A.Refresh(fdb)
+  fitsIn(BiSToolsFarmSpots, "Spawns, spots listed")
+  F.Refresh(fdb)
+  fitsIn(BiSToolsFarm, "the farm window")
   fdb.last = keepLast
 
   -- the minimap pin for a spot with no mark: a gold dot, not nothing

@@ -23,5 +23,6 @@ Tools\TargetFarming.lua
 Tools\FarmSpots.lua
 Tools\FarmPins.lua
 Tools\FarmArrow.lua
+Tools\FarmGuide.lua
 Tools\Summon.lua
 Tools\Hub.lua

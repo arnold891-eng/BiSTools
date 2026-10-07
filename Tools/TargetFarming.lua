@@ -525,6 +525,12 @@ function F.Entries(db)
   if db.custom and not (db.last and db.last.name == db.custom) then
     out[#out + 1] = { name = db.custom, count = db.customKills or 0 }
   end
+  -- then RestedXP's Active Targets, if it is installed (FarmGuide.lua), minus what is already here
+  if F.Guide then
+    local already = {}
+    for _, e in ipairs(out) do already[e.name] = true end
+    for _, e in ipairs(F.Guide.Entries(db, already)) do out[#out + 1] = e end
+  end
   return out
 end
 
@@ -539,7 +545,8 @@ function F.Refresh(db)
     if e then
       r.mob = e.name
       r.name:SetText(e.name)
-      r.count:SetText(e.count > 1 and ("x" .. e.count) or "")
+      -- a guide row says where it came from, where a kill row says how many
+      r.count:SetText(e.guide and T.text("muted", "RXP") or (e.count > 1 and ("x" .. e.count) or ""))
       r:ClearAllPoints()
       r:SetPoint("TOPLEFT", F.body, "TOPLEFT", 0, -y)
       r:SetPoint("TOPRIGHT", F.body, "TOPRIGHT", 0, -y)
@@ -697,7 +704,7 @@ end
 NS.Registry:Register({
   name = "farm",
   desc = "click a kill; skull auto-follows a free copy nearby",
-  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off|why | arrow on|off | radius <yd> | burst <sec> | prune <sec>|off]",
+  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off|why | arrow on|off | guide on|off | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
     active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
   OnInit = function(self, db)
@@ -758,6 +765,12 @@ NS.Registry:Register({
       if r == "why" then return F.Pins.Why(db) end
       local on = F.Pins.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
       return NS.Print("map pins %s", on and T.text("accent", "on") or "off")
+    end
+    if cmd == "guide" and F.Guide then
+      local r = rest:lower()
+      local on = F.Guide.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("RestedXP targets %s%s", on and T.text("accent", "on") or "off",
+        F.Guide.hooked and "" or " (RestedXP not found)")
     end
     if cmd == "arrow" and F.Arrow then
       local r = rest:lower()

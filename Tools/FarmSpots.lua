@@ -593,7 +593,7 @@ function S.Refresh(db)
     end
   end
   if #shown == 0 then
-    S.empty:SetText(mob and "kill it a few times" or "click a mob to see its spawns")
+    S.empty:SetText(mob and "kill it a few times" or "pick a mob to farm")
     S.empty:Show()
   else S.empty:Hide() end
   local h = math.max(#shown * S.ROW, S.ROW) + 4

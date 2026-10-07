@@ -87,7 +87,7 @@ function A.Build(db)
   A.arrow:SetSize(22, 22)
   A.arrow:SetPoint("RIGHT", -4, 0)
   A.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
-  A.none = F.fs(f, "nothing here to point at", 9, "muted")
+  A.none = F.fs(f, "no spot here", 9, "muted")
   A.none:SetPoint("LEFT", A.label, "RIGHT", 6, 0)
   A.none:Hide()
 
