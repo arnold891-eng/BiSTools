@@ -115,6 +115,8 @@ _G.InCombatLockdown = function() return W.combat end
 _G.UnitGUID = function(u)
   if u == "player" then return "Player-1" elseif u == "pet" then return "Pet-1" end
   if u == "target" and W.target then return W.target.guid end
+  -- a nameplate has a GUID in the client; this used to answer nil, which hid anything keyed by it
+  if W.plates[u] then return W.plates[u].guid end
 end
 _G.UnitExists = function(u)
   if u == "player" then return true end
@@ -1877,6 +1879,51 @@ do
      "Forever: and the key still marks with /tm ! - it never needed to read the mark")
   _G.GetRaidTargetIndex = realIdx
   ok(#W.forbidden == 0, "Forever: the key's PreClick marks nothing itself either")
+
+  -- THE NEXT PRESS MARKS THE NEXT COPY (6 Oct 2026). Arn: "if something is already marked skull
+  -- it'll look for another target without a mark and put another marker". Forever hides marks, so
+  -- the key keeps its own record of what it handed out.
+  do
+    local keepWant = F.Spots and F.Spots.Want
+    if F.Spots then F.Spots.Want = function() return nil end end      -- no spot here
+    F.placed = {}
+    local gA, gB, gC = "Creature-0-0-0-0-900-Raptor", "Creature-0-0-0-0-901-Raptor", "Creature-0-0-0-0-902-Raptor"
+    W.plates = { nameplate1 = { name = "Raptor", guid = gA }, nameplate2 = { name = "Raptor", guid = gB } }
+    F.marked = nil F.Tick(db)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext"):find("/tm !8$") and F.placed[gA] == 8, "Forever: the first press puts the skull on a copy")
+    F.marked = nil F.Tick(db)
+    ok(F.marked == "nameplate2", "Forever: the scan now prefers the copy the key has NOT marked", F.marked)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate2\n/tm !7", "Forever: the second press gives the next copy a cross, not the skull")
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate2\n/tm !7", "Forever: pressing again on a copy it marked keeps that copy's mark")
+
+    -- the skull's mob dies: the skull is free for the next copy
+    names[gA] = "Raptor"
+    fire("PARTY_KILL", "Player-1", gA)
+    ok(F.placed[gA] == nil, "Forever: a kill frees the mark it wore")
+    W.plates = { nameplate3 = { name = "Raptor", guid = gC } }
+    F.marked = nil F.Tick(db)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate3\n/tm !8", "Forever: and the next copy gets the skull back")
+
+    -- all eight out: the skull moves (the game takes it from whoever had it), and our record follows
+    F.placed = {}
+    for i = 1, 8 do F.Placed("Creature-0-0-0-0-91" .. i .. "-Raptor", F.NextMark("Creature-0-0-0-0-91" .. i .. "-Raptor")) end
+    ok(F.NextMark("Creature-0-0-0-0-999-Raptor") == 8, "Forever: with every mark out, the skull moves")
+    F.Placed("Creature-0-0-0-0-999-Raptor", 8)
+    local skulls = 0
+    for _, m in pairs(F.placed) do if m == 8 then skulls = skulls + 1 end end
+    ok(skulls == 1, "Forever: and only one mob is ever recorded wearing it")
+
+    S("farm clear")
+    ok(next(F.placed) == nil, "Forever: /bist farm clear starts the marks at the skull again")
+    if F.Spots then F.Spots.Want = keepWant end
+    db.active = "Raptor"
+    W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
+    F.marked = nil
+  end
   -- standing at a recorded spot, the key carries THAT spot's mark, as the old sync did
   if F.Spots and F.Spots.Want then
     local realWant = F.Spots.Want

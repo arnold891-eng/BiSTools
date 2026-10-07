@@ -81,6 +81,35 @@ function F.Name(u)
   return n
 end
 
+-- WHAT THE FARM KEY HAS MARKED, BY GUID (6 Oct 2026). Forever hides every mark, so the addon cannot
+-- see that the skull is already out. Arn: "if something is already marked skull it'll look for
+-- another target without a mark and put another marker". So the key keeps its OWN record of what it
+-- handed out - guid -> mark - and the next press takes the next free mark: skull, cross, square,
+-- moon, triangle, diamond, circle, star. A kill frees its mark. The game moves a mark to whoever
+-- gets it last, so giving a mark away takes it from whoever had it here too. Session only: a
+-- /reload forgets, which costs one skull handed out twice, never a wrong mob.
+F.placed = {}
+F.MARK_ORDER = { 8, 7, 6, 5, 4, 3, 2, 1 }
+
+--- The mark the key should give this mob: the one it already has from us, else the first free one.
+function F.NextMark(guid)
+  if guid and F.placed[guid] then return F.placed[guid] end
+  local held = {}
+  for _, m in pairs(F.placed) do held[m] = true end
+  for _, m in ipairs(F.MARK_ORDER) do
+    if not held[m] then return m end
+  end
+  return SKULL                       -- all eight out: the skull moves, as it always did
+end
+
+function F.Placed(guid, mark)
+  if not guid or not mark then return end
+  for g, m in pairs(F.placed) do
+    if m == mark and g ~= guid then F.placed[g] = nil end
+  end
+  F.placed[guid] = mark
+end
+
 function F.Plates()
   if not C_NamePlate or not C_NamePlate.GetNamePlates then return {} end
   return C_NamePlate.GetNamePlates()
@@ -178,7 +207,16 @@ function F.Scan(name, db)
       end
     end
   end
-  if not canMark then return first or unmarked[1] end
+  if not canMark then
+    -- Forever: every mark reads as "cannot say", so all copies land in `unmarked`. Prefer one the
+    -- farm key has NOT marked yet (F.placed, our own record), so a skull already handed out is not
+    -- handed to the same mob again and the next press marks a fresh copy.
+    for _, u in ipairs(unmarked) do
+      local g = F.Plain(UnitGUID(u))
+      if not (g and F.placed[g]) then return u end
+    end
+    return first or unmarked[1]
+  end
   local dealt = 0
   for _, u in ipairs(unmarked) do
     local m
@@ -265,7 +303,8 @@ function F.TargetButton()
       -- the mark WITHOUT toggling it off when the unit already wears it (retail spells it "~").
       -- So the key never reads the current mark - which may be a secret on this client (RestedXP
       -- checks IsSecretValue before it compares one) and would throw in a comparison.
-      local want = (F.Spots and F.Spots.Want and F.Spots.Want(db)) or SKULL
+      local want = (F.Spots and F.Spots.Want and F.Spots.Want(db)) or F.NextMark(F.Plain(UnitGUID(u)))
+      F.Placed(F.Plain(UnitGUID(u)), want)
       local macro = "/target " .. u .. "\n/tm !" .. want
       self:SetAttribute("type", "macro")
       self:SetAttribute("unit", nil)
@@ -533,6 +572,7 @@ function F.SetCollapsed(db, on)
 end
 
 function F.Clear(db)
+  F.placed = {}                      -- a fresh farm starts its marks at the skull again
   db.last = nil
   db.custom = nil
   db.customKills = 0
@@ -565,6 +605,8 @@ local plain = F.Plain
 
 -- The kill itself, whichever road it came by: a creature, by name, with its GUID.
 function F.OnKill(db, dstName, dstGUID)
+  -- whatever it was, it no longer wears the mark the farm key gave it: that mark is free again
+  if type(dstGUID) == "string" then F.placed[dstGUID] = nil end
   -- locked on something? then only that mob counts; the page does not
   -- swap to whatever else you killed on the way
   if db.active and dstName ~= db.active then return end
