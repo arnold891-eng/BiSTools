@@ -1857,12 +1857,18 @@ do
 
   local btn = BiSToolsFarmTarget
   btn.scripts.PreClick(btn, "LeftButton", true)
-  ok(btn:GetAttribute("type") == "macro" and btn:GetAttribute("macrotext") == "/target nameplate1\n/tm 8",
+  ok(btn:GetAttribute("type") == "macro" and btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !8",
      "Forever: the farm key targets it and marks it with Blizzard's /tm", btn:GetAttribute("macrotext"))
-  W.marks.nameplate1 = 8
-  btn.scripts.PreClick(btn, "LeftButton", true)
-  ok(btn:GetAttribute("macrotext") == "/target nameplate1",
-     "Forever: already wearing the skull, no /tm - it would take the mark OFF")
+  -- "/tm !N" sets without toggling (RestedXP, on Forever), so the key never reads the mark - and on
+  -- this client a mark can be a SECRET, which a comparison would throw on
+  -- (a Lua 5.1 mock cannot make `secret ~= 8` throw - a table compared with a number never calls a
+  -- metamethod - so the honest test is the stronger claim: the key does not READ the mark at all)
+  local realIdx = _G.GetRaidTargetIndex
+  _G.GetRaidTargetIndex = function() error("the farm key read the unit's mark") end
+  ok(pcall(btn.scripts.PreClick, btn, "LeftButton", true), "Forever: the key never reads the unit's mark (it may be secret)")
+  ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !8",
+     "Forever: and the key still marks with /tm ! - it never needed to read the mark")
+  _G.GetRaidTargetIndex = realIdx
   ok(#W.forbidden == 0, "Forever: the key's PreClick marks nothing itself either")
   -- standing at a recorded spot, the key carries THAT spot's mark, as the old sync did
   if F.Spots and F.Spots.Want then
@@ -1870,7 +1876,7 @@ do
     F.Spots.Want = function() return 3 end
     W.marks.nameplate1 = nil
     btn.scripts.PreClick(btn, "LeftButton", true)
-    ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm 3", "Forever: at a spot, the key marks with the spot's mark")
+    ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !3", "Forever: at a spot, the key marks with the spot's mark")
     F.Spots.Want = realWant
   end
   db.spots = keepSpots

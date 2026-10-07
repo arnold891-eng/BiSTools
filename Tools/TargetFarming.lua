@@ -210,11 +210,14 @@ function F.TargetButton()
     local u = db and db.active and (F.marked or F.Scan(db.active))
     if u and F.Clean(u) and F.Restricted() then
       -- Forever: the addon may not mark, so the KEY does it - Blizzard's /tm in a secure macro,
-      -- run by this key press. The spot's own mark when you stand at one, else the skull. /tm on a
-      -- unit already wearing that mark would take it OFF, so it is only added when it changes.
+      -- run by this key press. The spot's own mark when you stand at one, else the skull.
+      --
+      -- `/tm !N`, read off RestedXP (RXPGuides/Targeting.lua, 6 Oct 2026): on Forever the "!" sets
+      -- the mark WITHOUT toggling it off when the unit already wears it (retail spells it "~").
+      -- So the key never reads the current mark - which may be a secret on this client (RestedXP
+      -- checks IsSecretValue before it compares one) and would throw in a comparison.
       local want = (F.Spots and F.Spots.Want and F.Spots.Want(db)) or SKULL
-      local macro = "/target " .. u
-      if GetRaidTargetIndex(u) ~= want then macro = macro .. "\n/tm " .. want end
+      local macro = "/target " .. u .. "\n/tm !" .. want
       self:SetAttribute("type", "macro")
       self:SetAttribute("unit", nil)
       self:SetAttribute("macrotext", macro)
