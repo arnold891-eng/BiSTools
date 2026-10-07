@@ -1,6 +1,6 @@
 -- BiSTools headless harness. Run from the addon root:  lua5.1 dev/tests.lua
 -- ------------------------------------------------------------ WoW mock
-local W = { combat = false, target = nil, plates = {}, marks = {}, now = 0 }
+local W = { combat = false, target = nil, plates = {}, marks = {}, now = 0, forbidden = {} }
 _G.__W = W
 -- the TOC is the truth for the version and for what loads, in what order
 local function readTOC()
@@ -136,6 +136,14 @@ _G.UnitAffectingCombat = function(u) local x = unit(u) return x and x.combat or 
 _G.UnitIsTapDenied = function(u) local x = unit(u) return x and x.tapped or false end
 _G.UnitCanAttack = function(_, u) local x = unit(u) return x and x.hostile ~= false end
 _G.SetRaidTarget = function(u, i)
+  -- PROTECTED ON FOREVER (6 Oct 2026, Arn's BugGrabber: "AddOn 'BiSTools' tried to call the
+  -- protected function 'SetRaidTarget()'", from the scanner's ticker). The client blames the addon
+  -- and sets nothing. A secure macro's /tm is Blizzard's code and is allowed - the same split as
+  -- C_Ping.SendMacroPing (forbidden) and /ping in a secure button (fine), measured 1 Oct.
+  if W.restricted then
+    W.forbidden[#W.forbidden + 1] = "SetRaidTarget(" .. tostring(u) .. ", " .. tostring(i) .. ")"
+    return
+  end
   for k, v in pairs(W.marks) do if v == i then W.marks[k] = nil end end -- one skull at a time
   W.marks[u] = i
 end
@@ -220,7 +228,6 @@ _G.CreateFrame = function(kind, name, parent, template)
   -- does not throw - it records the blame and fires ADDON_ACTION_FORBIDDEN later, which is why a
   -- pcall never saw it. This mock always took the registration, so the suite could not tell. With
   -- W.restricted on it behaves like that client: the event is NOT registered and the call is blamed.
-  W.forbidden = {}
   function f:RegisterEvent(e)
     if W.restricted and e == "COMBAT_LOG_EVENT_UNFILTERED" then
       W.forbidden[#W.forbidden + 1] = "Frame:RegisterEvent(" .. e .. ")"
@@ -1830,6 +1837,49 @@ do
   fire("PARTY_KILL", "target")
   W.target = nil
   ok(db.last.name == "Boar" and db.last.count == before + 1, "Forever: the unit-token shape is understood too")
+
+  -- THE SCANNER MARKS NOTHING ON FOREVER; THE KEY DOES (6 Oct 2026). SetRaidTarget is protected
+  -- there - BugGrabber, from the ticker. Blizzard's /tm in a secure macro, on a key press, is not.
+  W.forbidden = {}
+  W.marks = {}
+  local keepSpots = db.spots
+  db.spots = {}          -- no spot here: the key's mark is the skull (a spot's own mark is checked below)
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
+  F.marked = nil
+  db.active = "Raptor" db.finds = 0
+  F.Tick(db)
+  ok(#W.forbidden == 0, "Forever: the scanner never calls SetRaidTarget", table.concat(W.forbidden, ", "))
+  ok(next(W.marks) == nil, "Forever: so nothing is marked by the addon")
+  ok(F.marked == "nameplate1", "Forever: but the clean copy is FOUND")
+  ok(db.finds == 1, "Forever: and the find is said once")
+  F.Tick(db)
+  ok(db.finds == 1, "Forever: not again on every tick while it stays in view")
+
+  local btn = BiSToolsFarmTarget
+  btn.scripts.PreClick(btn, "LeftButton", true)
+  ok(btn:GetAttribute("type") == "macro" and btn:GetAttribute("macrotext") == "/target nameplate1\n/tm 8",
+     "Forever: the farm key targets it and marks it with Blizzard's /tm", btn:GetAttribute("macrotext"))
+  W.marks.nameplate1 = 8
+  btn.scripts.PreClick(btn, "LeftButton", true)
+  ok(btn:GetAttribute("macrotext") == "/target nameplate1",
+     "Forever: already wearing the skull, no /tm - it would take the mark OFF")
+  ok(#W.forbidden == 0, "Forever: the key's PreClick marks nothing itself either")
+  -- standing at a recorded spot, the key carries THAT spot's mark, as the old sync did
+  if F.Spots and F.Spots.Want then
+    local realWant = F.Spots.Want
+    F.Spots.Want = function() return 3 end
+    W.marks.nameplate1 = nil
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm 3", "Forever: at a spot, the key marks with the spot's mark")
+    F.Spots.Want = realWant
+  end
+  db.spots = keepSpots
+
+  -- the spot sync, which used to SetRaidTarget the target to its spot's mark
+  W.target = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" }
+  if F.Spots then F.Spots.Sync(db) end
+  ok(#W.forbidden == 0, "Forever: the spot sync marks nothing (the key's /tm carries the spot's mark)")
+  W.target = nil W.plates = {} W.marks = {} F.marked = nil db.active = nil
 
   -- and on a client WITHOUT restrictions the combat log is still the road (TBC, unchanged)
   W.restricted = false

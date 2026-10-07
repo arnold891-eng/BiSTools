@@ -93,11 +93,19 @@ function F.SetSound(db, mode)
 end
 
 -- one pass: returns unit token that now carries the skull (or nil)
+--
+-- ON FOREVER THE SCANNER MARKS NOTHING (6 Oct 2026). Arn's BugGrabber: "AddOn 'BiSTools' tried to
+-- call the protected function 'SetRaidTarget()'", from this function on the ticker. There, an addon
+-- may not set a mark at all; Blizzard's /tm in a secure macro may - the same split as pings (an
+-- addon's C_Ping call forbidden, /ping in a secure button fine, measured 1 Oct). So on a restricted
+-- client the scan only FINDS: it returns the clean copy, the window and the sound say so, and the
+-- farm key (F.TargetButton) targets it and marks it with your key press.
 function F.Scan(name, db)
+  local canMark = not F.Restricted()
   -- the mouse first: hovering works from any distance, nameplates do not
   if UnitExists("mouseover") and UnitName("mouseover") == name and F.Clean("mouseover") then
     -- already wearing anything (scanner mark, hand mark, skull)? leave it alone
-    if not GetRaidTargetIndex("mouseover") then
+    if canMark and not GetRaidTargetIndex("mouseover") then
       SetRaidTarget("mouseover", SKULL)
       if db then F.Found(db, "Skull") end
     end
@@ -121,6 +129,7 @@ function F.Scan(name, db)
       end
     end
   end
+  if not canMark then return first or unmarked[1] end
   local dealt = 0
   for _, u in ipairs(unmarked) do
     local m
@@ -137,7 +146,11 @@ end
 
 function F.Tick(db)
   if not db.active then return F.Stop() end
+  local was = F.marked
   F.marked = F.Scan(db.active, db)
+  -- on Forever nothing was marked, so the scan's own "found" never fired: say it here, once per
+  -- copy coming into view, and the farm key does the marking
+  if F.marked and not was and F.Restricted() then F.Found(db, "Target") end
   if F.Spots then F.Spots.Sync(db) F.Spots.Warn(db) end
 end
 
@@ -195,7 +208,17 @@ function F.TargetButton()
     if InCombatLockdown() then return end
     local db = F.db
     local u = db and db.active and (F.marked or F.Scan(db.active))
-    if u and F.Clean(u) then
+    if u and F.Clean(u) and F.Restricted() then
+      -- Forever: the addon may not mark, so the KEY does it - Blizzard's /tm in a secure macro,
+      -- run by this key press. The spot's own mark when you stand at one, else the skull. /tm on a
+      -- unit already wearing that mark would take it OFF, so it is only added when it changes.
+      local want = (F.Spots and F.Spots.Want and F.Spots.Want(db)) or SKULL
+      local macro = "/target " .. u
+      if GetRaidTargetIndex(u) ~= want then macro = macro .. "\n/tm " .. want end
+      self:SetAttribute("type", "macro")
+      self:SetAttribute("unit", nil)
+      self:SetAttribute("macrotext", macro)
+    elseif u and F.Clean(u) then
       self:SetAttribute("type", "target")
       self:SetAttribute("unit", u)
     else

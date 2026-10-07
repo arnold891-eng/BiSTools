@@ -349,23 +349,31 @@ end
 -- ---------------------------------------------------------------- target sync
 -- Looking at the farmed mob while standing at a spot: it wears that spot's
 -- mark. Inside a zone that is the sub's mark; outside, the zone's.
+--- The mark the spot you stand at wants on the farmed mob, or nil. Split out of Sync on 6 Oct 2026:
+--- on Forever the addon may not set a mark, so the farm key's macro asks this and /tm does it.
+function S.Want(db)
+  local name = db.active
+  if not name then return nil end
+  local map, x, y = S.Here()
+  if not map then return nil end
+  local list = db.spots and db.spots[name]
+  if not list then return nil end
+  local here = S.Assign(db, name)
+  if here then
+    local sb = nearest(here.subs, map, x, y, math.max(S.SubRadius(db) * 2, 10))
+    return sb and sb.mark or here.mark
+  end
+  local z = nearest(list, map, x, y, S.Reach(db))
+  return z and z.mark
+end
+
 function S.Sync(db)
   local name = db.active
   if not name or not UnitExists("target") or UnitName("target") ~= name then return end
   if UnitIsDead("target") or (UnitIsTapDenied and UnitIsTapDenied("target")) then return end
-  local map, x, y = S.Here()
-  if not map then return end
-  local list = db.spots and db.spots[name]
-  if not list then return end
-  local here = S.Assign(db, name)
-  local want
-  if here then
-    local sb = nearest(here.subs, map, x, y, math.max(S.SubRadius(db) * 2, 10))
-    want = sb and sb.mark or here.mark
-  else
-    local z = nearest(list, map, x, y, S.Reach(db))
-    want = z and z.mark
-  end
+  -- Forever: SetRaidTarget is protected (BugGrabber, 6 Oct) - the farm key's /tm marks instead
+  if NS.Farm and NS.Farm.Restricted and NS.Farm.Restricted() then return end
+  local want = S.Want(db)
   if want and GetRaidTargetIndex("target") ~= want then
     SetRaidTarget("target", want)
     return want

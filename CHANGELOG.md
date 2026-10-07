@@ -4,6 +4,11 @@
   Forever even asking for it is blocked - every login showed "BiSTools tried to call the
   protected function". On Forever it now counts kills from the game's own kill event instead.
   TBC is unchanged.
+- **On WoW Forever the farm key does the marking.** Forever does not let an addon place a raid
+  mark on its own (it showed as "BiSTools tried to call the protected function SetRaidTarget").
+  The scanner still finds the next clean copy and tells you; your farm key then targets it and
+  marks it with the game's own /tm - the spot's mark where you stand at one, the skull otherwise.
+  TBC still marks automatically.
 - **The summon tool is off on WoW Forever** - there are no summoning stones there. No window, no
   nag, no `/bt summon`. On TBC it is unchanged.
 - All BiS addons sit under one **BiS>Addons** heading in the addon list.
