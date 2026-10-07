@@ -337,9 +337,23 @@ local function fakeHBDPins()
       error("HereBeDragons-Pins-2.0: " .. what .. ": 'uiMapID', 'x' and 'y' must be numbers", 3)
     end
   end
-  function P:AddMinimapIconMap(ref, icon, map, x, y) check(ref, icon, map, x, y, "AddMinimapIconMap") W.pins.minimap[icon] = { map = map, x = x, y = y } return true end
+  -- ONE FRAME CANNOT BE ON BOTH MAPS (6 Oct 2026, Arn: no pins on either map, while every add
+  -- answered true). The real library reparents an icon into whichever map draws it - SetParent to
+  -- the minimap on add, to a world-map pin when that map draws it, Hide + SetParent(UIParent) when
+  -- the world map lets go - so a frame handed to both is fought over and shows on neither. The
+  -- stand-in used to take the same frame twice without a murmur; now it refuses, as the client
+  -- effectively does by showing nothing.
+  local function shared(icon, other, what)
+    if other[icon] then error("HereBeDragons-Pins-2.0: " .. what .. ": this frame is already a pin on the other map - each map needs its own frame", 3) end
+  end
+  function P:AddMinimapIconMap(ref, icon, map, x, y)
+    check(ref, icon, map, x, y, "AddMinimapIconMap")
+    shared(icon, W.pins.world, "AddMinimapIconMap")
+    W.pins.minimap[icon] = { map = map, x = x, y = y } return true
+  end
   function P:AddWorldMapIconMap(ref, icon, map, x, y, flag)
     check(ref, icon, map, x, y, "AddWorldMapIconMap")
+    shared(icon, W.pins.minimap, "AddWorldMapIconMap")
     if flag ~= nil and type(flag) ~= "number" then error("showFlag must be a number (or nil)", 2) end
     W.pins.world[icon] = { map = map, x = x, y = y, flag = flag } return true
   end

@@ -61,7 +61,7 @@ function P.Clear()
     H:RemoveAllMinimapIcons(P)
     H:RemoveAllWorldMapIcons(P)
   end
-  for _, b in pairs(P.pins) do release(b) end
+  for _, pair in pairs(P.pins) do release(pair.mini) release(pair.world) end
   P.pins = {}
 end
 
@@ -85,7 +85,13 @@ function P.Spots(db)
 end
 
 --- Draw what is recorded now. Pins are keyed by the spot TABLE, so a spot that moves or goes keeps
---- its own pin and nothing else is touched.
+--- its own pins and nothing else is touched.
+---
+--- TWO FRAMES PER SPOT, one per map (6 Oct 2026). The first version handed ONE frame to both maps,
+--- every add answered true, and Arn saw nothing on either: HereBeDragons reparents a pin's frame
+--- into whichever map draws it (the minimap on add; a world-map pin when that map draws; Hide and
+--- back to UIParent when it lets go), so the two maps fought over one frame. Every addon that uses
+--- the library gives each map its own frame.
 function P.Update(db)
   local H = lib()
   if not H or db.pins == false then return P.Clear() end
@@ -94,35 +100,37 @@ function P.Update(db)
   local seen = {}
   for _, sp in ipairs(spots) do
     seen[sp] = true
-    local b = P.pins[sp]
-    local zone = sp.map and sp or nil
-    if not b then
-      b = newPin()
-      P.pins[sp] = b
-      local parent = zone
+    local pair = P.pins[sp]
+    if not pair then
+      local parent = sp.map and sp or nil
       if not parent then
         for _, z in ipairs(db.spots[mob]) do
           for _, x in ipairs(z.subs or {}) do if x == sp then parent = z end end
         end
       end
-      b.map = sp.map or (parent and parent.map)
-      b.mark = sp.mark or (parent and parent.mark)
-      b.tex:SetTexture(P.ICON .. b.mark)
+      local map = sp.map or (parent and parent.map)
+      local mark = sp.mark or (parent and parent.mark)
+      pair = { mini = newPin(), world = newPin(), map = map, mark = mark }
+      P.pins[sp] = pair
+      for _, b in pairs({ pair.mini, pair.world }) do b.tex:SetTexture(P.ICON .. mark) end
       -- each add answers false for coordinates it cannot place; kept for /bist farm pins why
-      P.lastMini = H:AddMinimapIconMap(P, b, b.map, sp.x, sp.y, true, false)
-      P.lastWorld = H:AddWorldMapIconMap(P, b, b.map, sp.x, sp.y, HBD_PINS_WORLDMAP_SHOW_PARENT)
+      P.lastMini = H:AddMinimapIconMap(P, pair.mini, map, sp.x, sp.y, true, false)
+      P.lastWorld = H:AddWorldMapIconMap(P, pair.world, map, sp.x, sp.y, HBD_PINS_WORLDMAP_SHOW_PARENT)
     end
     local text, _, key = S.Describe(sp, now)
     local up = key and key < 0
-    b:SetAlpha(up and P.BRIGHT or P.DIM)
-    b.info = { name = mob, kills = sp.kills or 0,
-               state = up and "up now" or (sp.respawn and ("back in " .. text) or ("last kill " .. text .. " ago")) }
+    local info = { name = mob, kills = sp.kills or 0,
+                   state = up and "up now" or (sp.respawn and ("back in " .. text) or ("last kill " .. text .. " ago")) }
+    for _, b in pairs({ pair.mini, pair.world }) do
+      b:SetAlpha(up and P.BRIGHT or P.DIM)
+      b.info = info
+    end
   end
-  for sp, b in pairs(P.pins) do
+  for sp, pair in pairs(P.pins) do
     if not seen[sp] then
-      H:RemoveMinimapIcon(P, b)
-      H:RemoveWorldMapIcon(P, b)
-      release(b)
+      H:RemoveMinimapIcon(P, pair.mini)
+      H:RemoveWorldMapIcon(P, pair.world)
+      release(pair.mini) release(pair.world)
       P.pins[sp] = nil
     end
   end
