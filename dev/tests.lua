@@ -322,10 +322,43 @@ _G.CreateFrame = function(...)
   f.SetScript = function(self, k, fn) ss(self, k, fn) if k == "OnEvent" then handlers[#handlers + 1] = { fn = fn, frame = self } end end
   return f
 end
+-- HEREBEDRAGONS DRIVES THE CLIENT'S OWN MAP ENGINE (CreateVector2D, the world map's data providers,
+-- the minimap's zoom tables), which a headless mock cannot stand in for honestly. So its two files
+-- are still required to COMPILE, and in their place a stand-in registers under the same LibStub name
+-- with the same argument checks the real one raises, and records every pin it is handed. The suite
+-- tests what is ours: which map, which spot, which mark, dim or bright, and that pins go away.
+W.pins = { minimap = {}, world = {} }
+local function fakeHBDPins()
+  local P = LibStub:NewLibrary("HereBeDragons-Pins-2.0", 999)
+  local function check(ref, icon, map, x, y, what)
+    if not ref then error("HereBeDragons-Pins-2.0: " .. what .. ": 'ref' must not be nil", 3) end
+    if type(icon) ~= "table" or not icon.SetPoint then error("HereBeDragons-Pins-2.0: " .. what .. ": 'icon' must be a frame", 3) end
+    if type(map) ~= "number" or type(x) ~= "number" or type(y) ~= "number" then
+      error("HereBeDragons-Pins-2.0: " .. what .. ": 'uiMapID', 'x' and 'y' must be numbers", 3)
+    end
+  end
+  function P:AddMinimapIconMap(ref, icon, map, x, y) check(ref, icon, map, x, y, "AddMinimapIconMap") W.pins.minimap[icon] = { map = map, x = x, y = y } return true end
+  function P:AddWorldMapIconMap(ref, icon, map, x, y, flag)
+    check(ref, icon, map, x, y, "AddWorldMapIconMap")
+    if flag ~= nil and type(flag) ~= "number" then error("showFlag must be a number (or nil)", 2) end
+    W.pins.world[icon] = { map = map, x = x, y = y, flag = flag } return true
+  end
+  function P:RemoveMinimapIcon(ref, icon) W.pins.minimap[icon] = nil end
+  function P:RemoveWorldMapIcon(ref, icon) W.pins.world[icon] = nil end
+  function P:RemoveAllMinimapIcons(ref) W.pins.minimap = {} end
+  function P:RemoveAllWorldMapIcons(ref) W.pins.world = {} end
+  _G.HBD_PINS_WORLDMAP_SHOW_PARENT, _G.HBD_PINS_WORLDMAP_SHOW_CONTINENT = 1, 2
+end
 for _, f in ipairs(files) do
   local chunk, err = loadfile(f)
   assert(chunk, "TOC lists a file that does not load: " .. tostring(f) .. " (" .. tostring(err) .. ")")
-  chunk("BiSTools", NS)
+  if f == "Libs/HereBeDragons/HereBeDragons-2.0.lua" then
+    -- compiled above; the engine itself is the client's
+  elseif f == "Libs/HereBeDragons/HereBeDragons-Pins-2.0.lua" then
+    fakeHBDPins()
+  else
+    chunk("BiSTools", NS)
+  end
 end
 -- dev/theme.lua: poison the accent AFTER the files load, BEFORE anything is built
 if _G.__THEME_MUTATION then BiSTheme.hex.accent = _G.__THEME_MUTATION end
@@ -2020,9 +2053,82 @@ for _, name in ipairs({ "Core/Slash.lua", "Core/Registry.lua", "Tools/TargetFarm
   ok(not stray, name .. " still tells the player to type /bt: " .. tostring(stray))
 end
 
+-- ---------------------------------------------------------------- the farm spots on the maps
+-- (6 Oct 2026) Arn: "can we see how questie puts marks on the minimap and can we do that?" Every
+-- recorded spot of the farmed mob is a pin on the minimap AND the world map, wearing its own mark:
+-- bright when it is up, dim while it waits to respawn.
+do
+  local Pn = F.Pins
+  ok(Pn ~= nil, "the pins module loaded")
+  local fdb = db
+  local now = W.now
+  local keepSpots, keepActive = fdb.spots, fdb.active
+  fdb.spots = { Pinbear = {
+    { id = 1, map = 1952, x = 0.50, y = 0.50, mark = 1, kills = 3, last = now - 10, respawn = 60,
+      subs = { { x = 0.51, y = 0.50, mark = 2, kills = 2, last = now - 120, respawn = 60 } } },
+  } }
+  fdb.active = "Pinbear"
+  fdb.pins = nil
+  W.pins = { minimap = {}, world = {} }
+  Pn.Update(fdb)
+  local mini, world = {}, {}
+  for icon, p in pairs(W.pins.minimap) do mini[#mini + 1] = { icon = icon, p = p } end
+  for icon in pairs(W.pins.world) do world[#world + 1] = icon end
+  ok(#mini == 2 and #world == 2, "every spot and sub is pinned on the minimap AND the world map", #mini .. "/" .. #world)
+  local byMark = {}
+  for _, e in ipairs(mini) do
+    ok(e.p.map == 1952, "a pin sits on the spot's own map")
+    byMark[e.icon.tex.file] = e
+  end
+  local zonePin = byMark["Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"]
+  local subPin = byMark["Interface\\TargetingFrame\\UI-RaidTargetingIcon_2"]
+  ok(zonePin and subPin, "each pin wears its spot's own raid mark")
+  ok(zonePin.p.x == 0.50 and subPin.p.x == 0.51, "where the spot was recorded")
+  ok(zonePin.icon.alpha == Pn.DIM, "a spot still waiting to respawn is dim")
+  ok(subPin.icon.alpha == Pn.BRIGHT, "a spot whose respawn is up is bright")
+  ok(subPin.icon.info and subPin.icon.info.state == "up now" and zonePin.icon.info.state:find("^back in"),
+     "the tooltip says up now, or how long until it is back")
+
+  -- time passes: the waiting spot comes up, the same pin brightens (no new pin)
+  W.now = now + 60
+  Pn.Update(fdb)
+  local n = 0 for _ in pairs(W.pins.minimap) do n = n + 1 end
+  ok(n == 2 and zonePin.icon.alpha == Pn.BRIGHT, "a spot that comes up brightens its own pin, nothing added")
+
+  -- a sub forgotten (prune, clear): its pin goes, the zone's stays
+  fdb.spots.Pinbear[1].subs = {}
+  Pn.Update(fdb)
+  n = 0 for _ in pairs(W.pins.minimap) do n = n + 1 end
+  local w = 0 for _ in pairs(W.pins.world) do w = w + 1 end
+  ok(n == 1 and w == 1, "a spot that is gone takes its pin off both maps")
+
+  S("farm pins off")
+  ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil and fdb.pins == false, "/bist farm pins off clears both maps")
+  S("farm pins on")
+  ok(next(W.pins.minimap) ~= nil and fdb.pins == true, "/bist farm pins on brings them back")
+  S("off farm")
+  ok(next(W.pins.minimap) == nil, "switching the farm tool off takes its pins off")
+  S("on farm")
+  ok(next(W.pins.minimap) ~= nil, "and on puts them back")
+
+  -- no HereBeDragons at all (a stripped copy): nothing drawn, nothing thrown
+  local keepLib = LibStub.libs["HereBeDragons-Pins-2.0"]
+  LibStub.libs["HereBeDragons-Pins-2.0"] = nil
+  ok(pcall(Pn.Update, fdb), "without the pin library the update does nothing and throws nothing")
+  LibStub.libs["HereBeDragons-Pins-2.0"] = keepLib
+
+  Pn.Stop()
+  fdb.spots, fdb.active, fdb.pins = keepSpots, keepActive, nil
+  W.now = now
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
+  -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
+  -- show flags HereBeDragons-Pins defines for every addon that pins
+  LibStub = true, HBD_PINS_WORLDMAP_SHOW_PARENT = true, HBD_PINS_WORLDMAP_SHOW_CONTINENT = true,
+  HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
 for k in pairs(_G) do

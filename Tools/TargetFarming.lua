@@ -692,7 +692,7 @@ end
 NS.Registry:Register({
   name = "farm",
   desc = "click a kill; skull auto-follows a free copy nearby",
-  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | radius <yd> | burst <sec> | prune <sec>|off]",
+  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
     active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
   OnInit = function(self, db)
@@ -734,6 +734,7 @@ NS.Registry:Register({
   OnDisable = function(self, db)
     F.events:UnregisterAllEvents()
     if F.Spots then F.Spots.Hide() end
+    if F.Pins then F.Pins.Stop() end
     F.Stop()
     if F.tbtn and not InCombatLockdown() then ClearOverrideBindings(F.tbtn) end
     if F.frame then F.frame:Hide() end
@@ -745,6 +746,11 @@ NS.Registry:Register({
     if cmd == "spots" and F.Spots then
       if rest:lower() == "clear" then return F.Spots.Clear(db) end
       return F.Spots.Toggle(db)
+    end
+    if cmd == "pins" and F.Pins then
+      local r = rest:lower()
+      local on = F.Pins.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("map pins %s", on and T.text("accent", "on") or "off")
     end
     if cmd == "burst" and F.Spots then
       if rest ~= "" then F.Spots.SetBurst(db, rest) end

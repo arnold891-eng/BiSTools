@@ -12,10 +12,15 @@ Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua
 Libs\LibBiSComm-1.0\LibBiSComm-1.0.lua
 Libs\RezComm-1.0\RezComm-1.0.lua
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\HereBeDragons\HereBeDragons-2.0.lua
+Libs\HereBeDragons\HereBeDragons-Pins-2.0.lua
 Core\Init.lua
 Core\Registry.lua
 Core\Slash.lua
 Tools\TargetFarming.lua
 Tools\FarmSpots.lua
+Tools\FarmPins.lua
 Tools\Summon.lua
 Tools\Hub.lua

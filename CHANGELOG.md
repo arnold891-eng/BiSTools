@@ -1,5 +1,11 @@
 ## 0.4.0
 
+- **Your farm spots on the minimap and the world map**, each wearing its own raid mark - bright
+  when it is up, dim while it waits to respawn; hover for the mob, the kills and the time left.
+  `/bist farm pins off` hides them. Drawn with HereBeDragons, the library Questie uses (BSD; see
+  `Libs/THIRD-PARTY.txt`).
+- **The farm key hands out the next mark**: skull, then cross, square and down, remembering which
+  mob has which; a kill frees its mark.
 - **The command is `/bist` now**, to match the family (`/bish` BiS Healing, `/bisg` BiS Guild).
   `/bt` and `/bistools` still work, so old macros keep going.
 
