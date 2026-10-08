@@ -120,6 +120,15 @@ function S.Mob(db)
   return db.active or (db.last and db.last.name) or db.custom
 end
 
+--- The mob whose spots are SHOWN - the window, the call-out, the map pins, the arrow - and that is
+--- the mob being farmed, nothing else (6 Oct 2026). Arn: clicking Mountain Lion again "should
+--- remove all the marks on the minimap and clear the spawn timers window". S.Mob falls back to the
+--- last kill, which kept them up after you stopped. The spots themselves are KEPT - pick the mob
+--- again and everything it learned is back; the window's r button is what forgets a mob.
+function S.Shown(db)
+  return db.active
+end
+
 -- lowest mark 1..7 no zone owns
 function S.FreeZoneMark(list)
   local used = {}
@@ -301,7 +310,7 @@ function S.Kill(db, name, mark)
 end
 
 function S.ClearMob(db)
-  local mob = S.Mob(db)
+  local mob = S.Shown(db)
   if mob and db.spots then db.spots[mob] = nil end
   S.Refresh(db)
   if mob then NS.Print("spots for %s reset", T.text("accent", mob)) end
@@ -349,24 +358,33 @@ end
 -- ---------------------------------------------------------------- target sync
 -- Looking at the farmed mob while standing at a spot: it wears that spot's
 -- mark. Inside a zone that is the sub's mark; outside, the zone's.
+--- The mark the spot you stand at wants on the farmed mob, or nil. Split out of Sync on 6 Oct 2026:
+--- on Forever the addon may not set a mark, so the farm key's macro asks this and /tm does it.
+function S.Want(db)
+  local name = db.active
+  if not name then return nil end
+  local map, x, y = S.Here()
+  if not map then return nil end
+  local list = db.spots and db.spots[name]
+  if not list then return nil end
+  local here = S.Assign(db, name)
+  if here then
+    local sb = nearest(here.subs, map, x, y, math.max(S.SubRadius(db) * 2, 10))
+    return sb and sb.mark or here.mark
+  end
+  local z = nearest(list, map, x, y, S.Reach(db))
+  return z and z.mark
+end
+
 function S.Sync(db)
+  -- Forever: SetRaidTarget is protected (BugGrabber, 6 Oct) - the farm key's /tm marks instead.
+  -- FIRST, before the target's name or flags are read: either can be a secret there.
+  if NS.Farm and NS.Farm.Restricted and NS.Farm.Restricted() then return end
   local name = db.active
   if not name or not UnitExists("target") or UnitName("target") ~= name then return end
   if UnitIsDead("target") or (UnitIsTapDenied and UnitIsTapDenied("target")) then return end
-  local map, x, y = S.Here()
-  if not map then return end
-  local list = db.spots and db.spots[name]
-  if not list then return end
-  local here = S.Assign(db, name)
-  local want
-  if here then
-    local sb = nearest(here.subs, map, x, y, math.max(S.SubRadius(db) * 2, 10))
-    want = sb and sb.mark or here.mark
-  else
-    local z = nearest(list, map, x, y, S.Reach(db))
-    want = z and z.mark
-  end
-  if want and GetRaidTargetIndex("target") ~= want then
+  local want = S.Want(db)
+  if want and NS.Farm.Mark("target") ~= want then
     SetRaidTarget("target", want)
     return want
   end
@@ -376,7 +394,7 @@ end
 function S.Warn(db)
   S.DoPrune(db)
   if (db.sound or "first") == "off" then return end
-  local mob = S.Mob(db)
+  local mob = S.Shown(db)
   local list = mob and db.spots and db.spots[mob]
   if not list then return end
   local here = S.Assign(db, mob)
@@ -407,6 +425,7 @@ function S.Build(db)
   F.border(f, "edge", 0.35)
 
   local head = CreateFrame("Frame", nil, f)
+  S.head = head
   head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
   head:SetHeight(F.HEADER)
   F.tex(head, "BACKGROUND", "header", F.HEAD_A)
@@ -421,7 +440,7 @@ function S.Build(db)
   S.zoneIcon:SetPoint("LEFT", S.title, "RIGHT", 4, 0)
   S.zoneIcon:Hide()
   S.closeBtn = F.HeaderButton(head, -3, "x", "Hide timers", "They keep counting.", function() S.Toggle(db, false) end, "warn")
-  S.resetBtn = F.HeaderButton(head, -17, "r", "Reset", "Forget every zone and timer for this mob. /bt farm spots clear wipes all mobs.",
+  S.resetBtn = F.HeaderButton(head, -17, "r", "Reset", "Forget every zone and timer for this mob. /bist farm spots clear wipes all mobs.",
     function() S.ClearMob(db) end)
 
   local body = CreateFrame("Frame", nil, f)
@@ -504,8 +523,11 @@ end
 
 function S.Refresh(db)
   S.Warn(db)
-  if not S.frame or not S.frame:IsShown() then return end
-  local mob = S.Mob(db)
+  -- VISIBLE, NOT SHOWN (7 Oct 2026). The shelf hangs off the farm window; closing that window
+  -- hides the parent and leaves this one "shown", so the full rebuild below ran 4 times a second
+  -- behind a closed window all evening. The spawn call-out above still runs: it is meant to.
+  if not S.frame or not S.frame:IsVisible() then return end
+  local mob = S.Shown(db)
   local list = mob and S.List(db, mob) or {}
   local now = time()
   local map, px, py = S.Here()
@@ -573,7 +595,10 @@ function S.Refresh(db)
       r:Hide()
     end
   end
-  if #shown == 0 then S.empty:Show() else S.empty:Hide() end
+  if #shown == 0 then
+    S.empty:SetText(mob and "kill it a few times" or "pick a mob to farm")
+    S.empty:Show()
+  else S.empty:Hide() end
   local h = math.max(#shown * S.ROW, S.ROW) + 4
   S.body:SetHeight(h)
   S.frame:SetHeight(F.HEADER + h)

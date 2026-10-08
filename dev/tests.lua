@@ -1,6 +1,6 @@
 -- BiSTools headless harness. Run from the addon root:  lua5.1 dev/tests.lua
 -- ------------------------------------------------------------ WoW mock
-local W = { combat = false, target = nil, plates = {}, marks = {}, now = 0 }
+local W = { combat = false, target = nil, plates = {}, marks = {}, now = 0, forbidden = {} }
 _G.__W = W
 -- the TOC is the truth for the version and for what loads, in what order
 local function readTOC()
@@ -21,6 +21,8 @@ _G.STANDARD_TEXT_FONT = "font"
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) W.lastMsg = m end }
 _G.SlashCmdList = {}
 _G.GetTime = function() return W.now end
+-- every client answers this; the suite is the TBC client unless a test says otherwise
+_G.GetBuildInfo = function() return "2.5.6", "69795", "Sep 1 2026", W.iface or 20506 end
 W.afters = {}
 function W.runAfters(dt)
   W.now = W.now + (dt or 1)
@@ -80,10 +82,14 @@ _G.C_ChatInfo = { RegisterAddonMessagePrefix = function() return true end,
 W.prefixes = {}
 W.innervateLoaded = false
 _G.IsAddOnLoaded = function(name) return name == "BiSInnervate" and W.innervateLoaded or false end
-_G.hooksecurefunc = function(name, fn)
-  local orig = _G[name]
+-- both forms, as the client has them: hooksecurefunc("Global", fn) and hooksecurefunc(tbl, "key", fn)
+-- (the table form was missing; the RestedXP listener hooks a method on RXP's own table)
+_G.hooksecurefunc = function(a, b, c)
+  local tbl, name, fn = _G, a, b
+  if type(a) == "table" then tbl, name, fn = a, b, c end
+  local orig = tbl[name]
   if type(orig) ~= "function" then return end
-  _G[name] = function(...) local r = orig(...) fn(...) return r end
+  tbl[name] = function(...) local r = orig(...) fn(...) return r end
 end
 W.offer = nil
 _G.GetSummonConfirmSummoner = function() return W.offer and W.offer.summoner end
@@ -113,6 +119,8 @@ _G.InCombatLockdown = function() return W.combat end
 _G.UnitGUID = function(u)
   if u == "player" then return "Player-1" elseif u == "pet" then return "Pet-1" end
   if u == "target" and W.target then return W.target.guid end
+  -- a nameplate has a GUID in the client; this used to answer nil, which hid anything keyed by it
+  if W.plates[u] then return W.plates[u].guid end
 end
 _G.UnitExists = function(u)
   if u == "player" then return true end
@@ -134,10 +142,25 @@ _G.UnitAffectingCombat = function(u) local x = unit(u) return x and x.combat or 
 _G.UnitIsTapDenied = function(u) local x = unit(u) return x and x.tapped or false end
 _G.UnitCanAttack = function(_, u) local x = unit(u) return x and x.hostile ~= false end
 _G.SetRaidTarget = function(u, i)
+  -- PROTECTED ON FOREVER (6 Oct 2026, Arn's BugGrabber: "AddOn 'BiSTools' tried to call the
+  -- protected function 'SetRaidTarget()'", from the scanner's ticker). The client blames the addon
+  -- and sets nothing. A secure macro's /tm is Blizzard's code and is allowed - the same split as
+  -- C_Ping.SendMacroPing (forbidden) and /ping in a secure button (fine), measured 1 Oct.
+  if W.restricted then
+    W.forbidden[#W.forbidden + 1] = "SetRaidTarget(" .. tostring(u) .. ", " .. tostring(i) .. ")"
+    return
+  end
   for k, v in pairs(W.marks) do if v == i then W.marks[k] = nil end end -- one skull at a time
   W.marks[u] = i
 end
-_G.GetRaidTargetIndex = function(u) return W.marks[u] end
+-- A MARK IS A SECRET NUMBER ON FOREVER (6 Oct 2026, Arn's BugGrabber, open world: "attempt to
+-- compare local 'm' (a secret number value)" in the scanner, and in the farm spots a kill later).
+-- With W.secretMarks set, every read hands back a secret instead of the number - the mock used to
+-- answer plainly, which is how two comparisons shipped.
+_G.GetRaidTargetIndex = function(u)
+  if W.secretMarks then return W.secretMarks() end
+  return W.marks[u]
+end
 W.tickers = {}
 _G.C_Timer = { After = function(delay, fn) W.afters[#W.afters + 1] = { at = W.now + delay, fn = fn } end,
   NewTicker = function(iv, fn)
@@ -164,11 +187,17 @@ end }
 local function num3(a, b, c) return type(a) == "number" and type(b) == "number" and type(c) == "number" end
 local function Texture()
   local t = { shown = true }
-  function t:SetAllPoints() end
-  function t:SetPoint() end
-  function t:SetHeight() end
-  function t:SetWidth() end
-  function t:SetSize() end
+  -- size and anchor are REMEMBERED: a label pinned beside an icon starts where the icon ends, and
+  -- the fit check below cannot know that if the icon forgot both (they were no-ops)
+  function t:SetAllPoints() self.all = true end
+  function t:SetPoint(p, rel, rp, x, y)
+    if type(rel) == "number" then self.anchor = { p, nil, p, rel, rp }
+    else self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
+  end
+  function t:ClearAllPoints() self.anchor = nil end
+  function t:SetHeight(h) self.h = h end
+  function t:SetWidth(w) self.w = w end
+  function t:SetSize(w, h) self.w, self.h = w, h end
   function t:SetTexture(x) self.file = x end
   function t:SetTexCoord() end
   function t:ClearAllPoints() end
@@ -181,11 +210,23 @@ local function Texture()
   function t:Show() self.shown = true end
   return t
 end
+-- EVERY LABEL, KEPT, WITH WHAT IT IS PINNED TO (6 Oct 2026). Arn's screenshot: "nothing here to
+-- point at" and "click a mob to see its spawns" ran straight out of the 124 px Spawns window. A
+-- label only remembered its x/y, so nothing could say where it STARTS - and "does it fit" needs
+-- that. W.labels is walked by fitsIn() below.
+W.labels = {}
 local function FontString()
   local s = { shown = true }
+  W.labels[#W.labels + 1] = s
   function s:SetFont(_, size) self.size = size end
-  function s:SetPoint(p, rel, rp, x, y) if type(rel) == "number" then self.x, self.y = rel, rp else self.x, self.y = x, y end end
-  function s:ClearAllPoints() end
+  function s:SetPoint(p, rel, rp, x, y)
+    if type(rel) == "number" then self.x, self.y = rel, rp self.anchor = { p, nil, p, rel, rp }
+    else self.x, self.y = x, y self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
+  end
+  function s:ClearAllPoints() self.anchor = nil end
+  function s:Show() self.shown = true end
+  function s:Hide() self.shown = false end
+  function s:IsShown() return self.shown end
   function s:SetText(x) self.text = x end
   function s:GetText() return self.text end
   function s:SetAlpha(a) self.alpha = a end
@@ -213,7 +254,18 @@ local frames = {}
 _G.CreateFrame = function(kind, name, parent, template)
   local f = { kind = kind, name = name, parent = parent, template = template,
     shown = true, scripts = {}, attrs = {}, events = {}, h = 0 }
-  function f:RegisterEvent(e) self.events[e] = true end
+  -- ON FOREVER, REGISTERING THE COMBAT LOG IS A PROTECTED ACTION (6 Oct 2026, Arn's BugGrabber:
+  -- "AddOn 'BiSTools' tried to call the protected function 'Frame:RegisterEvent()'"). The client
+  -- does not throw - it records the blame and fires ADDON_ACTION_FORBIDDEN later, which is why a
+  -- pcall never saw it. This mock always took the registration, so the suite could not tell. With
+  -- W.restricted on it behaves like that client: the event is NOT registered and the call is blamed.
+  function f:RegisterEvent(e)
+    if W.restricted and e == "COMBAT_LOG_EVENT_UNFILTERED" then
+      W.forbidden[#W.forbidden + 1] = "Frame:RegisterEvent(" .. e .. ")"
+      return
+    end
+    self.events[e] = true
+  end
   function f:UnregisterAllEvents() self.events = {} end
   function f:UnregisterEvent(e) self.events[e] = nil end
   function f:IsMouseOver() return W.mouseOver == self end
@@ -252,6 +304,14 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:Show() self.shown = true end
   function f:Hide() self.shown = false end
   function f:IsShown() return self.shown end
+  -- VISIBLE IS SHOWN ALL THE WAY UP (7 Oct 2026). A child whose parent hides stays IsShown() -
+  -- that is how the Spawns shelf kept refreshing 4 times a second behind a closed farm window.
+  function f:IsVisible()
+    if not self.shown then return false end
+    local p = self.parent
+    if type(p) == "table" and type(p.IsVisible) == "function" then return p:IsVisible() end
+    return true
+  end
   function f:SetAttribute(k, v) if W.combat then error("attribute set in combat: " .. k) end self.attrs[k] = v end
   function f:GetAttribute(k) return self.attrs[k] end
   function f:Click()
@@ -292,18 +352,75 @@ _G.CreateFrame = function(...)
   f.SetScript = function(self, k, fn) ss(self, k, fn) if k == "OnEvent" then handlers[#handlers + 1] = { fn = fn, frame = self } end end
   return f
 end
+-- HEREBEDRAGONS DRIVES THE CLIENT'S OWN MAP ENGINE (CreateVector2D, the world map's data providers,
+-- the minimap's zoom tables), which a headless mock cannot stand in for honestly. So its two files
+-- are still required to COMPILE, and in their place a stand-in registers under the same LibStub name
+-- with the same argument checks the real one raises, and records every pin it is handed. The suite
+-- tests what is ours: which map, which spot, which mark, dim or bright, and that pins go away.
+W.pins = { minimap = {}, world = {} }
+local function fakeHBDPins()
+  local P = LibStub:NewLibrary("HereBeDragons-Pins-2.0", 999)
+  local function check(ref, icon, map, x, y, what)
+    if not ref then error("HereBeDragons-Pins-2.0: " .. what .. ": 'ref' must not be nil", 3) end
+    if type(icon) ~= "table" or not icon.SetPoint then error("HereBeDragons-Pins-2.0: " .. what .. ": 'icon' must be a frame", 3) end
+    if type(map) ~= "number" or type(x) ~= "number" or type(y) ~= "number" then
+      error("HereBeDragons-Pins-2.0: " .. what .. ": 'uiMapID', 'x' and 'y' must be numbers", 3)
+    end
+  end
+  -- ONE FRAME CANNOT BE ON BOTH MAPS (6 Oct 2026, Arn: no pins on either map, while every add
+  -- answered true). The real library reparents an icon into whichever map draws it - SetParent to
+  -- the minimap on add, to a world-map pin when that map draws it, Hide + SetParent(UIParent) when
+  -- the world map lets go - so a frame handed to both is fought over and shows on neither. The
+  -- stand-in used to take the same frame twice without a murmur; now it refuses, as the client
+  -- effectively does by showing nothing.
+  local function shared(icon, other, what)
+    if other[icon] then error("HereBeDragons-Pins-2.0: " .. what .. ": this frame is already a pin on the other map - each map needs its own frame", 3) end
+  end
+  function P:AddMinimapIconMap(ref, icon, map, x, y)
+    check(ref, icon, map, x, y, "AddMinimapIconMap")
+    shared(icon, W.pins.world, "AddMinimapIconMap")
+    W.pins.minimap[icon] = { map = map, x = x, y = y } return true
+  end
+  function P:AddWorldMapIconMap(ref, icon, map, x, y, flag)
+    check(ref, icon, map, x, y, "AddWorldMapIconMap")
+    shared(icon, W.pins.minimap, "AddWorldMapIconMap")
+    if flag ~= nil and type(flag) ~= "number" then error("showFlag must be a number (or nil)", 2) end
+    W.pins.world[icon] = { map = map, x = x, y = y, flag = flag } return true
+  end
+  function P:RemoveMinimapIcon(ref, icon) W.pins.minimap[icon] = nil end
+  function P:RemoveWorldMapIcon(ref, icon) W.pins.world[icon] = nil end
+  function P:RemoveAllMinimapIcons(ref) W.pins.minimap = {} end
+  function P:RemoveAllWorldMapIcons(ref) W.pins.world = {} end
+  _G.HBD_PINS_WORLDMAP_SHOW_PARENT, _G.HBD_PINS_WORLDMAP_SHOW_CONTINENT = 1, 2
+end
 for _, f in ipairs(files) do
   local chunk, err = loadfile(f)
   assert(chunk, "TOC lists a file that does not load: " .. tostring(f) .. " (" .. tostring(err) .. ")")
-  chunk("BiSTools", NS)
+  if f == "Libs/HereBeDragons/HereBeDragons-2.0.lua" then
+    -- compiled above; the engine itself is the client's
+  elseif f == "Libs/HereBeDragons/HereBeDragons-Pins-2.0.lua" then
+    fakeHBDPins()
+  else
+    chunk("BiSTools", NS)
+  end
 end
 -- dev/theme.lua: poison the accent AFTER the files load, BEFORE anything is built
 if _G.__THEME_MUTATION then BiSTheme.hex.accent = _G.__THEME_MUTATION end
 -- Core/Init's frame is the one that listens for ADDON_LOADED (the libs' frames load first)
+-- Core/Init's frame: the FIRST of ours to listen for ADDON_LOADED (Core loads before every tool).
+-- This picked the LAST one, which was Core's only until a tool listened too (FarmGuide, 6 Oct).
 local core
-for _, h in ipairs(handlers) do if h.frame.events.ADDON_LOADED then core = h.fn end end
-core(nil, "ADDON_LOADED", "BiSTools")
-core(nil, "PLAYER_LOGIN")
+for _, h in ipairs(handlers) do
+  if h.frame.events.ADDON_LOADED and h.frame.events.PLAYER_LOGOUT then core = h.fn break end
+end
+-- and the client hands an event to EVERY frame that registered it, not to one; so does this
+local function deliver(event, ...)
+  for _, h in ipairs(handlers) do
+    if h.frame.events[event] then h.fn(h.frame, event, ...) end
+  end
+end
+deliver("ADDON_LOADED", "BiSTools")
+deliver("PLAYER_LOGIN")
 -- the client fires PLAYER_ENTERING_WORLD after login; that is when the lib says HI
 local function fireAll(ev, ...)
   local seen = {}
@@ -786,7 +903,11 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 7 and lib._booted, "LibBiSComm 1.0 minor 7 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 9 and lib._booted, "LibBiSComm 1.0 minor 9 loaded and booted from Core/Init")
+-- Minor 8 sends one message a second, as the client allows. This suite is about summons and
+-- farming, fires dozens of sends with the clock standing still and jumps it without running
+-- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
+lib.sendGap = 0
 -- the options kit must come from OUR embed via the TOC, not from the BiSTheme addon happening
 -- to be installed: 0.3.0 shipped without the TOC line and the Hub threw "attempt to call field
 -- 'Options'" for anyone without BiSTheme (found 11 Sep 2026, fixed 0.3.1). Minor 2 = Escape closes.
@@ -1746,8 +1867,634 @@ do
   end
 end
 
+-- ---------------------------------------------------------------- Forever: kills without the combat log
+-- (6 Oct 2026) The farm tool heard kills through COMBAT_LOG_EVENT_UNFILTERED, and on WoW Forever
+-- even REGISTERING it is a protected action. On a client that says it hides values, the tool must
+-- never ask for it, and must count kills from the plain PARTY_KILL event instead - in either of the
+-- two shapes Overlord handles, with any argument possibly a secret.
+do
+  -- A SECRET STRING SAYS "string" (on Forever type() still answers the real type) and refuses
+  -- everything else: a match, a find, a comparison. A plain table would be caught by any type
+  -- check by luck - the mock must not be kinder than that.
+  local secretMeta = { __secret = true, __index = function(_, k)
+    error("attempt to use a secret value (" .. tostring(k) .. ")", 2) end,
+    __eq = function() error("attempt to compare a secret value", 2) end }
+  local function secret() return setmetatable({}, secretMeta) end
+  local realType = type
+  local names = {}
+  local keep = { C_Secrets = _G.C_Secrets, issecretvalue = _G.issecretvalue, UnitNameFromGUID = _G.UnitNameFromGUID,
+                 type = _G.type }
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  _G.UnitNameFromGUID = function(g) return names[g] end
+  W.restricted = true
+  W.forbidden = {}
+
+  S("off farm") S("on farm")
+  ok(#W.forbidden == 0, "Forever: the farm tool never asks for the combat log (nothing blamed on BiSTools)")
+  ok(not F.events.events.COMBAT_LOG_EVENT_UNFILTERED, "Forever: and is not listening to it")
+  ok(F.events.events.PARTY_KILL, "Forever: it listens to PARTY_KILL instead")
+
+  S("farm clear")
+  local g = "Creature-0-0-0-0-777-Raptor"
+  names[g] = "Raptor"
+  fire("PARTY_KILL", "Player-1", g)
+  ok(db.last and db.last.name == "Raptor" and db.last.guid == g, "Forever: my kill, GUID shape, is recorded by name")
+  fire("PARTY_KILL", "Player-1", g)
+  ok(db.last.count == 2, "Forever: and counted again")
+
+  fire("PARTY_KILL", "Player-99", "Creature-0-0-0-0-778-Raptor")
+  ok(db.last.count == 2, "Forever: somebody else's kill does not count, as with the combat log")
+  fire("PARTY_KILL", "Pet-1", g)
+  ok(db.last.count == 3, "Forever: my pet's kill counts")
+  fire("PARTY_KILL", "Player-1", "Player-2")
+  ok(db.last.count == 3, "Forever: a player dying is not a farm kill")
+
+  ok(pcall(fire, "PARTY_KILL", secret(), g), "Forever: a SECRET attacker does not throw")
+  ok(pcall(fire, "PARTY_KILL", "Player-1", secret()), "Forever: nor a secret victim")
+  ok(db.last.count == 3, "Forever: and neither is counted - nothing secret was read")
+
+  -- the name is not resolved yet: the client says "Unknown". Fall back to the target, if it is the one
+  local g2 = "Creature-0-0-0-0-779-Boar"
+  names[g2] = "Unknown"
+  W.target = { name = "Boar", guid = g2 }
+  fire("PARTY_KILL", "Player-1", g2)
+  W.target = nil
+  ok(db.last.name == "Boar", "Forever: an unresolved name is taken from the target with that GUID")
+  names[g2] = "Unknown"
+  local before = db.last.count
+  fire("PARTY_KILL", "Player-1", g2)
+  ok(db.last.count == before, "Forever: and with no way to name it, it is not recorded as 'Unknown'")
+
+  -- the old shape: one unit token, the victim
+  W.target = { name = "Boar", guid = g2 }
+  before = db.last.count
+  fire("PARTY_KILL", "target")
+  W.target = nil
+  ok(db.last.name == "Boar" and db.last.count == before + 1, "Forever: the unit-token shape is understood too")
+
+  -- THE SCANNER MARKS NOTHING ON FOREVER; THE KEY DOES (6 Oct 2026). SetRaidTarget is protected
+  -- there - BugGrabber, from the ticker. Blizzard's /tm in a secure macro, on a key press, is not.
+  W.forbidden = {}
+  W.marks = {}
+  local keepSpots = db.spots
+  db.spots = {}          -- no spot here: the key's mark is the skull (a spot's own mark is checked below)
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
+  F.marked = nil
+  db.active = "Raptor" db.finds = 0
+  F.Tick(db)
+  ok(#W.forbidden == 0, "Forever: the scanner never calls SetRaidTarget", table.concat(W.forbidden, ", "))
+  ok(next(W.marks) == nil, "Forever: so nothing is marked by the addon")
+  ok(F.marked == "nameplate1", "Forever: but the clean copy is FOUND")
+  ok(db.finds == 1, "Forever: and the find is said once")
+  F.Tick(db)
+  ok(db.finds == 1, "Forever: not again on every tick while it stays in view")
+
+  local btn = BiSToolsFarmTarget
+  btn.scripts.PreClick(btn, "LeftButton", true)
+  ok(btn:GetAttribute("type") == "macro" and btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !8",
+     "Forever: the farm key targets it and marks it with Blizzard's /tm", btn:GetAttribute("macrotext"))
+  -- "/tm !N" sets without toggling (RestedXP, on Forever), so the key never reads the mark - and on
+  -- this client a mark can be a SECRET, which a comparison would throw on
+  -- (a Lua 5.1 mock cannot make `secret ~= 8` throw - a table compared with a number never calls a
+  -- metamethod - so the honest test is the stronger claim: the key does not READ the mark at all)
+  local realIdx = _G.GetRaidTargetIndex
+  _G.GetRaidTargetIndex = function() error("the farm key read the unit's mark") end
+  ok(pcall(btn.scripts.PreClick, btn, "LeftButton", true), "Forever: the key never reads the unit's mark (it may be secret)")
+  ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !8",
+     "Forever: and the key still marks with /tm ! - it never needed to read the mark")
+  _G.GetRaidTargetIndex = realIdx
+  ok(#W.forbidden == 0, "Forever: the key's PreClick marks nothing itself either")
+
+  -- THE NEXT PRESS MARKS THE NEXT COPY (6 Oct 2026). Arn: "if something is already marked skull
+  -- it'll look for another target without a mark and put another marker". Forever hides marks, so
+  -- the key keeps its own record of what it handed out.
+  do
+    local keepWant = F.Spots and F.Spots.Want
+    if F.Spots then F.Spots.Want = function() return nil end end      -- no spot here
+    F.placed = {}
+    local gA, gB, gC = "Creature-0-0-0-0-900-Raptor", "Creature-0-0-0-0-901-Raptor", "Creature-0-0-0-0-902-Raptor"
+    W.plates = { nameplate1 = { name = "Raptor", guid = gA }, nameplate2 = { name = "Raptor", guid = gB } }
+    F.marked = nil F.Tick(db)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext"):find("/tm !8$") and F.placed[gA] == 8, "Forever: the first press puts the skull on a copy")
+    F.marked = nil F.Tick(db)
+    ok(F.marked == "nameplate2", "Forever: the scan now prefers the copy the key has NOT marked", F.marked)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate2\n/tm !7", "Forever: the second press gives the next copy a cross, not the skull")
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate2\n/tm !7", "Forever: pressing again on a copy it marked keeps that copy's mark")
+
+    -- the skull's mob dies: the skull is free for the next copy
+    names[gA] = "Raptor"
+    fire("PARTY_KILL", "Player-1", gA)
+    ok(F.placed[gA] == nil, "Forever: a kill frees the mark it wore")
+    W.plates = { nameplate3 = { name = "Raptor", guid = gC } }
+    F.marked = nil F.Tick(db)
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate3\n/tm !8", "Forever: and the next copy gets the skull back")
+
+    -- all eight out: the skull moves (the game takes it from whoever had it), and our record follows
+    F.placed = {}
+    for i = 1, 8 do F.Placed("Creature-0-0-0-0-91" .. i .. "-Raptor", F.NextMark("Creature-0-0-0-0-91" .. i .. "-Raptor")) end
+    ok(F.NextMark("Creature-0-0-0-0-999-Raptor") == 8, "Forever: with every mark out, the skull moves")
+    F.Placed("Creature-0-0-0-0-999-Raptor", 8)
+    local skulls = 0
+    for _, m in pairs(F.placed) do if m == 8 then skulls = skulls + 1 end end
+    ok(skulls == 1, "Forever: and only one mob is ever recorded wearing it")
+
+    S("farm clear")
+    ok(next(F.placed) == nil, "Forever: /bist farm clear starts the marks at the skull again")
+    if F.Spots then F.Spots.Want = keepWant end
+    db.active = "Raptor"
+    W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
+    F.marked = nil
+  end
+  -- standing at a recorded spot, the key carries THAT spot's mark, as the old sync did
+  if F.Spots and F.Spots.Want then
+    local realWant = F.Spots.Want
+    F.Spots.Want = function() return 3 end
+    W.marks.nameplate1 = nil
+    btn.scripts.PreClick(btn, "LeftButton", true)
+    ok(btn:GetAttribute("macrotext") == "/target nameplate1\n/tm !3", "Forever: at a spot, the key marks with the spot's mark")
+    F.Spots.Want = realWant
+  end
+  db.spots = keepSpots
+
+  -- SECRET MARKS, SECRET NAMES, SECRET FLAGS (6 Oct 2026, the BugGrabber paste): the scanner
+  -- compared a plate's mark (`m >= 1`) and the farm spots compared the target's mark at a kill.
+  W.secretMarks = secret
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" },
+               nameplate2 = { name = "Raptor", guid = "Creature-0-0-0-0-801-Raptor" } }
+  F.marked = nil
+  ok(pcall(F.Tick, db), "Forever: a SECRET mark on every plate does not throw in the scanner")
+  ok(F.marked ~= nil, "Forever: and a clean copy is still found")
+  -- (Lua 5.1 cannot make `5 == secret` throw the way the client does - a number compared with a
+  -- table is just false - so the test checks the promise instead: the farm spots are never HANDED
+  -- a secret mark. In Arn's paste they were, and MatchZone's `z.mark == mark` threw.)
+  W.target = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" }
+  local handed
+  local realKill = F.Spots.Kill
+  F.Spots.Kill = function(d, n, mark) handed = { mark } return realKill(d, n, mark) end
+  ok(pcall(F.OnKill, db, "Raptor", "Creature-0-0-0-0-800-Raptor"),
+     "Forever: a kill on a secret-marked target does not throw")
+  ok(handed and not F.Secret(handed[1]), "Forever: and the farm spots are handed no secret mark (nil = cannot say)")
+  F.Spots.Kill = realKill
+  W.target = nil
+  ok(F.Mark("nameplate1") == nil, "Forever: a secret mark reads as 'cannot say', never as a number")
+  W.secretMarks = nil
+  W.plates = { nameplate1 = { name = secret(), guid = "Creature-0-0-0-0-802-Raptor" } }
+  F.marked = nil
+  ok(pcall(F.Tick, db), "Forever: a SECRET name on a plate does not throw")
+  ok(F.marked == nil, "Forever: and a plate whose name we may not read is not taken for the mob")
+  -- (the client REFUSES `if secretBoolean`; a Lua 5.1 table is always true, so the mock cannot.
+  -- The promise tested is that every flag is ASKED ABOUT before it is tested.)
+  local deadFlag = secret()
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-803-Raptor", dead = deadFlag } }
+  local asked = {}
+  local realIs = _G.issecretvalue
+  _G.issecretvalue = function(v) asked[v] = true return realIs(v) end
+  ok(pcall(F.Clean, "nameplate1") and F.Clean("nameplate1") == false,
+     "Forever: a SECRET dead flag does not throw, and the unit is not called clean")
+  ok(asked[deadFlag], "Forever: the dead flag was asked about before it was tested")
+  _G.issecretvalue = realIs
+  W.plates = { nameplate1 = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" } }
+
+  -- the spot sync, which used to SetRaidTarget the target to its spot's mark
+  W.target = { name = "Raptor", guid = "Creature-0-0-0-0-800-Raptor" }
+  if F.Spots then F.Spots.Sync(db) end
+  ok(#W.forbidden == 0, "Forever: the spot sync marks nothing (the key's /tm carries the spot's mark)")
+  W.target = nil W.plates = {} W.marks = {} F.marked = nil db.active = nil
+
+  -- and on a client WITHOUT restrictions the combat log is still the road (TBC, unchanged)
+  W.restricted = false
+  _G.C_Secrets = { HasSecretRestrictions = function() return false end }
+  S("off farm") S("on farm")
+  ok(F.events.events.COMBAT_LOG_EVENT_UNFILTERED and not F.events.events.PARTY_KILL,
+     "a client that hides nothing keeps the combat log, and does not listen twice")
+
+  _G.C_Secrets, _G.issecretvalue, _G.UnitNameFromGUID = keep.C_Secrets, keep.issecretvalue, keep.UnitNameFromGUID
+  _G.type = keep.type
+  S("farm clear")
+end
+
+-- NO SUMMONING STONES ON FOREVER (6 Oct 2026). Arn: sunset the summon module there, keep it for
+-- TBC. On a Forever interface number Summon.lua stops at its first lines: no tool, no window, no
+-- nag, no /bt summon. The whole suite above ran it as TBC, where it is untouched.
+do
+  ok(NS.Registry:Get("summon") ~= nil, "TBC (20506): the summon tool is there")
+  W.iface = 16001
+  local registered = 0
+  local fresh = { T = NS.T, Farm = NS.Farm,
+                  Registry = { Register = function() registered = registered + 1 end } }
+  local chunk = assert(loadfile("Tools/Summon.lua"))
+  chunk("BiSTools", fresh)
+  ok(fresh.SummonSunset == true and fresh.Summon == nil, "Forever (16001): Summon.lua stops at the top")
+  ok(registered == 0, "Forever: and registers no tool - no window, no nag, no /bt summon")
+  W.iface = nil
+end
+
+-- /bist IS THE COMMAND (0.4.0, Arn: "let's make it consistent" - /bish, /bisg, /bist), and the
+-- two old names still reach the same handler so a 0.3.x macro keeps working
+ok(SLASH_BISTOOLS1 == "/bist", "the command is /bist")
+ok(SLASH_BISTOOLS2 == "/bistools" and SLASH_BISTOOLS3 == "/bt", "/bistools and /bt are kept as aliases")
+for _, name in ipairs({ "Core/Slash.lua", "Core/Registry.lua", "Tools/TargetFarming.lua", "Tools/FarmSpots.lua",
+                        "Tools/Hub.lua", "Tools/Summon.lua" }) do
+  local fh = assert(io.open(name)) local src = fh:read("*a") fh:close()
+  -- only text inside quotes is what the player reads; a comment may name the old alias
+  local stray = src:gsub('SLASH_BISTOOLS3 = "/bt"', ""):match('"[^"\n]-/bt[^%w]')
+  ok(not stray, name .. " still tells the player to type /bt: " .. tostring(stray))
+end
+
+-- ---------------------------------------------------------------- the farm spots on the maps
+-- (6 Oct 2026) Arn: "can we see how questie puts marks on the minimap and can we do that?" Every
+-- recorded spot of the farmed mob is a pin on the minimap AND the world map, wearing its own mark:
+-- bright when it is up, dim while it waits to respawn.
+do
+  local Pn = F.Pins
+  ok(Pn ~= nil, "the pins module loaded")
+  local fdb = db
+  local now = W.now
+  local keepSpots, keepActive = fdb.spots, fdb.active
+  fdb.spots = { Pinbear = {
+    { id = 1, map = 1952, x = 0.50, y = 0.50, mark = 1, kills = 3, last = now - 10, respawn = 60,
+      subs = { { x = 0.51, y = 0.50, mark = 2, kills = 2, last = now - 120, respawn = 60 } } },
+  } }
+  fdb.active = "Pinbear"
+  fdb.pins = nil
+  W.pins = { minimap = {}, world = {} }
+  Pn.Update(fdb)
+  local mini, world = {}, {}
+  for icon, p in pairs(W.pins.minimap) do mini[#mini + 1] = { icon = icon, p = p } end
+  for icon in pairs(W.pins.world) do world[#world + 1] = icon end
+  ok(#mini == 2 and #world == 2, "every spot and sub is pinned on the minimap AND the world map", #mini .. "/" .. #world)
+  local byMark = {}
+  for _, e in ipairs(mini) do
+    ok(e.p.map == 1952, "a pin sits on the spot's own map")
+    byMark[e.icon.tex.file] = e
+  end
+  local zonePin = byMark["Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"]
+  local subPin = byMark["Interface\\TargetingFrame\\UI-RaidTargetingIcon_2"]
+  ok(zonePin and subPin, "each pin wears its spot's own raid mark")
+  ok(zonePin.p.x == 0.50 and subPin.p.x == 0.51, "where the spot was recorded")
+  ok(zonePin.icon.alpha == Pn.DIM, "a spot still waiting to respawn is dim")
+  ok(subPin.icon.alpha == Pn.BRIGHT, "a spot whose respawn is up is bright")
+  ok(subPin.icon.info and subPin.icon.info.state == "up now" and zonePin.icon.info.state:find("^back in"),
+     "the tooltip says up now, or how long until it is back")
+
+  -- time passes: the waiting spot comes up, the same pin brightens (no new pin)
+  W.now = now + 60
+  Pn.Update(fdb)
+  local n = 0 for _ in pairs(W.pins.minimap) do n = n + 1 end
+  ok(n == 2 and zonePin.icon.alpha == Pn.BRIGHT, "a spot that comes up brightens its own pin, nothing added")
+
+  -- a sub forgotten (prune, clear): its pin goes, the zone's stays
+  fdb.spots.Pinbear[1].subs = {}
+  Pn.Update(fdb)
+  n = 0 for _ in pairs(W.pins.minimap) do n = n + 1 end
+  local w = 0 for _ in pairs(W.pins.world) do w = w + 1 end
+  ok(n == 1 and w == 1, "a spot that is gone takes its pin off both maps")
+
+  S("farm pins off")
+  ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil and fdb.pins == false, "/bist farm pins off clears both maps")
+  S("farm pins on")
+  ok(next(W.pins.minimap) ~= nil and fdb.pins == true, "/bist farm pins on brings them back")
+  -- the diagnosis, for "nothing shows": prints every step and never throws, whatever is missing
+  local said = {}
+  local realChat = DEFAULT_CHAT_FRAME
+  _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) said[#said + 1] = m end }
+  ok(pcall(S, "farm pins why"), "/bist farm pins why never throws")
+  _G.DEFAULT_CHAT_FRAME = realChat
+  local all = table.concat(said, "\n")
+  ok(all:find("HereBeDragons") and all:find("WOW_PROJECT_ID") and all:find("pinnable spots") and all:find("last add"),
+     "and says what is loaded, which client it thinks this is, what it has to pin, and what the last add answered")
+  S("off farm")
+  ok(next(W.pins.minimap) == nil, "switching the farm tool off takes its pins off")
+  S("on farm")
+  ok(next(W.pins.minimap) ~= nil, "and on puts them back")
+
+  -- no HereBeDragons at all (a stripped copy): nothing drawn, nothing thrown
+  local keepLib = LibStub.libs["HereBeDragons-Pins-2.0"]
+  LibStub.libs["HereBeDragons-Pins-2.0"] = nil
+  ok(pcall(Pn.Update, fdb), "without the pin library the update does nothing and throws nothing")
+  LibStub.libs["HereBeDragons-Pins-2.0"] = keepLib
+
+  Pn.Stop()
+  fdb.spots, fdb.active, fdb.pins = keepSpots, keepActive, nil
+  W.now = now
+end
+
+-- ---------------------------------------------------------------- does every label FIT its window
+-- (6 Oct 2026) Arn: "spawns window cut off make a check for cut offs or overflows that happens
+-- often". Every shown label inside a window is measured where it actually starts - following what it
+-- is pinned to: the window's edge, an icon, another label - and must end inside the window.
+--
+-- WIDTH, CALIBRATED ON THE CLIENT, NOT GUESSED: capitals and digits 0.75 px per point ("NEED MATS",
+-- BiSCraft, 11 Sep), lowercase 0.55 and spaces/punctuation 0.3 (Arn's screenshot: "click a mob to
+-- see its spawns" at 9 pt ran ~10 px past a 124 px window - this puts it at ~132). The mock's own
+-- GetStringWidth (0.6 flat) stays as it is: the addon's code trims by it, and changing it changes
+-- what the addon draws.
+local function realWidth(fs)
+  local t, tex = tostring(fs.text or ""), 0
+  t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
+  t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+  local size, px = fs.size or 9, 0
+  for ch in t:gmatch(".") do
+    if ch:match("[%u%d]") then px = px + 0.75 elseif ch:match("%l") then px = px + 0.55 else px = px + 0.3 end
+  end
+  return px * size + tex
+end
+local function regionWidth(r) if r.size or r.text ~= nil then return realWidth(r) end return r.w or 0 end
+local function insideShown(r, root)
+  local p = r.parent
+  while p do
+    if p.shown == false then return false end
+    if p == root then return true end
+    p = p.parent
+  end
+  return false
+end
+-- left edge in px from the window's left, following the anchor chain; nil when it cannot be followed
+local function leftOf(r, width, depth)
+  if (depth or 0) > 8 or not r.anchor then return nil end
+  local p, rel, rp, x = r.anchor[1], r.anchor[2], r.anchor[3], r.anchor[4] or 0
+  local relL, relW
+  if rel == nil or rel.kind then relL, relW = 0, width      -- a frame inside the window spans it
+  else relL, relW = leftOf(rel, width, (depth or 0) + 1), regionWidth(rel) end
+  if not relL then return nil end
+  local ax = rp:find("LEFT") and relL or rp:find("RIGHT") and (relL + relW) or (relL + relW / 2)
+  local w = regionWidth(r)
+  if p:find("LEFT") then return ax + x elseif p:find("RIGHT") then return ax + x - w end
+  return ax + x - w / 2
+end
+local function plainText(t) return (tostring(t):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+local function fitsIn(root, what)
+  local width, bad, measured = root.w, {}, 0
+  for _, fs in ipairs(W.labels) do
+    if fs.shown ~= false and fs.text and fs.text ~= "" and insideShown(fs, root) then
+      local l = leftOf(fs, width)
+      if l then
+        measured = measured + 1
+        local w = realWidth(fs)
+        if l < -1 or l + w > width + 1 then
+          bad[#bad + 1] = ("%q needs %d px from %d, the window is %d"):format(plainText(fs.text), w, l, width)
+        end
+      end
+    end
+  end
+  ok(measured > 0, what .. ": the fit check measured something (a check that sees nothing proves nothing)")
+  ok(#bad == 0, what .. ": every label fits - " .. table.concat(bad, "; "))
+end
+
+-- ---------------------------------------------------------------- RestedXP's Active Targets
+-- (6 Oct 2026) Arn: "is there a way to have a rested exp section so anytime its active targets
+-- update it adds it to our list". RXP is an AceAddon; its targets pass through
+-- addon.targeting:UpdateEnemyList(unitscan, mobs, addEntries). A stand-in RXP is registered the same
+-- way, and the real code path - hook, then their method called as they call it - is driven.
+do
+  local Gd = F.Guide
+  ok(Gd ~= nil and not Gd.hooked, "RestedXP not installed: nothing hooked, nothing said")
+  local rxp = { targeting = {} }
+  local seenByRXP
+  function rxp.targeting:UpdateEnemyList(unitscan, mobs, addEntries) seenByRXP = mobs end
+  local AA = LibStub:NewLibrary("AceAddon-3.0", 1)
+  function AA:GetAddon(name, silent) if name == "RXPGuides" then return rxp end if not silent then error("no " .. name) end end
+  deliver("ADDON_LOADED", "RXPGuides")
+  ok(Gd.hooked, "when RestedXP loads, its target list is listened to")
+
+  local fdb = db
+  local keep = { last = fdb.last, custom = fdb.custom, active = fdb.active, guide = fdb.guide }
+  fdb.last = { name = "Hillsbrad Farmer", count = 3 }
+  fdb.custom = nil fdb.active = nil fdb.guide = nil
+  rxp.targeting:UpdateEnemyList({ "Rare Lion" }, { "Hillsbrad Farmer", "Hillsbrad Peasant" }, nil)
+  ok(seenByRXP and seenByRXP[2] == "Hillsbrad Peasant", "RestedXP's own method still runs, untouched")
+  local names = {}
+  for _, e in ipairs(F.Entries(fdb)) do names[#names + 1] = e.name .. (e.guide and "*" or "") end
+  ok(table.concat(names, ",") == "Hillsbrad Farmer,Hillsbrad Peasant*,Rare Lion*",
+     "its targets join the list under your kills, the one you already farm not twice", table.concat(names, ","))
+  F.Refresh(fdb)
+  ok(BiSToolsFarmRow2.name.text == "Hillsbrad Peasant" and tostring(BiSToolsFarmRow2.count.text):find("RXP"),
+     "a guide row says RXP where a kill row says how many")
+  BiSToolsFarmRow2.scripts.OnClick(BiSToolsFarmRow2)
+  ok(fdb.active == "Hillsbrad Peasant", "clicking it farms it, like any other row")
+  F.SetActive(fdb, "Hillsbrad Peasant")
+
+  rxp.targeting:UpdateEnemyList({}, { "Hillsbrad Footman" }, true)
+  names = {}
+  for _, e in ipairs(Gd.mobs) do names[#names + 1] = e end
+  ok(table.concat(names, ",") == "Hillsbrad Farmer,Hillsbrad Peasant,Rare Lion,Hillsbrad Footman",
+     "RestedXP ADDING targets adds to ours", table.concat(names, ","))
+  rxp.targeting:UpdateEnemyList({}, { "Torn Fin Tidehunter" }, false)
+  ok(#Gd.mobs == 1 and Gd.mobs[1] == "Torn Fin Tidehunter", "a new guide step REPLACES them")
+
+  rxp.targeting:UpdateEnemyList({}, { "A1", "A2", "A3", "A4", "A5", "A6" }, false)
+  local guideRows = 0
+  for _, e in ipairs(F.Entries(fdb)) do if e.guide then guideRows = guideRows + 1 end end
+  ok(guideRows == Gd.MAX, "never more than " .. Gd.MAX .. " guide rows in a small window")
+
+  S("farm guide off")
+  guideRows = 0
+  for _, e in ipairs(F.Entries(fdb)) do if e.guide then guideRows = guideRows + 1 end end
+  ok(guideRows == 0 and fdb.guide == false, "/bist farm guide off hides them")
+  S("farm guide on")
+
+  rxp.targeting:UpdateEnemyList({}, { "Hillsbrad Farmhand Overseer" }, false)
+  F.Refresh(fdb)
+  fitsIn(BiSToolsFarm, "the farm window with a long RestedXP name")
+
+  fdb.last, fdb.custom, fdb.active, fdb.guide = keep.last, keep.custom, keep.active, keep.guide
+  Gd.mobs = {}
+  F.Refresh(fdb)
+end
+
+-- ---------------------------------------------------------------- the arrow to the next spawn
+-- (6 Oct 2026) Arn: "an arrow like the spawn window that directs us to the mark that ... might
+-- spawn soon, after a few kills it'll know this marker is spawning every x minutes". It points at
+-- the spot the Spawns window would put FIRST - up, then due soonest, then killed longest ago.
+do
+  local A = F.Arrow
+  ok(A ~= nil, "the arrow module loaded")
+  local fdb = db
+  local now = W.now
+  local keep = { spots = fdb.spots, active = fdb.active, arrow = fdb.arrow, pins = fdb.pins }
+  W.map, W.px, W.py, W.facing = 1952, 0.50, 0.50, 0
+  fdb.active = "Arrowbear"
+  fdb.spots = { Arrowbear = {
+    -- zone 1, skull: its one sub was killed 10 s ago and comes back every 60 s - not soon
+    { id = 1, map = 1952, x = 0.52, y = 0.50, mark = 8, kills = 3, last = now - 10, respawn = 60,
+      subs = { { x = 0.52, y = 0.50, mark = 8, kills = 3, last = now - 10, respawn = 60 } } },
+    -- zone 9: no mark left for it; killed 70 s ago, respawns every 60 s - it is UP
+    { id = 9, map = 1952, x = 0.48, y = 0.50, kills = 2, last = now - 70, respawn = 60, subs = {} },
+    -- a spot on another map: never pointed at, there is no bearing across maps
+    { id = 3, map = 1453, x = 0.10, y = 0.10, mark = 3, kills = 1, last = now - 999, respawn = 60, subs = {} },
+  } }
+  local sp, text, _, d, mark = A.Next(fdb)
+  ok(sp and sp.id == 9, "the arrow picks the spot that is UP over one still waiting", sp and sp.id)
+  ok(text == "up" and mark == nil, "and says it is up; it has no mark of its own")
+  ok(d and d > 0, "with a distance in yards")
+
+  S("farm arrow on")
+  ok(BiSToolsFarmArrow and BiSToolsFarmArrow:IsShown(), "/bist farm arrow on shows it")
+  A.Refresh(fdb)
+  ok(A.id.text == "#9" and not A.mark.shown, "an unmarked spot is named by its number, as in the Spawns window")
+  ok(type(A.arrow.rot) == "number", "the arrow is turned toward it")
+
+  -- the skull's sub comes up later and is NEARER - but zone 9 came up first, so it stays ahead
+  -- (the window's own order), until zone 9 is killed again
+  fdb.spots.Arrowbear[2].last = W.now
+  sp, text, _, _, mark = A.Next(fdb)
+  ok(sp and mark == 8, "after the up spot is killed, the arrow moves to the next one - the skull's")
+  A.Refresh(fdb)
+  ok(A.mark.shown and A.mark.file == "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8", "wearing its mark")
+
+  -- facing unknown (an instance): no arrow drawn, the rest still says where
+  W.facing = nil
+  A.arrow.shown = true
+  A.Refresh(fdb)
+  ok(not A.arrow.shown and A.clock.text ~= "", "no facing, no arrow - the timer and distance still show")
+  W.facing = 0
+
+  -- nothing on this map: it says so instead of pointing anywhere
+  W.map = 1453 W.px, W.py = 0.5, 0.5
+  fdb.spots.Arrowbear[3].map = 9999
+  A.Refresh(fdb)
+  ok(A.none.shown and not A.arrow.shown, "no spot on this map: no arrow, a line saying so")
+  W.map = 1952
+
+  -- BIG AND ON ITS OWN, LIKE RESTEDXP'S (Arn: the row was "a little crowded ... can we make it big
+  -- like the rested one"): floating, a big arrow, mark + timer under it, then the distance
+  A.Refresh(fdb)                          -- back on the map with the spots
+  ok(BiSToolsFarmArrow.parent == UIParent, "the arrow floats on its own, not inside the Spawns window")
+  ok(A.arrow.w and A.arrow.w >= 48, "and it is BIG", A.arrow.w)
+  ok(A.dist.text and A.dist.text:find("yd%)$"), "the distance under it, RestedXP-style: (N yd)", A.dist.text)
+  ok(F.Spots.body.point and F.Spots.body.point[2] == F.Spots.head, "the Spawns window has no arrow row any more")
+  ok(F.Spots.title.text:find("Spawns"), "and keeps its name: Spawns")
+  BiSToolsFarmArrow.scripts.OnDragStop(BiSToolsFarmArrow)
+  ok(type(fdb.arrowPos) == "table" and fdb.arrowPos[1], "a dragged arrow remembers where it was left")
+  fitsIn(BiSToolsFarmArrow, "the floating arrow")
+
+  S("farm arrow off")
+  ok(not BiSToolsFarmArrow:IsShown() and fdb.arrow == false, "/bist farm arrow off hides it")
+  S("farm arrow on")
+  S("off farm")
+  ok(not BiSToolsFarmArrow:IsShown(), "switching the farm tool off hides the arrow")
+  S("on farm")
+  ok(BiSToolsFarmArrow:IsShown(), "and on brings it back")
+
+  -- CLICK THE MOB AGAIN: everything it shows goes; click it back: everything comes back (Arn:
+  -- "when i click the mountain lion again it should remove all the marks on the minimap and clear
+  -- the spawn timers window"). The spots themselves are kept.
+  W.pins = { minimap = {}, world = {} }
+  F.Pins.Stop() fdb.pins = nil
+  F.Pins.Update(fdb)
+  ok(next(W.pins.minimap) ~= nil, "farming: the spots are pinned")
+  F.Spots.Toggle(fdb, true)
+  -- as in game: the mob you stop farming is also the one you last KILLED - which is exactly what
+  -- the old fallback (S.Mob: active, else last kill) kept showing
+  local keepLast = fdb.last
+  fdb.last = { name = "Arrowbear", count = 3 }
+  F.SetActive(fdb, "Arrowbear")            -- the same mob again = stop farming it
+  ok(fdb.active == nil, "clicking the farmed mob again stops farming it")
+  ok(next(W.pins.minimap) == nil and next(W.pins.world) == nil, "and its pins leave both maps at once")
+  ok(F.Spots.empty.shown and F.Spots.empty.text == "pick a mob to farm", "the Spawns window empties", F.Spots.empty.text)
+  ok(not BiSToolsFarmArrow:IsShown(), "and the arrow leaves the screen - nothing farmed, nothing to point at")
+  -- Arn's screenshot, this exact state: both lines ran out of the window
+  fitsIn(BiSToolsFarmSpots, "Spawns, no mob picked")
+  ok(fdb.spots.Arrowbear and #fdb.spots.Arrowbear == 3, "but the spots and what they learned are KEPT")
+  F.SetActive(fdb, "Arrowbear")
+  ok(fdb.active == "Arrowbear" and next(W.pins.minimap) ~= nil, "clicking it back brings the pins straight back")
+  F.Spots.Refresh(fdb) A.Refresh(fdb)
+  fitsIn(BiSToolsFarmSpots, "Spawns, spots listed")
+  F.Refresh(fdb)
+  fitsIn(BiSToolsFarm, "the farm window")
+  fdb.last = keepLast
+
+  -- the minimap pin for a spot with no mark: a gold dot, not nothing
+  W.pins = { minimap = {}, world = {} }
+  F.Pins.Stop() fdb.pins = nil
+  F.Pins.Update(fdb)
+  local dot
+  for icon in pairs(W.pins.minimap) do if icon.w == F.Pins.DOT then dot = icon end end
+  ok(dot and dot.tex.color, "a spot past the eighth mark is pinned as a dot, not skipped")
+  F.Pins.Stop()
+
+  fdb.spots, fdb.active, fdb.arrow, fdb.pins = keep.spots, keep.active, keep.arrow, keep.pins
+  A.Hide()
+  W.now = now
+end
+
+-- WHAT IT COSTS, IN CLIENT CALLS (7 Oct 2026). BiSHealing asked the client ~630,000 things a
+-- second and every suite was green; Arn: "make sure stuff like this does not happen". The family's
+-- counter (_bisdev/dev/cost.lua) holds the two things here that run all evening while farming.
+do
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local A, Sp = F.Arrow, F.Spots
+  local keep = { spots = db.spots, active = db.active, arrow = db.arrow, shelf = db.shelf }
+  W.map, W.px, W.py, W.facing = 1952, 0.50, 0.50, 0
+  -- a full evening's farm: 16 zones with 2 subs each, on this map
+  local list = {}
+  for z = 1, 16 do
+    local subs = {}
+    for s = 1, 2 do
+      subs[s] = { x = 0.40 + z * 0.01, y = 0.40 + s * 0.01, kills = 3, last = W.now - z * 7, respawn = 120 }
+    end
+    list[z] = { id = z, map = 1952, x = 0.40 + z * 0.01, y = 0.40, mark = (z % 8) + 1, kills = 6,
+                last = W.now - z * 7, respawn = 120, subs = subs }
+  end
+  db.spots = { Costbear = list }
+  db.active, db.arrow = "Costbear", nil
+  S("farm arrow on")
+  A.Refresh(db)
+  ok(BiSToolsFarmArrow:IsShown(), "(cost) the arrow is up, pointing")
+
+  -- ONE SECOND OF THE ARROW: twenty frames of 0.05 s
+  local n, by = Cost.Count(function()
+    for _ = 1, 20 do BiSToolsFarmArrow.scripts.OnUpdate(BiSToolsFarmArrow, 0.05) end
+  end)
+  -- measured 7 Oct after the split (turn 20/s, pick 4/s); every frame doing the full pick was 5x
+  local ARROW = 300
+  ok(n <= ARROW, "a second of the farm arrow asks the client at most " .. ARROW .. " things: " .. n,
+     Cost.Top(by, 5))
+  print(("   cost: arrow, 1 s, 32 spots = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+
+  -- THE SHELF BEHIND A CLOSED FARM WINDOW. Closing the window hides the parent only; the shelf
+  -- stayed "shown" and rebuilt itself 4 times a second for nobody.
+  Sp.Toggle(db, true)
+  local seen = Cost.Count(function() for _ = 1, 4 do Sp.Refresh(db) end end)
+  BiSToolsFarm:Hide()
+  local hidden, hby = Cost.Count(function() for _ = 1, 4 do Sp.Refresh(db) end end)
+  BiSToolsFarm:Show()
+  ok(BiSToolsFarmSpots:IsShown() and hidden < seen / 2,
+     "a closed farm window stops the Spawns shelf rebuilding: " .. hidden .. " calls a second, open "
+     .. seen, Cost.Top(hby, 4))
+  print(("   cost: shelf, 1 s = %d calls open, %d behind a closed window"):format(seen, hidden))
+
+  -- A MOUSE SWEPT ACROSS A PACK: ten mouseovers in the same instant are one scan, not ten
+  local realTick, scans = F.Tick, 0
+  F.Tick = function(...) scans = scans + 1 return realTick(...) end
+  local hadTicker = F.ticker
+  F.ticker = F.ticker or { alive = true, Cancel = function() end }
+  F.mouseTickAt = nil
+  for _ = 1, 10 do F.events.scripts.OnEvent(F.events, "UPDATE_MOUSEOVER_UNIT") end
+  ok(scans == 1, "ten mouseovers at once start one farm scan, not ten", scans)
+  W.now = W.now + F.MOUSE_GAP + 0.01
+  F.events.scripts.OnEvent(F.events, "UPDATE_MOUSEOVER_UNIT")
+  ok(scans == 2, "and the next one after the gap scans again", scans)
+  F.Tick, F.ticker = realTick, hadTicker
+
+  Sp.Toggle(db, false)
+  S("farm arrow off")
+  db.spots, db.active, db.arrow, db.shelf = keep.spots, keep.active, keep.arrow, keep.shelf
+end
+
 -- leaked globals
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
+  SLASH_BISTOOLS3 = true,
+  -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
+  -- show flags HereBeDragons-Pins defines for every addon that pins
+  LibStub = true, HBD_PINS_WORLDMAP_SHOW_PARENT = true, HBD_PINS_WORLDMAP_SHOW_CONTINENT = true,
+  HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
 for k in pairs(_G) do

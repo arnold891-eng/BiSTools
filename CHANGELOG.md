@@ -1,3 +1,46 @@
+## 0.4.0
+
+- **Lighter while you farm.** The Spawns window no longer keeps rebuilding itself after you close
+  the farm window; the arrow turns 20 times a second but works out its spot 4 times a second;
+  sweeping the mouse across a pack starts one scan, not one per mob.
+
+- **Your farm spots on the minimap and the world map**, each wearing its own raid mark - bright
+  when it is up, dim while it waits to respawn; hover for the mob, the kills and the time left.
+  `/bist farm pins off` hides them. Drawn with HereBeDragons, the library Questie uses (BSD; see
+  `Libs/THIRD-PARTY.txt`).
+- **A big floating arrow, RestedXP-style,** to the spot most likely up next: what is up
+  first, then what is due soonest by its learned respawn time, then the one killed longest ago.
+  Its mark (or #number) and timer under it, then the distance. Drag it anywhere; it shows only
+  while you farm a mob. `/bist farm arrow off` hides it.
+- **RestedXP's Active Targets in the farm window**: whatever your guide step wants killed shows
+  under your own kills, tagged RXP; click one to farm it. It follows the guide as it moves on.
+  `/bist farm guide off` hides them. Needs RestedXP installed; without it nothing changes.
+- **Nothing runs out of the windows**: the Spawns window's empty lines were too long for it. The
+  test suite now measures every line of text against its window.
+- **Every spot is on the map now**, not only the eight that have a raid mark: the rest are gold dots.
+- **Clicking the farmed mob again clears its pins and the Spawns window**; clicking it back brings
+  them back. What the spots learned is kept - the window's `r` button is what forgets a mob.
+- **The farm key hands out the next mark**: skull, then cross, square and down, remembering which
+  mob has which; a kill frees its mark.
+- **The command is `/bist` now**, to match the family (`/bish` BiS Healing, `/bisg` BiS Guild).
+  `/bt` and `/bistools` still work, so old macros keep going.
+
+- **Runs clean on WoW Forever.** The farm tool used to hear kills through the combat log, and on
+  Forever even asking for it is blocked - every login showed "BiSTools tried to call the
+  protected function". On Forever it now counts kills from the game's own kill event instead.
+  TBC is unchanged.
+- **On WoW Forever the farm key does the marking.** Forever does not let an addon place a raid
+  mark on its own (it showed as "BiSTools tried to call the protected function SetRaidTarget").
+  The scanner still finds the next clean copy and tells you; your farm key then targets it and
+  marks it with the game's own /tm - the spot's mark where you stand at one, the skull otherwise.
+  TBC still marks automatically.
+- **The summon tool is off on WoW Forever** - there are no summoning stones there. No window, no
+  nag, no `/bt summon`. On TBC it is unchanged.
+- All BiS addons sit under one **BiS>Addons** heading in the addon list.
+- The shared comm layer sends at the pace the client allows (one message a second) and waits out
+  chat lockdown, so a burst of summon traffic no longer goes missing.
+- The release zip holds only files the project tracks - nothing stray can ship.
+
 ## 0.3.4
 
 - LibBiSComm minor 6: summon API moved to C_SummonInfo on 2.5.6 — the phantom-summon filter works again.

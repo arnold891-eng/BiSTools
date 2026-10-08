@@ -10,12 +10,30 @@
 --
 -- The two never look alike on screen. A guess row is muted with a "?".
 --
--- Two things in this file are NOT gated by /bt off summon:
+-- Two things in this file are NOT gated by /bist off summon:
 --   * the lib itself (booted in Core/Init.lua, never touched here)
 --   * the NAG - the reward for the peer who installed and configured nothing:
---     a summon offer makes noise until they answer it. /bt summon nag off is
+--     a summon offer makes noise until they answer it. /bist summon nag off is
 --     its own switch. The tool toggle only kills the summoner's window.
 local ADDON, NS = ...
+
+-- NOT ON WOW FOREVER (6 Oct 2026). Arn: "no more summoning stone so let's sunset the summon
+-- module" - and then "off on Forever only": TBC players keep it. So on Forever this file stops
+-- here: no tool registered, no window, no nag, no /bist summon, no `the key`. The saved keys are left
+-- alone, because the same account may still play TBC.
+--
+-- Asked by INTERFACE NUMBER, not by a feature, on purpose: whether stones exist is game content,
+-- not an API, and Forever carries every API a summon needs. 16000-19999 is Forever's range (it says
+-- 16001; NovaInstanceTracker and ProfessionMaster draw the same line). WOW_PROJECT_ID cannot tell
+-- them apart - on the beta it still reads 1, retail's (Overlord, Sync.lua).
+do
+  local iface = GetBuildInfo and select(4, GetBuildInfo())
+  if type(iface) == "number" and iface >= 16000 and iface < 20000 then
+    NS.SummonSunset = true
+    return
+  end
+end
+
 local T = NS.T
 local K = NS.Farm                -- the Innervate-style kit: tex / fs / border / HeaderButton / color
 
@@ -56,7 +74,7 @@ SM.NAG_EVERY         = 20
 SM.STONE_PATTERNS    = { "summoning stone", "meeting stone" }
 
 -- Zones nobody gets summoned out of. Only a GUESS needs this: a fact peer says
--- inInstance itself. enUS; "/bt summon ban" adds the rest.
+-- inInstance itself. enUS; "/bist summon ban" adds the rest.
 SM.INSTANCE_ZONES = {}
 for _, z in ipairs({
   "Karazhan", "Zul'Aman", "Gruul's Lair", "Magtheridon's Lair", "Serpentshrine Cavern",
@@ -665,7 +683,7 @@ function SM.Build(db)
   -- characters + cursor) ... buttons from the right: x(12)@-3, ?(12)@-17,
   -- J(18)@-38 -> J's left edge sits 56 px from the right. Nothing else goes in
   -- the header. (No logo: the prompt is the brand. No pin button: Arn, 8 Sep -
-  -- "confusing"; auto-open on summons covers it, /bt summon show|auto|hide is
+  -- "confusing"; auto-open on summons covers it, /bist summon show|auto|hide is
   -- the manual way.)
   SM.con = BiSTheme.Console(SM.title, { width = SM.W - 56 - 8 })
   SM.con:Set("name", "Summon", "accent")
@@ -674,7 +692,7 @@ function SM.Build(db)
   SM.askBtn = K.HeaderButton(head, -17, "?", "Ask the raid", "Every BiS client answers with where it stands.",
     function() SM.Ask() end)
   SM.summonerBtn = K.HeaderButton(head, -38, "S", "Summoner mode - I am the summoner",
-    "Window stays up and every request comes through like a raid warning, wherever you stand. /bt summon summoner",
+    "Window stays up and every request comes through like a raid warning, wherever you stand. /bist summon summoner",
     function() SM.SetSummoner(db, not db.summoner) end)
   SM.summonerBtn:SetSize(18, 12)
   head:SetScript("OnEnter", function() SM.seenAt = GetTime() end)
@@ -996,7 +1014,7 @@ end
 
 -- ---------------------------------------------------------------- the nag
 -- Fires on the person BEING summoned. Not gated by the tool toggle: it is the
--- reward for installing and touching nothing. Own switch: /bt summon nag off.
+-- reward for installing and touching nothing. Own switch: /bist summon nag off.
 SM.nag = {}
 function SM.NagText()
   local lib = SM.Lib()
@@ -1042,13 +1060,13 @@ function SM.NagStop()
 end
 
 -- peer-side freshness runs from load too, like the nag: it is part of the
--- client's voice, and /bt off summon only kills the window
+-- client's voice, and /bist off summon only kills the window
 SM.selfTicker = C_Timer.NewTicker(3, function()
   local db = NS.DB and NS.DB() and NS.DB().tools and NS.DB().tools.summon
   if db then SM.SelfWatch(db) end
 end)
 
--- registered at load, on purpose: the nag outlives /bt off summon
+-- registered at load, on purpose: the nag outlives /bist off summon
 SM.nagFrame = CreateFrame("Frame")
 SM.nagFrame:RegisterEvent("CONFIRM_SUMMON")
 SM.nagFrame:RegisterEvent("CANCEL_SUMMON")
@@ -1166,7 +1184,7 @@ function SM.Slash(db, args)
     local line = _G["GameTooltipTextLeft1"]
     local text = GameTooltip and GameTooltip:IsShown() and line and line:GetText()
     if text and text ~= "" then db.stone = text NS.Print('stone name: "%s"', text)
-    else NS.Print("hover the stone first, then /bt summon stone") end
+    else NS.Print("hover the stone first, then /bist summon stone") end
   elseif cmd == "ban" or cmd == "unban" then
     local zone = rest ~= "" and rest or (GetRealZoneText and GetRealZoneText())
     if zone and zone ~= "" then
@@ -1194,15 +1212,15 @@ function SM.Slash(db, args)
     end)
     NS.Print("calling ConfirmSummon() from a timer in 1 s")
   else
-    NS.Print("/bt summon [me|all|key|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
+    NS.Print("/bist summon [me|all|key|summoner|stones|show|auto|hide|ask|near <y>|linger <s>|retry <s>|rows <n>|clear|reset|nag on|off|stone [clear]|ban|unban [zone]|peers]")
   end
 end
 
 NS.Registry:Register({
   name = "summon",
-  slashWhenOff = true,   -- "/bt summon nag off" must work with the window tool off
+  slashWhenOff = true,   -- "/bist summon nag off" must work with the window tool off
   desc = "who still needs a summon, furthest first; click to target",
-  usage = "/bt summon [show|auto|hide|...]",
+  usage = "/bist summon [show|auto|hide|...]",
   defaults = { mode = "auto", near = SM.DEFAULT_NEAR, linger = SM.DEFAULT_LINGER, retry = SM.DEFAULT_RETRY,
     rows = SM.DEFAULT_ROWS, pos = { "CENTER", 0, -120, "CENTER" }, ban = {}, allow = {}, nag = true, stone = nil,
     summoner = false, stones = {}, key = true },

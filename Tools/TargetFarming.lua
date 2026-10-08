@@ -10,6 +10,7 @@ local SCAN_MARKS = 7   -- the scanner deals 1..7 (star..cross) to every free cop
 
 -- everything for this tool hangs off one table (locals budget rule)
 local F = { rows = {} }
+F.MOUSE_GAP = 0.1      -- seconds between scans a mouseover may start (the ticker keeps its own 0.5)
 
 local SHADE = { frame = "0d0b18", header = "141127", field = "17132e", hair = "2a2446", edge = "3a3260" }
 local function hx(hex)
@@ -51,14 +52,92 @@ function F.Record(db, name, guid)
 end
 
 -- ---------------------------------------------------------------- scan
+-- A VALUE THE CLIENT WILL LET US LOOK AT, OR NIL (6 Oct 2026). On WoW Forever a unit's raid mark
+-- comes back as a SECRET number - in the open world, measured by Arn's BugGrabber: "attempt to
+-- compare local 'm' (a secret number value)" from the scanner, and the same from the farm spots
+-- one kill later. A secret refuses comparison, arithmetic and being a table key; even `==` taints.
+-- So the question "is it secret" comes FIRST, before anything else touches the value.
+function F.Plain(v)
+  if issecretvalue then
+    local ok, secret = pcall(issecretvalue, v)
+    if not ok or secret then return nil end
+  end
+  return v
+end
+
+--- A unit's raid mark as a plain number, or nil when it has none OR the client will not say.
+--- Every read of a mark in BiSTools goes through here.
+function F.Mark(u)
+  local ok, m = pcall(GetRaidTargetIndex, u)
+  if not ok then return nil end
+  m = F.Plain(m)
+  if type(m) ~= "number" then return nil end
+  return m
+end
+
+--- A unit's name, plain, or nil (nameplate names can be secret inside an instance).
+function F.Name(u)
+  local n = F.Plain(UnitName(u))
+  if type(n) ~= "string" then return nil end
+  return n
+end
+
+-- WHAT THE FARM KEY HAS MARKED, BY GUID (6 Oct 2026). Forever hides every mark, so the addon cannot
+-- see that the skull is already out. Arn: "if something is already marked skull it'll look for
+-- another target without a mark and put another marker". So the key keeps its OWN record of what it
+-- handed out - guid -> mark - and the next press takes the next free mark: skull, cross, square,
+-- moon, triangle, diamond, circle, star. A kill frees its mark. The game moves a mark to whoever
+-- gets it last, so giving a mark away takes it from whoever had it here too. Session only: a
+-- /reload forgets, which costs one skull handed out twice, never a wrong mob.
+F.placed = {}
+F.MARK_ORDER = { 8, 7, 6, 5, 4, 3, 2, 1 }
+
+--- The mark the key should give this mob: the one it already has from us, else the first free one.
+function F.NextMark(guid)
+  if guid and F.placed[guid] then return F.placed[guid] end
+  local held = {}
+  for _, m in pairs(F.placed) do held[m] = true end
+  for _, m in ipairs(F.MARK_ORDER) do
+    if not held[m] then return m end
+  end
+  return SKULL                       -- all eight out: the skull moves, as it always did
+end
+
+function F.Placed(guid, mark)
+  if not guid or not mark then return end
+  for g, m in pairs(F.placed) do
+    if m == mark and g ~= guid then F.placed[g] = nil end
+  end
+  F.placed[guid] = mark
+end
+
 function F.Plates()
   if not C_NamePlate or not C_NamePlate.GetNamePlates then return {} end
   return C_NamePlate.GetNamePlates()
 end
 
+-- Every flag here can be a secret BOOLEAN on Forever, and `not secret` is refused outright - so
+-- each is asked about first, and one the client will not tell us makes the unit NOT clean: a
+-- skull on a mob we could not check is worse than no skull.
+function F.Secret(v)
+  if not issecretvalue then return false end
+  local ok, s = pcall(issecretvalue, v)
+  return (not ok) or (s and true or false)
+end
+
 function F.Clean(u)
-  return UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)
-    and not UnitAffectingCombat(u) and not (UnitIsTapDenied and UnitIsTapDenied(u))
+  for _, fn in ipairs({ UnitExists, function(x) return UnitCanAttack("player", x) end }) do
+    local v = fn(u)
+    if F.Secret(v) or not v then return false end       -- must be a plain yes
+  end
+  local flags = { UnitIsDead, UnitAffectingCombat }
+  if UnitIsTapDenied then flags[#flags + 1] = UnitIsTapDenied end
+  for _, fn in ipairs(flags) do
+    local v = fn(u)
+    if F.Secret(v) then return false end                 -- cannot tell: not clean
+    if v then return false end
+  end
+  return true
 end
 
 -- ---------------------------------------------------------------- sound
@@ -93,11 +172,19 @@ function F.SetSound(db, mode)
 end
 
 -- one pass: returns unit token that now carries the skull (or nil)
+--
+-- ON FOREVER THE SCANNER MARKS NOTHING (6 Oct 2026). Arn's BugGrabber: "AddOn 'BiSTools' tried to
+-- call the protected function 'SetRaidTarget()'", from this function on the ticker. There, an addon
+-- may not set a mark at all; Blizzard's /tm in a secure macro may - the same split as pings (an
+-- addon's C_Ping call forbidden, /ping in a secure button fine, measured 1 Oct). So on a restricted
+-- client the scan only FINDS: it returns the clean copy, the window and the sound say so, and the
+-- farm key (F.TargetButton) targets it and marks it with your key press.
 function F.Scan(name, db)
+  local canMark = not F.Restricted()
   -- the mouse first: hovering works from any distance, nameplates do not
-  if UnitExists("mouseover") and UnitName("mouseover") == name and F.Clean("mouseover") then
+  if UnitExists("mouseover") and F.Name("mouseover") == name and F.Clean("mouseover") then
     -- already wearing anything (scanner mark, hand mark, skull)? leave it alone
-    if not GetRaidTargetIndex("mouseover") then
+    if canMark and not F.Mark("mouseover") then
       SetRaidTarget("mouseover", SKULL)
       if db then F.Found(db, "Skull") end
     end
@@ -111,8 +198,8 @@ function F.Scan(name, db)
   end
   for _, plate in ipairs(F.Plates()) do
     local u = plate.namePlateUnitToken or (plate.UnitFrame and plate.UnitFrame.unit)
-    if u and UnitName(u) == name and F.Clean(u) then
-      local m = GetRaidTargetIndex(u)
+    if u and F.Name(u) == name and F.Clean(u) then
+      local m = F.Mark(u)
       if m and m >= 1 and m <= SCAN_MARKS then
         used[m] = true
         first = first or u
@@ -120,6 +207,16 @@ function F.Scan(name, db)
         unmarked[#unmarked + 1] = u
       end
     end
+  end
+  if not canMark then
+    -- Forever: every mark reads as "cannot say", so all copies land in `unmarked`. Prefer one the
+    -- farm key has NOT marked yet (F.placed, our own record), so a skull already handed out is not
+    -- handed to the same mob again and the next press marks a fresh copy.
+    for _, u in ipairs(unmarked) do
+      local g = F.Plain(UnitGUID(u))
+      if not (g and F.placed[g]) then return u end
+    end
+    return first or unmarked[1]
   end
   local dealt = 0
   for _, u in ipairs(unmarked) do
@@ -131,13 +228,17 @@ function F.Scan(name, db)
     dealt = dealt + 1
     first = first or u
   end
-  if dealt > 0 and db then F.Found(db, F.MARK_NAMES[dealt == 1 and GetRaidTargetIndex(unmarked[1]) or 0] or "Target") end
+  if dealt > 0 and db then F.Found(db, F.MARK_NAMES[dealt == 1 and F.Mark(unmarked[1]) or 0] or "Target") end
   return first
 end
 
 function F.Tick(db)
   if not db.active then return F.Stop() end
+  local was = F.marked
   F.marked = F.Scan(db.active, db)
+  -- on Forever nothing was marked, so the scan's own "found" never fired: say it here, once per
+  -- copy coming into view, and the farm key does the marking
+  if F.marked and not was and F.Restricted() then F.Found(db, "Target") end
   if F.Spots then F.Spots.Sync(db) F.Spots.Warn(db) end
 end
 
@@ -164,6 +265,11 @@ function F.SetActive(db, name)
     F.Stop()
   end
   F.Refresh(db)
+  -- what is SHOWN follows the farmed mob (S.Shown): clicking it again clears the pins and the
+  -- Spawns window at once, not a tick later; clicking it back brings everything back
+  if F.Pins then F.Pins.Update(db) end
+  if F.Spots and F.Spots.frame and F.Spots.frame:IsShown() then F.Spots.Refresh(db) end
+  if F.Arrow and F.Arrow.Refresh then F.Arrow.Refresh(db) end
 end
 
 -- ---------------------------------------------------------------- the prompt
@@ -195,7 +301,21 @@ function F.TargetButton()
     if InCombatLockdown() then return end
     local db = F.db
     local u = db and db.active and (F.marked or F.Scan(db.active))
-    if u and F.Clean(u) then
+    if u and F.Clean(u) and F.Restricted() then
+      -- Forever: the addon may not mark, so the KEY does it - Blizzard's /tm in a secure macro,
+      -- run by this key press. The spot's own mark when you stand at one, else the skull.
+      --
+      -- `/tm !N`, read off RestedXP (RXPGuides/Targeting.lua, 6 Oct 2026): on Forever the "!" sets
+      -- the mark WITHOUT toggling it off when the unit already wears it (retail spells it "~").
+      -- So the key never reads the current mark - which may be a secret on this client (RestedXP
+      -- checks IsSecretValue before it compares one) and would throw in a comparison.
+      local want = (F.Spots and F.Spots.Want and F.Spots.Want(db)) or F.NextMark(F.Plain(UnitGUID(u)))
+      F.Placed(F.Plain(UnitGUID(u)), want)
+      local macro = "/target " .. u .. "\n/tm !" .. want
+      self:SetAttribute("type", "macro")
+      self:SetAttribute("unit", nil)
+      self:SetAttribute("macrotext", macro)
+    elseif u and F.Clean(u) then
       self:SetAttribute("type", "target")
       self:SetAttribute("unit", u)
     else
@@ -317,11 +437,11 @@ function F.Build(db)
     if acc >= 0.1 then acc = 0 if F.con then F.con:Paint() end end
   end)
 
-  F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bt farm reopens it. The scanner keeps going.",
+  F.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist farm reopens it. The scanner keeps going.",
     function() F.Toggle(db, false) end, "warn")
   F.collapseBtn = F.HeaderButton(head, -17, "_", "Collapse", "Just the title bar.",
     function() F.SetCollapsed(db, not db.collapsed) end)
-  F.spotsBtn = F.HeaderButton(head, -31, "t", "Spawn timers", "Where you killed it and when it comes back. /bt farm spots",
+  F.spotsBtn = F.HeaderButton(head, -31, "t", "Spawn timers", "Where you killed it and when it comes back. /bist farm spots",
     function() if F.Spots then F.Spots.Toggle(db) end end)
 
   local body = CreateFrame("Frame", nil, f)
@@ -406,6 +526,12 @@ function F.Entries(db)
   if db.custom and not (db.last and db.last.name == db.custom) then
     out[#out + 1] = { name = db.custom, count = db.customKills or 0 }
   end
+  -- then RestedXP's Active Targets, if it is installed (FarmGuide.lua), minus what is already here
+  if F.Guide then
+    local already = {}
+    for _, e in ipairs(out) do already[e.name] = true end
+    for _, e in ipairs(F.Guide.Entries(db, already)) do out[#out + 1] = e end
+  end
   return out
 end
 
@@ -420,7 +546,8 @@ function F.Refresh(db)
     if e then
       r.mob = e.name
       r.name:SetText(e.name)
-      r.count:SetText(e.count > 1 and ("x" .. e.count) or "")
+      -- a guide row says where it came from, where a kill row says how many
+      r.count:SetText(e.guide and T.text("muted", "RXP") or (e.count > 1 and ("x" .. e.count) or ""))
       r:ClearAllPoints()
       r:SetPoint("TOPLEFT", F.body, "TOPLEFT", 0, -y)
       r:SetPoint("TOPRIGHT", F.body, "TOPRIGHT", 0, -y)
@@ -458,6 +585,7 @@ function F.SetCollapsed(db, on)
 end
 
 function F.Clear(db)
+  F.placed = {}                      -- a fresh farm starts its marks at the skull again
   db.last = nil
   db.custom = nil
   db.customKills = 0
@@ -472,38 +600,106 @@ function F.Toggle(db, want)
 end
 
 -- ---------------------------------------------------------------- events
+-- WHERE A KILL COMES FROM, PER CLIENT (6 Oct 2026). On WoW Forever, REGISTERING
+-- COMBAT_LOG_EVENT_UNFILTERED is itself a protected action: Arn's BugGrabber, "AddOn 'BiSTools'
+-- tried to call the protected function 'Frame:RegisterEvent()'", twice per login, from F.Hook. A
+-- pcall cannot catch it - the refusal arrives later as an event - so the only fix is never to ask.
+-- On a client that hides values (C_Secrets says so, the same test BiSHealing makes) the kill comes
+-- from the plain PARTY_KILL event instead, the road Overlord Forever takes for the same reason.
+function F.Restricted()
+  local ok, v = pcall(function()
+    return C_Secrets and C_Secrets.HasSecretRestrictions and C_Secrets.HasSecretRestrictions()
+  end)
+  if ok and type(v) == "boolean" and not (issecretvalue and issecretvalue(v)) then return v end
+  return C_Secrets ~= nil and C_Secrets.HasSecretRestrictions ~= nil
+end
+
+local plain = F.Plain
+
+-- The kill itself, whichever road it came by: a creature, by name, with its GUID.
+function F.OnKill(db, dstName, dstGUID)
+  -- whatever it was, it no longer wears the mark the farm key gave it: that mark is free again
+  if type(dstGUID) == "string" then F.placed[dstGUID] = nil end
+  -- locked on something? then only that mob counts; the page does not
+  -- swap to whatever else you killed on the way
+  if db.active and dstName ~= db.active then return end
+  if db.active and db.custom == dstName and not (db.last and db.last.name == dstName) then
+    db.customKills = (db.customKills or 0) + 1
+  else
+    F.Record(db, dstName, dstGUID)
+  end
+  if F.Spots then
+    -- the mark it died wearing tells the spot apart better than where you stood
+    local mark
+    local tg = UnitExists("target") and plain(UnitGUID("target"))
+    if tg and tg == dstGUID then mark = F.Mark("target") end
+    F.Spots.Kill(db, dstName, mark)
+  end
+  F.Refresh(db)
+end
+
+-- PARTY_KILL arrives in one of two shapes, and Overlord handles both because nobody has written
+-- down which this client uses: (attackerGUID, targetGUID), or the old (unitToken) of the victim.
+-- Any argument may be a secret value, so each is asked about before anything reads it.
+function F.FromPartyKill(db, a1, a2)
+  local s1 = plain(a1)
+  if type(s1) ~= "string" then return end
+  local guid, name
+  if s1:find("%-") then
+    -- the GUID shape: only our own kills (or the pet's) count, as with the combat log
+    if not F.OwnGUID(s1) then return end
+    guid = plain(a2)
+    if type(guid) ~= "string" or not guid:find("^Creature") then return end
+    if UnitNameFromGUID then
+      local ok, n = pcall(UnitNameFromGUID, guid)
+      n = ok and plain(n) or nil
+      -- "Unknown" is the client's placeholder for a name it has not resolved yet
+      if type(n) == "string" and n ~= "" and n ~= (UNKNOWNOBJECT or "Unknown") then name = n end
+    end
+    if not name and UnitExists("target") and plain(UnitGUID("target")) == guid then
+      name = plain(UnitName("target"))
+    end
+  else
+    -- the unit-token shape: the victim is that unit; the killer is somebody in the group
+    guid = plain(UnitGUID(s1))
+    if type(guid) ~= "string" or not guid:find("^Creature") then return end
+    name = plain(UnitName(s1))
+  end
+  if type(name) ~= "string" or name == "" then return end
+  F.OnKill(db, name, guid)
+end
+
 function F.OnEvent(db, event, ...)
-  if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+  if event == "PARTY_KILL" then
+    F.FromPartyKill(db, ...)
+  elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
     local _, sub, _, srcGUID, _, _, _, dstGUID, dstName = CombatLogGetCurrentEventInfo()
     if sub == "PARTY_KILL" and F.OwnGUID(srcGUID) and dstName
       and dstGUID and dstGUID:find("^Creature") then
-      -- locked on something? then only that mob counts; the page does not
-      -- swap to whatever else you killed on the way
-      if db.active and dstName ~= db.active then return end
-      if db.active and db.custom == dstName and not (db.last and db.last.name == dstName) then
-        db.customKills = (db.customKills or 0) + 1
-      else
-        F.Record(db, dstName, dstGUID)
-      end
-      if F.Spots then
-        -- the mark it died wearing tells the spot apart better than where you stood
-        local mark
-        if UnitExists("target") and UnitGUID("target") == dstGUID then mark = GetRaidTargetIndex("target") end
-        F.Spots.Kill(db, dstName, mark)
-      end
-      F.Refresh(db)
+      F.OnKill(db, dstName, dstGUID)
     end
   elseif event == "PLAYER_REGEN_ENABLED" then
     if F.keyDirty then F.ApplyKey(db) end
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
-    if db.active and F.ticker then F.Tick(db) end
+    -- one scan per F.MOUSE_GAP at most (7 Oct 2026, the cost pass): sweeping the mouse across a
+    -- pack fires this for every mob, and each scan reads every nameplate and the map
+    local now = (GetTime and GetTime()) or 0
+    if db.active and F.ticker and now - (F.mouseTickAt or -1) >= F.MOUSE_GAP then
+      F.mouseTickAt = now
+      F.Tick(db)
+    end
   elseif event == "PLAYER_TARGET_CHANGED" then
     if db.active and F.Spots then F.Spots.Sync(db) end
   end
 end
 
 function F.Hook(db)
-  F.events:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+  if F.Restricted() then
+    -- never even ask for the combat log here; an unknown event name would throw, so it is pcalled
+    pcall(F.events.RegisterEvent, F.events, "PARTY_KILL")
+  else
+    F.events:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+  end
   F.events:RegisterEvent("PLAYER_REGEN_ENABLED")
   F.events:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
   F.events:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -515,7 +711,7 @@ end
 NS.Registry:Register({
   name = "farm",
   desc = "click a kill; skull auto-follows a free copy nearby",
-  usage = "/bt farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | radius <yd> | burst <sec> | prune <sec>|off]",
+  usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off|why | arrow on|off | guide on|off | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
     active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
   OnInit = function(self, db)
@@ -557,6 +753,8 @@ NS.Registry:Register({
   OnDisable = function(self, db)
     F.events:UnregisterAllEvents()
     if F.Spots then F.Spots.Hide() end
+    if F.Pins then F.Pins.Stop() end
+    if F.Arrow then F.Arrow.Hide() end
     F.Stop()
     if F.tbtn and not InCombatLockdown() then ClearOverrideBindings(F.tbtn) end
     if F.frame then F.frame:Hide() end
@@ -568,6 +766,23 @@ NS.Registry:Register({
     if cmd == "spots" and F.Spots then
       if rest:lower() == "clear" then return F.Spots.Clear(db) end
       return F.Spots.Toggle(db)
+    end
+    if cmd == "pins" and F.Pins then
+      local r = rest:lower()
+      if r == "why" then return F.Pins.Why(db) end
+      local on = F.Pins.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("map pins %s", on and T.text("accent", "on") or "off")
+    end
+    if cmd == "guide" and F.Guide then
+      local r = rest:lower()
+      local on = F.Guide.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("RestedXP targets %s%s", on and T.text("accent", "on") or "off",
+        F.Guide.hooked and "" or " (RestedXP not found)")
+    end
+    if cmd == "arrow" and F.Arrow then
+      local r = rest:lower()
+      local on = F.Arrow.Set(db, (r == "on" and true) or (r == "off" and false) or nil)
+      return NS.Print("spawn arrow %s", on and T.text("accent", "on") or "off")
     end
     if cmd == "burst" and F.Spots then
       if rest ~= "" then F.Spots.SetBurst(db, rest) end

@@ -5,7 +5,7 @@ _G.BiSTools = NS
 
 -- version from the TOC, never a literal that drifts (house law); the literal is the
 -- fallback only and the harness holds it equal to ## Version
-local VERSION_FALLBACK = "0.3.4"   -- == ## Version in the TOC; the harness scans for this
+local VERSION_FALLBACK = "0.4.0"   -- == ## Version in the TOC; the harness scans for this
 NS.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version"))
   or (GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version")) or VERSION_FALLBACK
 
@@ -50,7 +50,7 @@ function NS.DB()
 end
 
 -- The shared BiS channel (Libs/LibBiSComm-1.0, embedded from _bisdev). It is
--- NOT a tool: no Registry entry, no on/off in /bt. Every tool may be switched
+-- NOT a tool: no Registry entry, no on/off in /bist. Every tool may be switched
 -- off and this client still answers the raid, or "one addon gets you half way"
 -- dies quietly. The lib has no SavedVariables, so the off switch (/biscomm off)
 -- is remembered here and restored on the next login.
