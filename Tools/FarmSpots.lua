@@ -523,7 +523,10 @@ end
 
 function S.Refresh(db)
   S.Warn(db)
-  if not S.frame or not S.frame:IsShown() then return end
+  -- VISIBLE, NOT SHOWN (7 Oct 2026). The shelf hangs off the farm window; closing that window
+  -- hides the parent and leaves this one "shown", so the full rebuild below ran 4 times a second
+  -- behind a closed window all evening. The spawn call-out above still runs: it is meant to.
+  if not S.frame or not S.frame:IsVisible() then return end
   local mob = S.Shown(db)
   local list = mob and S.List(db, mob) or {}
   local now = time()

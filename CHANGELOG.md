@@ -1,5 +1,9 @@
 ## 0.4.0
 
+- **Lighter while you farm.** The Spawns window no longer keeps rebuilding itself after you close
+  the farm window; the arrow turns 20 times a second but works out its spot 4 times a second;
+  sweeping the mouse across a pack starts one scan, not one per mob.
+
 - **Your farm spots on the minimap and the world map**, each wearing its own raid mark - bright
   when it is up, dim while it waits to respawn; hover for the mob, the kills and the time left.
   `/bist farm pins off` hides them. Drawn with HereBeDragons, the library Questie uses (BSD; see

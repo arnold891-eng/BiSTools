@@ -304,6 +304,14 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:Show() self.shown = true end
   function f:Hide() self.shown = false end
   function f:IsShown() return self.shown end
+  -- VISIBLE IS SHOWN ALL THE WAY UP (7 Oct 2026). A child whose parent hides stays IsShown() -
+  -- that is how the Spawns shelf kept refreshing 4 times a second behind a closed farm window.
+  function f:IsVisible()
+    if not self.shown then return false end
+    local p = self.parent
+    if type(p) == "table" and type(p.IsVisible) == "function" then return p:IsVisible() end
+    return true
+  end
   function f:SetAttribute(k, v) if W.combat then error("attribute set in combat: " .. k) end self.attrs[k] = v end
   function f:GetAttribute(k) return self.attrs[k] end
   function f:Click()
@@ -2414,6 +2422,70 @@ do
   fdb.spots, fdb.active, fdb.arrow, fdb.pins = keep.spots, keep.active, keep.arrow, keep.pins
   A.Hide()
   W.now = now
+end
+
+-- WHAT IT COSTS, IN CLIENT CALLS (7 Oct 2026). BiSHealing asked the client ~630,000 things a
+-- second and every suite was green; Arn: "make sure stuff like this does not happen". The family's
+-- counter (_bisdev/dev/cost.lua) holds the two things here that run all evening while farming.
+do
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local A, Sp = F.Arrow, F.Spots
+  local keep = { spots = db.spots, active = db.active, arrow = db.arrow, shelf = db.shelf }
+  W.map, W.px, W.py, W.facing = 1952, 0.50, 0.50, 0
+  -- a full evening's farm: 16 zones with 2 subs each, on this map
+  local list = {}
+  for z = 1, 16 do
+    local subs = {}
+    for s = 1, 2 do
+      subs[s] = { x = 0.40 + z * 0.01, y = 0.40 + s * 0.01, kills = 3, last = W.now - z * 7, respawn = 120 }
+    end
+    list[z] = { id = z, map = 1952, x = 0.40 + z * 0.01, y = 0.40, mark = (z % 8) + 1, kills = 6,
+                last = W.now - z * 7, respawn = 120, subs = subs }
+  end
+  db.spots = { Costbear = list }
+  db.active, db.arrow = "Costbear", nil
+  S("farm arrow on")
+  A.Refresh(db)
+  ok(BiSToolsFarmArrow:IsShown(), "(cost) the arrow is up, pointing")
+
+  -- ONE SECOND OF THE ARROW: twenty frames of 0.05 s
+  local n, by = Cost.Count(function()
+    for _ = 1, 20 do BiSToolsFarmArrow.scripts.OnUpdate(BiSToolsFarmArrow, 0.05) end
+  end)
+  -- measured 7 Oct after the split (turn 20/s, pick 4/s); every frame doing the full pick was 5x
+  local ARROW = 300
+  ok(n <= ARROW, "a second of the farm arrow asks the client at most " .. ARROW .. " things: " .. n,
+     Cost.Top(by, 5))
+  print(("   cost: arrow, 1 s, 32 spots = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+
+  -- THE SHELF BEHIND A CLOSED FARM WINDOW. Closing the window hides the parent only; the shelf
+  -- stayed "shown" and rebuilt itself 4 times a second for nobody.
+  Sp.Toggle(db, true)
+  local seen = Cost.Count(function() for _ = 1, 4 do Sp.Refresh(db) end end)
+  BiSToolsFarm:Hide()
+  local hidden, hby = Cost.Count(function() for _ = 1, 4 do Sp.Refresh(db) end end)
+  BiSToolsFarm:Show()
+  ok(BiSToolsFarmSpots:IsShown() and hidden < seen / 2,
+     "a closed farm window stops the Spawns shelf rebuilding: " .. hidden .. " calls a second, open "
+     .. seen, Cost.Top(hby, 4))
+  print(("   cost: shelf, 1 s = %d calls open, %d behind a closed window"):format(seen, hidden))
+
+  -- A MOUSE SWEPT ACROSS A PACK: ten mouseovers in the same instant are one scan, not ten
+  local realTick, scans = F.Tick, 0
+  F.Tick = function(...) scans = scans + 1 return realTick(...) end
+  local hadTicker = F.ticker
+  F.ticker = F.ticker or { alive = true, Cancel = function() end }
+  F.mouseTickAt = nil
+  for _ = 1, 10 do F.events.scripts.OnEvent(F.events, "UPDATE_MOUSEOVER_UNIT") end
+  ok(scans == 1, "ten mouseovers at once start one farm scan, not ten", scans)
+  W.now = W.now + F.MOUSE_GAP + 0.01
+  F.events.scripts.OnEvent(F.events, "UPDATE_MOUSEOVER_UNIT")
+  ok(scans == 2, "and the next one after the gap scans again", scans)
+  F.Tick, F.ticker = realTick, hadTicker
+
+  Sp.Toggle(db, false)
+  S("farm arrow off")
+  db.spots, db.active, db.arrow, db.shelf = keep.spots, keep.active, keep.arrow, keep.shelf
 end
 
 -- leaked globals

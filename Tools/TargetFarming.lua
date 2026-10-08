@@ -10,6 +10,7 @@ local SCAN_MARKS = 7   -- the scanner deals 1..7 (star..cross) to every free cop
 
 -- everything for this tool hangs off one table (locals budget rule)
 local F = { rows = {} }
+F.MOUSE_GAP = 0.1      -- seconds between scans a mouseover may start (the ticker keeps its own 0.5)
 
 local SHADE = { frame = "0d0b18", header = "141127", field = "17132e", hair = "2a2446", edge = "3a3260" }
 local function hx(hex)
@@ -680,7 +681,13 @@ function F.OnEvent(db, event, ...)
   elseif event == "PLAYER_REGEN_ENABLED" then
     if F.keyDirty then F.ApplyKey(db) end
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
-    if db.active and F.ticker then F.Tick(db) end
+    -- one scan per F.MOUSE_GAP at most (7 Oct 2026, the cost pass): sweeping the mouse across a
+    -- pack fires this for every mob, and each scan reads every nameplate and the map
+    local now = (GetTime and GetTime()) or 0
+    if db.active and F.ticker and now - (F.mouseTickAt or -1) >= F.MOUSE_GAP then
+      F.mouseTickAt = now
+      F.Tick(db)
+    end
   elseif event == "PLAYER_TARGET_CHANGED" then
     if db.active and F.Spots then F.Spots.Sync(db) end
   end

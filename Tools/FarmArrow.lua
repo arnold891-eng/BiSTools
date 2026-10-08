@@ -108,14 +108,17 @@ function A.Build(db)
     if fs.SetShadowOffset then fs:SetShadowOffset(1, -1) end       -- readable over any ground
   end
 
-  -- the arrow turns with the player, so it is redrawn 20 times a second while shown (OnUpdate is
-  -- silent on a hidden frame)
-  local acc = 0
+  -- the arrow turns with the player, so it TURNS 20 times a second while shown (OnUpdate is
+  -- silent on a hidden frame). Which spot, its timer and the yards are worked out 4 times a
+  -- second (7 Oct 2026, the cost pass): picking the spot walks every spot with a map-size question
+  -- each, and doing that 20 times a second all evening was ~3,000 client calls a second for a
+  -- timer that only changes once a second.
+  local acc, full = 0, 0
   f:SetScript("OnUpdate", function(_, el)
-    acc = acc + (el or 0)
-    if acc < 0.05 then return end
+    acc, full = acc + (el or 0), full + (el or 0)
+    if acc < A.TURN_EVERY then return end
     acc = 0
-    A.Refresh(db)
+    if full >= A.PICK_EVERY then full = 0 A.Refresh(db) else A.Turn() end
   end)
   f:Hide()
   return f
@@ -134,6 +137,7 @@ function A.Refresh(db)
   if not sp then
     A.mark:Hide() A.id:SetText("") A.clock:SetText("") A.dist:SetText("") A.arrow:Hide()
     A.none:Show()
+    A.current = nil                    -- nothing for A.Turn to point at
     return
   end
   A.none:Hide()
@@ -162,6 +166,17 @@ function A.Refresh(db)
   local rot = S.Bearing(px, py, sp.x, sp.y)
   if rot then A.arrow:SetRotation(rot) A.arrow:Show() else A.arrow:Hide() end
   A.current = sp
+end
+
+A.TURN_EVERY, A.PICK_EVERY = 0.05, 0.25
+
+--- Between full refreshes: only turn the arrow toward the spot already picked. One position read.
+function A.Turn()
+  local sp = A.current
+  if not (sp and A.arrow) then return end
+  local _, px, py = S.Here()
+  local rot = px and S.Bearing(px, py, sp.x, sp.y)
+  if rot then A.arrow:SetRotation(rot) A.arrow:Show() else A.arrow:Hide() end
 end
 
 function A.Show(db) A.Refresh(db) end
