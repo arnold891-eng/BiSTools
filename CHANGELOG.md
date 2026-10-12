@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **`/bist recap` - what killed you, step one.** After you die, it prints what the game recorded about your last hits (who, which spell, how much, your health), read the moment you die, again when the fight ends, and when you ask - each field as its value or "<hidden>". It measures what Forever will show before a proper death-recap window is built. Costs nothing until you die.
+- **Death recap.** When you die, a BiS window opens: the **killer** in the middle and the two biggest **assists** either side, each with their damage and share, the killing blow and its overkill; your **health** falling across the last hits, gold on crits; the **hits**, newest first; and "306 damage in 6.0 seconds". Mobs are grouped by who they really are - Forever gives a mob a new nickname on every hit. It closes when you are back in your body; `/bist recap` opens your last death again; "open when you die" in the options. Costs nothing until you die. `/bist recap raw` prints exactly what the game recorded.
 
 - Res claims (RezComm minor 4) are never sent into the chat lockdown, and a claim the game asks to retry is sent once more.
 

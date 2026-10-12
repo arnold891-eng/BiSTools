@@ -1743,8 +1743,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (none) -> 4 headers + 14 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (1) -> 4 headers + 15 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7 + 1, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -2514,7 +2514,7 @@ do
 
   -- a client with no death recap at all: says so, never throws
   _G.C_DeathRecap = nil
-  ok(pcall(S, "recap"), "/bist recap on a client with no death recap does not throw")
+  ok(pcall(S, "recap raw"), "/bist recap raw on a client with no death recap does not throw")
   ok(heard():find("no death recap to read", 1, true), "and says the client has none")
 
   -- THE GAME'S RECORD, the moment you die: who and with what readable, how much hidden
@@ -2540,7 +2540,10 @@ do
   local onEvent = RC.frame.scripts.OnEvent
   ok(RC.frame.events.PLAYER_DEAD and RC.frame.events.PLAYER_REGEN_ENABLED, "it listens for dying and for the fight ending")
   ok(pcall(onEvent, RC.frame, "PLAYER_DEAD"), "dying with hidden numbers does not throw")
-  ok(heard():find("/bist recap", 1, true), "and says once where to look")
+  ok(RC.win and RC.win:IsShown(), "and opens the recap window, hidden numbers and all")
+  ok(RC.win.mid.dmg.text == "?" and RC.win.foot.text:find("some amounts hidden", 1, true),
+     "where the game hid a number the window says ?, never a guess")
+  heard()
   local d = RC.atDeath
   ok(d and d.count == 3 and #d.rows == 3, "every hit is recorded at death")
   ok(d.rows[1]:find('sourceName="Defias Thug"', 1, true) and d.rows[1]:find("spellId=1752", 1, true),
@@ -2562,7 +2565,7 @@ do
   ok(RC.afterFight == before, "a second fight ending without a death reads nothing")
 
   -- /bist recap: all three readings, each with its verdict
-  S("recap")
+  S("recap raw")
   local out = heard()
   ok(out:find("at death", 1, true) and out:find("after the fight", 1, true) and out:find("right now", 1, true),
      "/bist recap prints the reading at death, after the fight, and now")
@@ -2604,6 +2607,93 @@ do
     keep.type, keep.issecretvalue, keep.issecrettable, keep.canaccessvalue, keep.C_DeathRecap
   DEFAULT_CHAT_FRAME.AddMessage = keep.chat
   RC.atDeath, RC.afterFight, RC.waitFight = nil, nil, nil
+end
+
+-- ---------------------------------------------------------------- the death recap window, on Arn's death
+-- (12 Oct 2026) Ragefire Chasm, pasted from /bist recap: ten hits, nothing hidden. The window has to
+-- say what the mockup said - killer Molten Elemental 128 (42%), Earthborers 106 (35%) and 72 (24%),
+-- "306 damage in 6.0 seconds" - and group by GUID, because Forever re-names a mob on every hit.
+do
+  local RC = NS.Recap
+  local MOLTEN, EB_A, EB_B = "Creature-0-4621-389-178375-11321-0003CD6", "Creature-0-4621-389-178375-11320-0000CD6",
+                             "Creature-0-4621-389-178375-11320-0002CD6"
+  local function h(amount, crit, hp, t, name, guid, extra)
+    local r = { event = "SWING_DAMAGE", amount = amount, critical = crit, currentHP = hp, timestamp = 1791846000 + t,
+                sourceName = name, sourceGUID = guid, overkill = -1, school = 1 }
+    for k, v in pairs(extra or {}) do r[k] = v end
+    return r
+  end
+  local ARN = {   -- newest first, as the game gives it
+    h(27, false, 13, 504.529, "Molten Elemental Smitecrust", MOLTEN, { overkill = 14 }),
+    h(44, true, 57, 504.046, "Earthborer Milker", EB_A),
+    h(44, true, 101, 503.163, "Earthborer Arms", EB_B),
+    h(7, false, 108, 502.529, "Molten Elemental Shaquanda", MOLTEN, { blocked = 22 }),
+    h(2, false, 110, 502.046, "Earthborer Sama", EB_A, { blocked = 22 }),
+    h(44, true, 154, 501.146, "Earthborer Bee", EB_B),
+    h(49, true, 203, 500.512, "Molten Elemental Shaquanda", MOLTEN),
+    h(26, false, 229, 500.046, "Earthborer Deluxe", EB_A),
+    h(18, false, 247, 499.147, "Earthborer Beartotem", EB_B),
+    h(45, true, 292, 498.505, "Molten Elemental Flashs", MOLTEN),
+  }
+  local keepDR, keepDead = _G.C_DeathRecap, _G.UnitIsDeadOrGhost
+  local deadNow = true
+  _G.UnitIsDeadOrGhost = function() return deadNow end
+  _G.C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapMaxHealth = function() return 1192 end,
+                      GetRecapEvents = function() return ARN end }
+
+  local s = RC.Summary(RC.Hits(ARN), 1192)
+  ok(#s.attackers == 3, "ten nicknames, three mobs: grouped by GUID")
+  ok(s.killer and s.killer.title == "Molten Elemental" and s.killer.total == 128, "the killer: the Molten Elemental, 128")
+  ok(s.assists[1].title == "Earthborer" and s.assists[1].total == 106 and s.assists[2].total == 72,
+     "the assists: the two Earthborers, 106 and 72")
+  ok(s.total == 306 and math.abs(s.seconds - 6.024) < 0.01 and s.startHP == 292, "306 damage in 6.0 seconds, from 292 health")
+  ok(table.concat(s.killer.nicks, ","):find("Smitecrust", 1, true) and table.concat(s.killer.nicks, ","):find("Flashs", 1, true),
+     "its nicknames listed under it")
+  ok(RC.Shared({ "Kumlust" }) == "Kumlust" and RC.Shared({ "Earthborer Milker", "Earthborer Arms" }) == "Earthborer",
+     "a lone name is kept whole; shared words make the kind")
+
+  -- dying opens it, painted from the record
+  local rdb = R:DBFor(R:Get("recap"))
+  rdb.popup = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  local w = RC.win
+  ok(w:IsShown(), "dying opens the death recap")
+  ok(w.mid.name.text == "Molten Elemental" and w.mid.role.text == "killer" and w.mid.dmg.text == "128 (42%)",
+     "the middle card: killer, Molten Elemental, 128 (42%)", w.mid.dmg.text)
+  ok(w.left.dmg.text == "106 (35%)" and w.right.dmg.text == "72 (24%)", "the assists either side, with their shares")
+  ok(w.mid.what.text == "killing blow 27 +14", "the killing blow and its overkill", w.mid.what.text)
+  ok(w.foot.text == "306 damage in 6.0 seconds", "the total line", w.foot.text)
+  ok(w.rows[1].amt.text == "27 +14" and w.rows[2].what.text == "melee crit" and w.rows[5].what.text == "melee 22 blk",
+     "the hits, newest first, crits and blocks marked")
+  ok(w.stripLeft.text == "292 of 1192 health when these began", "the strip says where the hits began", w.stripLeft.text)
+  ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
+  fitsIn(w, "the death recap")
+
+  -- back on your feet: it closes; still a ghost: it stays
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ALIVE")
+  ok(w:IsShown(), "releasing your spirit (still a ghost) leaves it open")
+  deadNow = false
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_UNGHOST")
+  ok(not w:IsShown(), "back in your body, it closes")
+  S("recap")
+  ok(w:IsShown(), "/bist recap opens your last death again")
+  S("recap")
+  ok(not w:IsShown(), "and closes it")
+
+  -- switched off: dying does not open it
+  rdb.popup = false
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(not w:IsShown(), "with 'open when you die' off, it stays shut")
+  rdb.popup = true
+
+  -- a player killer (PvP): the name is the name
+  local pk = RC.Summary(RC.Hits({ h(80, true, 50, 10, "Kumlust", "Player-4619-00ABCDEF", { overkill = 30 }) }), 1192)
+  ok(pk.killer.title == "Kumlust" and #pk.killer.nicks == 0 and pk.assists[1] == nil, "a player who killed you is named as themselves")
+
+  _G.C_DeathRecap, _G.UnitIsDeadOrGhost = keepDR, keepDead
+  RC.last = nil
+  w:Hide()
 end
 
 -- leaked globals
