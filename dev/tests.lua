@@ -244,7 +244,9 @@ local function FontString()
     local t, tex = tostring(self.text or ""), 0
     t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
     t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return #t * (self.size or 9) * 0.6 + tex
+    -- LETTERS, NOT BYTES (12 Oct 2026): "Légolas Thiliaere" fit in game and not here - the é is two
+    -- bytes, and the client measures glyphs. UTF-8 continuation bytes are not letters.
+    return #(t:gsub("[\128-\191]", "")) * (self.size or 9) * 0.6 + tex
   end
   function s:Hide() self.shown = false end
   function s:Show() self.shown = true end
@@ -2200,8 +2202,9 @@ local function realWidth(fs)
   t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
   t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
   local size, px = fs.size or 9, 0
-  for ch in t:gmatch(".") do
-    if ch:match("[%u%d]") then px = px + 0.75 elseif ch:match("%l") then px = px + 0.55 else px = px + 0.3 end
+  -- one glyph per UTF-8 character; an accented letter (é) measures as a lowercase one
+  for ch in t:gmatch("[%z\1-\127\192-\247][\128-\191]*") do
+    if #ch > 1 or ch:match("%l") then px = px + 0.55 elseif ch:match("[%u%d]") then px = px + 0.75 else px = px + 0.3 end
   end
   return px * size + tex
 end
@@ -2690,6 +2693,65 @@ do
   -- a player killer (PvP): the name is the name
   local pk = RC.Summary(RC.Hits({ h(80, true, 50, 10, "Kumlust", "Player-4619-00ABCDEF", { overkill = 30 }) }), 1192)
   ok(pk.killer.title == "Kumlust" and #pk.killer.nicks == 0 and pk.assists[1] == nil, "a player who killed you is named as themselves")
+
+  -- KILLED BY THREE HUNTERS (Arn's screenshot, 12 Oct): player names in class colour, each card's
+  -- main spell, the healing note, and a click to make one a rival
+  local LEG, MOMS, EGGS = "Player-4619-0001", "Player-4619-0002", "Player-4619-0003"
+  local PVP = {
+    h(114, false, 114, 5.3, "Hunting Moms", MOMS, { spellName = "Auto Shot", event = "RANGE_DAMAGE", overkill = 38 }),
+    h(48, false, 162, 5.3, "Légolas Thiliaere", LEG, { spellName = "Serpent Sting", event = "SPELL_PERIODIC_DAMAGE" }),
+    h(137, true, 299, 5.2, "Hunting Moms", MOMS, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(151, true, 450, 3.8, "Légolas Thiliaere", LEG, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(104, false, 554, 3.7, "Hunting Moms", MOMS, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(26, false, 580, 2.6, "Eggs Benethicc", EGGS, { spellName = "Rend", event = "SPELL_PERIODIC_DAMAGE" }),
+    h(120, false, 700, 2.0, "Légolas Thiliaere", LEG, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(117, false, 817, 1.2, "Légolas Thiliaere", LEG, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(130, true, 947, 0.5, "Légolas Thiliaere", LEG, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(100, false, 361, 0.0, "Légolas Thiliaere", LEG, { spellName = "Serpent Sting", event = "SPELL_PERIODIC_DAMAGE" }),
+  }
+  local CLASS = { [LEG] = "HUNTER", [MOMS] = "HUNTER", [EGGS] = "WARRIOR" }
+  local keepInfo, keepColors = _G.GetPlayerInfoByGUID, _G.RAID_CLASS_COLORS
+  _G.GetPlayerInfoByGUID = function(g) return "x", CLASS[g] end
+  _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, WARRIOR = { r = 0.78, g = 0.61, b = 0.43 } }
+  _G.C_DeathRecap.GetRecapEvents = function() return PVP end
+  local rdb2 = R:DBFor(R:Get("recap"))
+  rdb2.rivals = nil
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  local p = RC.last
+  ok(p.killer.title == "Hunting Moms" and p.killer.player and p.killer.class == "HUNTER", "a player killer, with their class")
+  ok(w.left.name.text == "Légolas Thiliaere" and w.left.dmg.text == "666 (64%)", "the biggest assist: Légolas, 666 (64%)", w.left.dmg.text)
+  ok(w.left.what.text == "Arcane Shot 281", "each card says what they mostly hit you with", w.left.what.text)
+  ok(w.right.what.text == "Rend 26", "even a one-hit assist", w.right.what.text)
+  ok(w.left.name.color and math.abs(w.left.name.color[1] - 0.67) < 0.01, "a player's name in their class colour")
+  ok(w.foot.text == "1047 damage in 5.3 seconds - you healed through some of it", "more damage than health is explained", w.foot.text)
+
+  -- CLICK A PLAYER: a rival. Click again: not. A mob card is not clickable into the list.
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  local rivals = RC.Rivals(rdb2)
+  ok(rivals["Hunting Moms"] and rivals["Hunting Moms"].class == "HUNTER" and rivals["Hunting Moms"].guid == MOMS,
+     "clicking the killer's card makes them a rival, with class and GUID")
+  ok(w.mid.rival.text == "rival", "and the card says so")
+  fitsIn(w, "the death recap, a rival on it")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  ok(rivals["Hunting Moms"] == nil and w.mid.rival.text == "", "a second click takes them off")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(rivals["Hunting Moms"].kills == 1, "a rival who kills you again is counted")
+  local said2 = {}
+  local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said2[#said2 + 1] = m end
+  S("recap rivals")
+  local listed = table.concat(said2, "\n")
+  ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
+  S("recap forget hunting moms")
+  ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  _G.C_DeathRecap.GetRecapEvents = function() return ARN end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  ok(next(RC.Rivals(rdb2)) == nil, "a mob is never a rival")
+  _G.GetPlayerInfoByGUID, _G.RAID_CLASS_COLORS = keepInfo, keepColors
 
   _G.C_DeathRecap, _G.UnitIsDeadOrGhost = keepDR, keepDead
   RC.last = nil

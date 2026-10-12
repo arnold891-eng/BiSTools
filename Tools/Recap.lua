@@ -247,6 +247,18 @@ function RC.Summary(hits, maxHP)
       if n:sub(1, #a.title) == a.title and rest ~= "" then nick[#nick + 1] = rest end
     end
     a.nicks = nick
+    -- WHAT IT MOSTLY HIT YOU WITH (Arn, 12 Oct, killed by three hunters: "their main spell")
+    for spell, amount in pairs(a.spells) do
+      if not a.topAmt or amount > a.topAmt then a.top, a.topAmt = spell, amount end
+    end
+    -- A PLAYER: their class, for the colour of their name (GetPlayerInfoByGUID, in the census)
+    if type(a.key) == "string" and a.key:find("^Player%-") then
+      a.player = true
+      if GetPlayerInfoByGUID then
+        local ok, _, class = pcall(GetPlayerInfoByGUID, a.key)
+        if ok and type(class) == "string" and not hidden(class) then a.class = class end
+      end
+    end
   end
   local newest = hits[1]
   s.killer = newest and by[newest.guid or newest.name or "?"]
@@ -278,12 +290,58 @@ local function pct(n, total)
   return (" (%d%%)"):format(math.floor(n / total * 100 + 0.5))
 end
 
+-- ---------------------------------------------------------------- rivals
+-- Arn, 12 Oct, after three hunters killed him: "if i click on the player they get added to my
+-- rival list for that player tracker pvp". Kept by NAME - the name is what a nameplate will show
+-- the tracker - with class, when first added, and how often they have killed you since.
+function RC.Rivals(db)
+  db.rivals = type(db.rivals) == "table" and db.rivals or {}
+  return db.rivals
+end
+
+--- Add a player to your rivals, or take them off. Answers true when they are a rival now.
+function RC.ToggleRival(db, a)
+  if not (a and a.player and type(a.title) == "string") then return nil end
+  local list = RC.Rivals(db)
+  if list[a.title] then
+    list[a.title] = nil
+    NS.Print("%s is no longer a rival", a.title)
+    return false
+  end
+  list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0 }
+  NS.Print("%s added to your rivals", T.text("warn", a.title))
+  return true
+end
+
 local function card(parent, w)
   local F = K()
-  local c = CreateFrame("Frame", nil, parent)
+  -- A BUTTON: a player on it can be clicked into your rivals. A mob card ignores the click.
+  local c = CreateFrame("Button", nil, parent)
   c:SetSize(w, RC.CARD_H)
+  c:RegisterForClicks("LeftButtonUp")
   c.bg = F.tex(c, "BACKGROUND", "field", 0.95)
   c.edge = F.border(c, "hair", 1)
+  c.rival = F.fs(c, "", 8, "gold")     c.rival:SetPoint("TOPRIGHT", -5, -4)
+  c:SetScript("OnClick", function(self)
+    if not self.a or not RC.db then return end
+    RC.ToggleRival(RC.db, self.a)
+    if RC.last then RC.Paint(RC.last) end
+  end)
+  c:SetScript("OnEnter", function(self)
+    if not (self.a and self.a.player) then return end
+    self.edge:set("accent", 1)
+    if GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      local isRival = RC.db and RC.Rivals(RC.db)[self.a.title]
+      GameTooltip:AddLine(isRival and "Click: no longer a rival" or "Click: add to your rivals")
+      GameTooltip:AddLine("The PvP tracker watches for your rivals.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  c:SetScript("OnLeave", function(self)
+    self.edge:set("hair", 1)
+    if GameTooltip then GameTooltip:Hide() end
+  end)
   c.role = F.fs(c, "", 8, "muted")     c.role:SetPoint("TOPLEFT", 5, -4)
   c.name = F.fs(c, "", 10, "ink")      c.name:SetPoint("TOPLEFT", 5, -14)
   c.nick = F.fs(c, "", 8, "muted")     c.nick:SetPoint("TOPLEFT", 5, -26)
@@ -300,12 +358,20 @@ local function card(parent, w)
 end
 
 local function paintCard(c, a, role, s, isKiller)
+  c.a = a
   if not a then c:Hide() return end
   c:Show()
   local w = c.w - 10
   c.role:SetText(role)
   do local F = K() local r, g, b = F.color(isKiller and "warn" or "muted") c.role:SetTextColor(r, g, b, 1) end
-  fitText(c.name, a.title, w)
+  c.rival:SetText((a.player and RC.db and RC.Rivals(RC.db)[a.title]) and "rival" or "")
+  fitText(c.name, a.title, w - (c.rival:GetText() ~= "" and 26 or 0))
+  -- a player's name in their class colour; a mob's in ink
+  do
+    local cc = a.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[a.class]
+    if cc then c.name:SetTextColor(cc.r, cc.g, cc.b, 1)
+    else local F = K() local r, g, b = F.color("ink") c.name:SetTextColor(r, g, b, 1) end
+  end
   fitText(c.nick, table.concat(a.nicks, ", "), w)
   local share = (a.whole and s.total > 0) and (a.total / s.total) or 0
   c.bar:SetWidth(math.max(1, w * share))
@@ -316,6 +382,8 @@ local function paintCard(c, a, role, s, isKiller)
     -- short: a card is a third of the window, and the hits list below already says "melee"
     line = "killing blow " .. (b.amount and tostring(b.amount) or "?")
     if b.overkill and b.overkill > 0 then line = line .. (" +%d"):format(b.overkill) end
+  elseif a.top and a.topAmt then
+    line = ("%s %d"):format(a.top, a.topAmt)              -- "Arcane Shot 288": how they did it
   else
     line = ("%d hits"):format(a.hits) .. (a.crits > 0 and (" · %d crit%s"):format(a.crits, a.crits > 1 and "s" or "") or "")
   end
@@ -323,6 +391,7 @@ local function paintCard(c, a, role, s, isKiller)
 end
 
 function RC.Build(db)
+  RC.db = db                            -- the cards' clicks write rivals here
   if RC.win then return RC.win end
   local F = K()
   local f = CreateFrame("Frame", "BiSToolsRecap", UIParent)
@@ -453,7 +522,13 @@ function RC.Paint(s)
     end
   end
   if s.whole and s.seconds then
-    f.foot:SetText(("%d damage in %.1f seconds"):format(s.total, s.seconds))
+    -- MORE DAMAGE THAN HEALTH is not a bug: the record keeps the hits, not your heals (Arn, killed
+    -- by three hunters from 361 health while 1047 landed). Said, so it does not read as one.
+    -- the overkill landed on nobody: 306 with 14 over, from 292, is not a heal (Ragefire, 12 Oct)
+    local over = (s.blow and s.blow.overkill and s.blow.overkill > 0) and s.blow.overkill or 0
+    local healed = s.startHP and (s.total - over) > s.startHP
+    f.foot:SetText(("%d damage in %.1f seconds%s"):format(s.total, s.seconds,
+      healed and " - you healed through some of it" or ""))
   elseif s.seconds then
     f.foot:SetText(("damage in %.1f seconds (some amounts hidden)"):format(s.seconds))
   else
@@ -502,6 +577,10 @@ function RC.OnEvent(_, event)
     RC.waitFight = true
     local events = RC.Fetch()
     RC.last = (events and #events > 0) and RC.Summary(RC.Hits(events), RC.MaxHP()) or nil
+    -- a rival who killed you again: counted
+    local k = RC.last and RC.last.killer
+    local rival = k and k.player and RC.Rivals(db)[k.title]
+    if rival then rival.kills = (rival.kills or 0) + 1 rival.last = time and time() or 0 end
     if RC.last and db.popup ~= false then RC.Toggle(db, true) end
   elseif event == "PLAYER_REGEN_ENABLED" and RC.waitFight then
     RC.waitFight = nil
@@ -523,7 +602,7 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [raw]",
+  usage = "/bist recap [rivals | forget <name> | raw]",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
@@ -535,6 +614,32 @@ NS.Registry:Register({
   end,
   OnDisable = function() if RC.win then RC.win:Hide() end end,
   OnSlash = function(_, db, args)
+    if args == "rivals" then
+      local names = {}
+      for name in pairs(RC.Rivals(db)) do names[#names + 1] = name end
+      table.sort(names)
+      if #names == 0 then return NS.Print("no rivals yet - click a player on your death recap") end
+      NS.Print("your rivals (%d):", #names)
+      for _, name in ipairs(names) do
+        local r = RC.Rivals(db)[name]
+        local cc = r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[r.class]
+        local shown = cc and ("|cff%02x%02x%02x%s|r"):format(cc.r * 255, cc.g * 255, cc.b * 255, name) or name
+        DEFAULT_CHAT_FRAME:AddMessage(("  %s %s"):format(shown,
+          T.text("muted", (r.kills or 0) > 0 and ("killed you %d more time%s"):format(r.kills, r.kills > 1 and "s" or "") or "")))
+      end
+      return
+    end
+    local forget = args:match("^forget%s+(.+)$")
+    if forget then
+      local list = RC.Rivals(db)
+      for name in pairs(list) do
+        if name:lower() == forget:lower() then
+          list[name] = nil
+          return NS.Print("%s is no longer a rival", name)
+        end
+      end
+      return NS.Print("no rival called %s", forget)
+    end
     if args == "raw" or args == "now" then
       if args == "raw" then
         if not RC.atDeath then NS.Print("no death since you logged in - here is what the game holds right now:") end
