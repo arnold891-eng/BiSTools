@@ -278,6 +278,7 @@ end
 -- prompt. Plain frames only - nothing secure - so it may open in a fight.
 RC.W, RC.HEADER, RC.PAD = 360, 16, 6
 RC.CARD_H, RC.STRIP_H, RC.ROW_H, RC.ROWS = 66, 28, 12, 6
+RC.RIVAL_ROWS = 10
 
 local function K() return NS.Farm end
 
@@ -308,9 +309,67 @@ function RC.ToggleRival(db, a)
     NS.Print("%s is no longer a rival", a.title)
     return false
   end
-  list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0 }
+  -- GOLD from the start: a rival you just clicked is the one you are hunting (Arn, 12 Oct: "current
+  -- target gold, all previous targets silver, can click them again to turn them gold")
+  list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0, active = true }
   NS.Print("%s added to your rivals", T.text("warn", a.title))
+  RC.PaintRivals()
   return true
+end
+
+--- Gold (hunted: the tracker calls them out) or silver (remembered, quiet).
+function RC.SetActive(db, name, on)
+  local r = RC.Rivals(db)[name]
+  if not r then return nil end
+  r.active = on and true or false
+  RC.PaintRivals()
+  return r.active
+end
+
+--- How many are gold. The tracker asks this first and stops at zero - so a city full of
+--- nameplates costs nothing to a player who is hunting nobody.
+function RC.GoldCount(db)
+  local n = 0
+  for _, r in pairs(RC.Rivals(db)) do if r.active then n = n + 1 end end
+  return n
+end
+
+-- ---------------------------------------------------------------- the tracker
+-- A GOLD RIVAL IN SIGHT: a nameplate appearing, your target, or your mouse over them. Names are read
+-- the farm tool's way (F.Name: plain or nil - a nameplate's name can be secret in an instance), and
+-- compared as strings, which is ours to do. One call-out per rival per RC.ALERT_GAP seconds: a rival
+-- who stays on screen is news once, not every frame.
+RC.ALERT_GAP = 60
+
+local function place()
+  local zone = GetZoneText and GetZoneText() or ""
+  local sub = GetSubZoneText and GetSubZoneText() or ""
+  if hidden(zone) then zone = "" end
+  if hidden(sub) then sub = "" end
+  if sub ~= "" and sub ~= zone then return sub end
+  return zone
+end
+
+function RC.Spot(db, unit)
+  if RC.GoldCount(db) == 0 then return nil end
+  local name = NS.Farm.Name(unit)
+  if not name then return nil end
+  local r = RC.Rivals(db)[name]
+  if not (r and r.active) then return nil end
+  local now = GetTime and GetTime() or 0
+  r.seen = time and time() or 0
+  r.where = place()
+  if r.alertAt and now - r.alertAt < RC.ALERT_GAP then return name end
+  r.alertAt = now
+  local cc = r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[r.class]
+  if RaidNotice_AddMessage and RaidWarningFrame then
+    RaidNotice_AddMessage(RaidWarningFrame, "Rival nearby: " .. name,
+      cc and { r = cc.r, g = cc.g, b = cc.b } or (ChatTypeInfo and ChatTypeInfo.RAID_WARNING))
+  end
+  NS.Print("%s nearby%s", T.text("warn", name), (r.where and r.where ~= "") and (" - " .. r.where) or "")
+  if db.sound ~= false and PlaySound then PlaySound(NS.Farm.PING, "Master") end
+  RC.PaintRivals()
+  return name
 end
 
 local function card(parent, w)
@@ -425,6 +484,10 @@ function RC.Build(db)
   end)
   f.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist recap opens your last death again.",
     function() RC.Toggle(db, false) end, "warn")
+  -- SMALL OR BIG (Arn, 12 Oct: "the recap window is minimized right now if i click a button it
+  -- maximize and shows more info all rivals"): the drawer underneath holds every rival
+  f.moreBtn = F.HeaderButton(head, -17, "+", "Rivals", "Every rival: gold you are hunting, silver you are not.",
+    function() RC.SetExpanded(db, not db.expanded) end)
 
   local P = RC.PAD
   local cw = math.floor((RC.W - P * 4) / 3)
@@ -467,6 +530,49 @@ function RC.Build(db)
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", P, -footTop)
   f:SetSize(RC.W, footTop + 16)
 
+  -- THE DRAWER: every rival, gold first. A row is a button: click = gold/silver, shift-click = forget.
+  local d = CreateFrame("Frame", nil, f)
+  f.drawer = d
+  d:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+  d:SetWidth(RC.W)
+  F.tex(d, "BACKGROUND", "frame", 0.96)
+  F.border(d, "edge", 0.6)
+  d.caption = F.fs(d, "rivals - gold: hunting, silver: not. click to switch", 8, "muted")
+  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P, -5)
+  d.rows = {}
+  for i = 1, RC.RIVAL_ROWS do
+    local b = CreateFrame("Button", nil, d)
+    b:SetSize(RC.W - P * 2, RC.ROW_H + 2)
+    b:SetPoint("TOPLEFT", d, "TOPLEFT", P, -(16 + (i - 1) * (RC.ROW_H + 2)))
+    b:RegisterForClicks("LeftButtonUp")
+    b.mark = b:CreateTexture(nil, "ARTWORK")
+    b.mark:SetPoint("LEFT", b, "LEFT", 0, 0)
+    b.mark:SetSize(7, 7)
+    b.name = F.fs(b, "", 9, "ink")      b.name:SetPoint("LEFT", b, "LEFT", 12, 0)
+    b.info = F.fs(b, "", 8, "muted")    b.info:SetPoint("RIGHT", b, "RIGHT", 0, 0)
+    b:SetScript("OnClick", function(self)
+      if not self.rival then return end
+      if IsShiftKeyDown and IsShiftKeyDown() then
+        RC.Rivals(db)[self.rival] = nil
+        NS.Print("%s is no longer a rival", self.rival)
+        RC.PaintRivals()
+      else
+        RC.SetActive(db, self.rival, not RC.Rivals(db)[self.rival].active)
+      end
+    end)
+    b:SetScript("OnEnter", function(self)
+      if not (self.rival and GameTooltip) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.rival)
+      GameTooltip:AddLine("Click: gold (hunting) or silver. Shift-click: forget.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    d.rows[i] = b
+  end
+  d.more = F.fs(d, "", 8, "muted")
+  d:Hide()
+
   local pos = db.pos
   f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
   f:Hide()
@@ -475,8 +581,18 @@ end
 
 function RC.Paint(s)
   local f = RC.win
-  if not (f and s) then return end
+  if not f then return end
   local F = K()
+  if not s then                                  -- no death this session: an empty top, the drawer below
+    f.mid:Hide() f.left:Hide() f.right:Hide()
+    for _, col in ipairs(f.cols) do col:Hide() end
+    f.stripLeft:SetText("") f.stripRight:SetText("")
+    f.caption:SetText("nothing has killed you this session")
+    for _, r in ipairs(f.rows) do r.ago:SetText("") r.who:SetText("") r.what:SetText("") r.amt:SetText("") end
+    f.foot:SetText("")
+    return
+  end
+  f.stripRight:SetText("dead")
   paintCard(f.mid, s.killer, "killer", s, true)
   paintCard(f.left, s.assists[1], "assist", s, false)
   paintCard(f.right, s.assists[2], "assist", s, false)
@@ -536,6 +652,76 @@ function RC.Paint(s)
   end
 end
 
+-- "3m ago" / "2h ago" / "4d ago"
+local function ago(stamp)
+  local now = time and time() or 0
+  if type(stamp) ~= "number" or stamp <= 0 then return nil end
+  local s = math.max(0, now - stamp)
+  if s < 3600 then return ("%dm ago"):format(math.floor(s / 60)) end
+  if s < 86400 then return ("%dh ago"):format(math.floor(s / 3600)) end
+  return ("%dd ago"):format(math.floor(s / 86400))
+end
+
+--- The drawer: gold first, then the most recently seen. Silver rows are dimmed.
+function RC.PaintRivals()
+  local f, db = RC.win, RC.db
+  if not (f and f.drawer and db) then return end
+  local d, F = f.drawer, K()
+  local list = {}
+  for name, r in pairs(RC.Rivals(db)) do list[#list + 1] = { name = name, r = r } end
+  table.sort(list, function(x, y)
+    if (x.r.active and true or false) ~= (y.r.active and true or false) then return x.r.active and true or false end
+    return (x.r.seen or x.r.added or 0) > (y.r.seen or y.r.added or 0)
+  end)
+  for i, b in ipairs(d.rows) do
+    local e = list[i]
+    if e then
+      b.rival = e.name
+      local gold = e.r.active
+      local mr, mg, mb = F.color(gold and "gold" or "dim")
+      b.mark:SetColorTexture(mr, mg, mb, 1)
+      b.name:SetText(e.name)
+      local cc = e.r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.r.class]
+      if cc then b.name:SetTextColor(cc.r, cc.g, cc.b, gold and 1 or 0.55)
+      else local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, gold and 1 or 0.55) end
+      local bits = {}
+      if (e.r.kills or 0) > 0 then bits[#bits + 1] = ("killed you %d"):format(e.r.kills) end
+      local seen = ago(e.r.seen)
+      if seen then bits[#bits + 1] = "seen " .. seen .. ((e.r.where and e.r.where ~= "") and (", " .. e.r.where) or "") end
+      fitText(b.info, table.concat(bits, " · "), RC.W - 160)
+      b:Show()
+    else
+      b.rival = nil
+      b:Hide()
+    end
+  end
+  local shown = math.min(#list, #d.rows)
+  if #list == 0 then
+    d.more:SetText("no rivals yet - click a player on a death recap")
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -18)
+    d.more:Show()
+  elseif #list > shown then
+    d.more:SetText(("%d more - /bist recap rivals lists them all"):format(#list - shown))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(18 + shown * (RC.ROW_H + 2)))
+    d.more:Show()
+  else
+    d.more:SetText("")
+    d.more:Hide()
+  end
+  local rows = math.max(shown, 1) + ((#list > shown or #list == 0) and 1 or 0)
+  d:SetHeight(20 + rows * (RC.ROW_H + 2))
+end
+
+--- Small or big: the drawer of rivals under the recap.
+function RC.SetExpanded(db, on)
+  db.expanded = on and true or false
+  local f = RC.win
+  if not f then return db.expanded end
+  if db.expanded then RC.PaintRivals() f.drawer:Show() else f.drawer:Hide() end
+  if f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText(db.expanded and "-" or "+") end
+  return db.expanded
+end
+
 function RC.Toggle(db, want)
   RC.Build(db)
   if want == nil then want = not RC.win:IsShown() end
@@ -544,12 +730,14 @@ function RC.Toggle(db, want)
       local events = RC.Fetch()
       if events and #events > 0 then RC.last = RC.Summary(RC.Hits(events), RC.MaxHP()) end
     end
-    if not RC.last then
+    -- no death yet, but rivals: the window opens for the drawer alone
+    if not RC.last and next(RC.Rivals(db)) == nil then
       NS.Print("nothing has killed you yet this session")
       RC.win:Hide()
       return false
     end
     RC.Paint(RC.last)
+    RC.SetExpanded(db, db.expanded or not RC.last)
     RC.win:Show()
   else
     RC.win:Hide()
@@ -569,9 +757,18 @@ end
 -- DIED: read the record, open the window (unless switched off), and keep a measuring snapshot for
 -- /bist recap raw - a player killer on a PvP server is the case nobody has measured yet.
 -- BACK ON YOUR FEET (unghosted at your corpse, or resurrected where you fell): it closes.
-function RC.OnEvent(_, event)
+function RC.OnEvent(_, event, unit)
   if not R:Enabled("recap") then return end
   local db = R:DBFor(R:Get("recap"))
+  -- THE TRACKER: a nameplate appearing, a new target, the mouse on someone
+  if event == "NAME_PLATE_UNIT_ADDED" then
+    if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
+    return
+  elseif event == "PLAYER_TARGET_CHANGED" then
+    RC.Spot(db, "target") return
+  elseif event == "UPDATE_MOUSEOVER_UNIT" then
+    RC.Spot(db, "mouseover") return
+  end
   if event == "PLAYER_DEAD" then
     RC.atDeath, RC.afterFight = RC.Read("at death"), nil
     RC.waitFight = true
@@ -594,7 +791,8 @@ function RC.OnEvent(_, event)
 end
 
 RC.frame = CreateFrame("Frame")
-for _, e in ipairs({ "PLAYER_DEAD", "PLAYER_REGEN_ENABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE" }) do
+for _, e in ipairs({ "PLAYER_DEAD", "PLAYER_REGEN_ENABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE",
+                     "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT" }) do
   RC.frame:RegisterEvent(e)
 end
 RC.frame:SetScript("OnEvent", RC.OnEvent)
@@ -607,6 +805,8 @@ NS.Registry:Register({
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
       set = function(db, on) db.popup = on and true or false end },
+    { kind = "toggle", label = "sound when a rival is near", get = function(db) return db.sound ~= false end,
+      set = function(db, on) db.sound = on and true or false end },
   },
   OnOpen = function(_, db, recenter)
     if recenter then db.pos = { "CENTER", 0, 140, "CENTER" } if RC.win then RC.win:ClearAllPoints() RC.win:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end end

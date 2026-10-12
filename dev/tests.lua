@@ -1745,8 +1745,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (1) -> 4 headers + 15 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7 + 1, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (2) -> 4 headers + 16 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -2751,6 +2751,96 @@ do
   RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
   w.mid.scripts.OnClick(w.mid, "LeftButton")
   ok(next(RC.Rivals(rdb2)) == nil, "a mob is never a rival")
+  -- THE BIG VIEW AND THE TRACKER (Arn, 12 Oct: "if i click a button it maximize and shows more info
+  -- all rivals etc. current target gold, all previous targets silver. can click them again to turn
+  -- them gold" ... "yes start the tracker")
+  _G.C_DeathRecap.GetRecapEvents = function() return PVP end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")                         -- Hunting Moms: gold
+  w.left.scripts.OnClick(w.left, "LeftButton")                       -- Légolas: gold
+  ok(RC.GoldCount(rdb2) == 2 and rivals["Légolas Thiliaere"].active, "a rival clicked from a recap starts gold")
+  RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  ok(RC.GoldCount(rdb2) == 1, "and can be sent to silver")
+  -- Légolas seen more recently than Moms: gold-first has to beat most-recent-first
+  rivals["Légolas Thiliaere"].seen = W.now + 100
+  rdb2.expanded = false
+  RC.SetExpanded(rdb2, false)
+  ok(not w.drawer:IsShown(), "small: no drawer")
+  w.moreBtn.scripts.OnClick(w.moreBtn)
+  ok(w.drawer:IsShown() and rdb2.expanded and w.moreBtn.label.text == "-", "the + button opens the rivals drawer")
+  local d = w.drawer
+  ok(d.rows[1].rival == "Hunting Moms" and d.rows[2].rival == "Légolas Thiliaere", "gold first, then silver")
+  ok(d.rows[1].mark.color[2] > d.rows[2].mark.color[2] - 0.0 and d.rows[2].name.color[4] < 1,
+     "a gold mark on the hunted, a dimmed silver row for the rest")
+  fitsIn(d, "the rivals drawer")
+  local function rowOf(name) for _, r in ipairs(d.rows) do if r.rival == name then return r end end end
+  rowOf("Légolas Thiliaere").scripts.OnClick(rowOf("Légolas Thiliaere"), "LeftButton")
+  ok(rivals["Légolas Thiliaere"].active, "clicking a silver rival turns them gold again")
+  rowOf("Légolas Thiliaere").scripts.OnClick(rowOf("Légolas Thiliaere"), "LeftButton")
+  ok(not rivals["Légolas Thiliaere"].active, "and back to silver")
+
+  -- the tracker: a gold rival's nameplate appears
+  local keepZone = _G.GetZoneText
+  _G.GetZoneText = function() return "The Barrens" end
+  W.notices, W.sounds = {}, {}
+  W.plates.nameplate7 = { name = "Hunting Moms" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(W.notices[1] == "Rival nearby: Hunting Moms" and #W.sounds == 1, "a gold rival in sight: a warning and a sound")
+  ok(rivals["Hunting Moms"].where == "The Barrens" and rivals["Hunting Moms"].seen == W.now, "and where and when is kept")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(#W.notices == 1, "the same rival again within a minute: quiet")
+  W.now = W.now + RC.ALERT_GAP + 1
+  W.target = { name = "Hunting Moms" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(#W.notices == 2, "a minute later, targeting them calls them out again")
+  W.plates.nameplate8 = { name = "Légolas Thiliaere" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
+  ok(#W.notices == 2, "a silver rival is remembered, not called out")
+  W.plates.nameplate9 = { name = "Somebody Else" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+  ok(#W.notices == 2, "a stranger is nobody's business")
+  rdb2.sound = false
+  local soundsBefore = #W.sounds
+  W.now = W.now + RC.ALERT_GAP + 1
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(#W.notices == 3 and #W.sounds == soundsBefore, "with the sound off: the warning, no sound")
+  rdb2.sound = nil
+  ok(d.rows[1].info.text:find("seen 0m ago, The Barrens", 1, true), "the drawer says where they were last seen", d.rows[1].info.text)
+  -- a nameplate whose name the game hides: nothing, and no error
+  local keepName = _G.UnitName
+  _G.UnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function(v) return type(v) == "table" end
+  ok(pcall(RC.frame.scripts.OnEvent, RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") and #W.notices == 3,
+     "a hidden name is not read, and nothing is called out")
+  _G.UnitName, _G.issecretvalue = keepName, keepIs
+
+  -- LEAN: hunting nobody costs nothing; hunting someone costs a name check a nameplate
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9") end end)
+  ok(n <= 500 * 2, "500 strangers' nameplates with a gold rival: at most 2 client calls each: " .. n)
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  local n0 = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") end end)
+  ok(n0 == 0, "500 nameplates with nobody gold: no client calls at all: " .. n0)
+  print(("   cost: 500 nameplates = %d calls hunting someone, %d hunting nobody"):format(n, n0))
+  _G.GetZoneText = keepZone
+  W.plates.nameplate7, W.plates.nameplate8, W.plates.nameplate9, W.target = nil, nil, nil, nil
+
+  -- no death this session, but rivals: /bist recap opens on the drawer alone
+  RC.last = nil
+  _G.C_DeathRecap.GetRecapEvents = function() return nil end
+  w:Hide()
+  S("recap")
+  ok(w:IsShown() and d:IsShown() and not w.mid:IsShown() and w.caption.text == "nothing has killed you this session",
+     "no death yet: the window opens on your rivals")
+  fitsIn(w, "the recap with no death")
+  W.shift = true
+  d.rows[1].scripts.OnClick(d.rows[1], "LeftButton")
+  W.shift = false
+  ok(#(function() local t = {} for k in pairs(rivals) do t[#t + 1] = k end return t end)() == 1, "shift-click forgets a rival")
+  rdb2.rivals, rdb2.expanded = nil, nil
+  w:Hide()
+
   _G.GetPlayerInfoByGUID, _G.RAID_CLASS_COLORS = keepInfo, keepColors
 
   _G.C_DeathRecap, _G.UnitIsDeadOrGhost = keepDR, keepDead
