@@ -1710,13 +1710,13 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 2, "left click opens the Hub with a row per registered tool")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon", "rows in TOC order: farm, summon")
+  ok(hub and hub:IsShown() and #hub.rows == 3, "left click opens the Hub with a row per registered tool")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap", "rows in TOC order: farm, summon, recap")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "2 of 2 on", "prompt slot counts the tools that are on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "3 of 3 on", "prompt slot counts the tools that are on")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 2 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 3 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1734,7 +1734,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "1 of 2 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "2 of 3 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1743,8 +1743,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7) -> 3 headers + 14 rows
-  ok(#opt.rows == 3 + 3 + 4 + 7, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (none) -> 4 headers + 14 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -1753,7 +1753,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "1 of 2 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "2 of 3 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -2486,6 +2486,124 @@ do
   Sp.Toggle(db, false)
   S("farm arrow off")
   db.spots, db.active, db.arrow, db.shelf = keep.spots, keep.active, keep.arrow, keep.shelf
+end
+
+-- ---------------------------------------------------------------- what killed you: the measuring tool
+-- (12 Oct 2026) Arn, for a friend: "a death recap of who or what killed him". Step one only
+-- MEASURES what C_DeathRecap hands over on Forever, and when. The mock is as unkind as the client
+-- may be: a hidden field refuses every touch (index, concat, compare) and says "string" to type();
+-- a whole row, or the whole list, may be hidden; the call may throw.
+do
+  local RC = NS.Recap
+  local secretMeta = { __index = function(_, k) error("attempt to use a secret value (" .. tostring(k) .. ")", 2) end,
+                       __eq = function() error("attempt to compare a secret value", 2) end,
+                       __lt = function() error("attempt to compare a secret value", 2) end,
+                       __concat = function() error("attempt to concatenate a secret value", 2) end }
+  local function secret() return setmetatable({}, secretMeta) end
+  local realType = type
+  local keep = { type = _G.type, issecretvalue = _G.issecretvalue, issecrettable = _G.issecrettable,
+                 canaccessvalue = _G.canaccessvalue, C_DeathRecap = _G.C_DeathRecap,
+                 chat = DEFAULT_CHAT_FRAME.AddMessage }
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  local hiddenTables = {}
+  _G.issecrettable = function(t) return hiddenTables[t] == true end
+  local said = {}
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
+  local function heard() local s = table.concat(said, "\n") said = {} return s end
+
+  -- a client with no death recap at all: says so, never throws
+  _G.C_DeathRecap = nil
+  ok(pcall(S, "recap"), "/bist recap on a client with no death recap does not throw")
+  ok(heard():find("no death recap to read", 1, true), "and says the client has none")
+
+  -- THE GAME'S RECORD, the moment you die: who and with what readable, how much hidden
+  local hide = true
+  local function hit(i)
+    return { event = "SPELL_DAMAGE", sourceName = "Defias Thug", spellId = 1752, spellName = "Sinister Strike",
+             amount = hide and secret() or 52 + i, currentHP = hide and secret() or 300 - i, timestamp = 1000 + i }
+  end
+  local events, throw = {}, false
+  _G.C_DeathRecap = {
+    HasRecapEvents = function() return #events > 0 end,
+    GetRecapMaxHealth = function() return hide and secret() or 1344 end,
+    GetRecapEvents = function()
+      if throw then error("Attempt to access forbidden object", 2) end
+      if #events == 0 then return nil end
+      local out = {}
+      for i = 1, #events do out[i] = hit(i) end
+      return out
+    end,
+  }
+  events = { 1, 2, 3 }
+  W.combat = true
+  local onEvent = RC.frame.scripts.OnEvent
+  ok(RC.frame.events.PLAYER_DEAD and RC.frame.events.PLAYER_REGEN_ENABLED, "it listens for dying and for the fight ending")
+  ok(pcall(onEvent, RC.frame, "PLAYER_DEAD"), "dying with hidden numbers does not throw")
+  ok(heard():find("/bist recap", 1, true), "and says once where to look")
+  local d = RC.atDeath
+  ok(d and d.count == 3 and #d.rows == 3, "every hit is recorded at death")
+  ok(d.rows[1]:find('sourceName="Defias Thug"', 1, true) and d.rows[1]:find("spellId=1752", 1, true),
+     "who hit you, and with what, read where the game lets it be read")
+  ok(d.rows[1]:find("amount=<hidden>", 1, true) and d.rows[1]:find("currentHP=<hidden>", 1, true),
+     "and what it hid is named as hidden - never touched")
+  ok(d.hiddenFields.amount and d.hiddenFields.currentHP and not d.hiddenFields.sourceName,
+     "the hidden fields are listed by name")
+  ok(d.maxHealth == "<hidden>" and d.combat == "true", "max health hidden, and it says it was a fight")
+
+  -- THE FIGHT ENDS: read again - the answer that says whether waiting helps
+  hide = false
+  W.combat = false
+  onEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  local a = RC.afterFight
+  ok(a and a.rows[1]:find("amount=53", 1, true) and next(a.hiddenFields) == nil, "after the fight the same hits read plainly")
+  local before = RC.afterFight
+  onEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  ok(RC.afterFight == before, "a second fight ending without a death reads nothing")
+
+  -- /bist recap: all three readings, each with its verdict
+  S("recap")
+  local out = heard()
+  ok(out:find("at death", 1, true) and out:find("after the fight", 1, true) and out:find("right now", 1, true),
+     "/bist recap prints the reading at death, after the fight, and now")
+  ok(out:find("hidden: amount, currentHP", 1, true) and out:find("nothing hidden", 1, true),
+     "and which fields were hidden in each", out)
+  S("recap now")
+  out = heard()
+  ok(out:find("right now", 1, true) and not out:find("at death", 1, true), "/bist recap now: just the live read")
+
+  -- what the game may do instead of answering
+  hiddenTables = {}
+  local list
+  _G.C_DeathRecap.GetRecapEvents = function() list = { hit(1) } hiddenTables[list] = true return list end
+  ok(RC.Read("x").notes[1] == "the whole record is hidden", "a hidden list is said to be hidden")
+  _G.C_DeathRecap.GetRecapEvents = function() local r = hit(1) hiddenTables[r] = true return { r } end
+  ok(RC.Read("x").rows[1] == "#1 <hidden hit>", "a hidden hit is said to be hidden, not walked")
+  _G.C_DeathRecap.GetRecapEvents = function() error("forbidden", 2) end
+  local okR, snap = pcall(RC.Read, "x")
+  ok(okR and snap.notes[1]:find("refused", 1, true), "a refusal is reported, not thrown")
+  _G.C_DeathRecap.GetRecapEvents = function() local out2 = {} for i = 1, 15 do out2[i] = hit(i) end return out2 end
+  snap = RC.Read("x")
+  ok(snap.count == 15 and #snap.rows == RC.MAX_ROWS, "fifteen hits recorded, the newest ten printed")
+
+  -- switched off: dying is not even read
+  R:SetEnabled("recap", false)
+  RC.atDeath = nil
+  onEvent(RC.frame, "PLAYER_DEAD")
+  ok(RC.atDeath == nil, "with the tool off, a death is not read")
+  R:SetEnabled("recap", true)
+
+  -- LEAN: it costs nothing until you die - a fight ending reads nothing at all
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  RC.waitFight = nil
+  local n = Cost.Count(function() for _ = 1, 100 do onEvent(RC.frame, "PLAYER_REGEN_ENABLED") end end)
+  ok(n == 0, "100 fights ending without a death cost no client calls: " .. n)
+  print(("   cost: 100 fights ending, no death = %d calls"):format(n))
+
+  _G.type, _G.issecretvalue, _G.issecrettable, _G.canaccessvalue, _G.C_DeathRecap =
+    keep.type, keep.issecretvalue, keep.issecrettable, keep.canaccessvalue, keep.C_DeathRecap
+  DEFAULT_CHAT_FRAME.AddMessage = keep.chat
+  RC.atDeath, RC.afterFight, RC.waitFight = nil, nil, nil
 end
 
 -- leaked globals

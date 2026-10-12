@@ -25,4 +25,5 @@ Tools\FarmPins.lua
 Tools\FarmArrow.lua
 Tools\FarmGuide.lua
 Tools\Summon.lua
+Tools\Recap.lua
 Tools\Hub.lua
