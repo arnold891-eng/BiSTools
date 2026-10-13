@@ -74,7 +74,7 @@ Left-click the minimap button for the tools, right-click for the options. Or typ
 | `/bist recap rivals` | your rivals, in chat |
 | `/bist recap forget <name>` | drop one |
 | `/bist recap key F6` | a key that targets a gold rival - `off` to drop it |
-| `/bist recap style scope` | the crosshair: rails, L, aim, box, scope, drop, chevron, tee |
+| `/bist recap style scope` | the crosshair: rails, L, aim, box, scope, drop, chevron, tee, none |
 | `/bist recap why` | what the tracker last saw, and why it stayed quiet |
 | `/bist social on` · `off` · `group` · `why` | the thank-you emote for buffs |
 | `/bist farm` | the farm window |

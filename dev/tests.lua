@@ -3036,6 +3036,11 @@ do
   fdb.active = "Kobold Miner" Bx.Refresh()
   ok(fbtn.parent == box and fbtn.shown and Bx.count == 2 and fbtn.icon.file:find("RaidTargetingIcon_8", 1, true),
      "farming: the farm's target button, with the skull, beside the rival one")
+  -- WHICH IS WHICH (Arn: "do the purple and red buttons"): mobs purple, players red, crossed swords
+  ok(fbtn.edgeColour == RC.MOB_PURPLE and fbtn.edge.top.color[1] == RC.MOB_PURPLE[1] and fbtn.edge.top.h == 2,
+     "the farm's button: a purple edge, two pixels")
+  ok(tb.edgeColour == RC.MARK_RED and tb.edge.left.color[2] == RC.MARK_RED[2] and tb.edge.left.w == 2
+     and tb.icon.file:find("Ability_DualWield", 1, true), "the rival button: a red edge and crossed swords")
   ok(box.w == math.max(Bx.MIN_W, Bx.PAD * 2 + 2 * Bx.SIZE + Bx.GAP), "the box is as wide as its buttons (and its name)", box.w)
   -- docked to BiS> now when it is up, its own place when not
   local now = CreateFrame("Frame", "BiSHealingNowBlock", nil)
