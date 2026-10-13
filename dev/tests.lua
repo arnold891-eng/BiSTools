@@ -3474,11 +3474,34 @@ do
   fire(buff("party1"))
   ok(#emoted == 3 and emoted[3].who == "Groupy", "/bist social group: groupmates thanked too")
   S("social group")
+  -- AN EMOTE THE GAME PERFORMS AND THEN COMPLAINS ABOUT still starts the cooldown (Arn's paste: "You hug
+  -- Mediumroar Dacraina." then "You thank Mediumroar Dacraina." two seconds apart, "it did it by itself")
+  W.now = W.now + 999
+  Sc.next = nil
+  local performed = 0
+  _G.DoEmote = function(token, who) performed = performed + 1 error("usage: DoEmote(token[, unit])") end
+  units.mouseover = { name = "Mediumroar Dacraina", player = true }
+  fire(buff("mouseover"))
+  W.now = W.now + 2
+  fire(buff("mouseover"))
+  fire(buff("focus"))
+  ok(performed == 1, "the game emoted and complained: the cooldown still started, no second emote", performed)
+  ok(Sc.lastThanked and Sc.lastThanked.who == "Mediumroar Dacraina" and Sc.lastThanked.err, "and the complaint is kept for why")
+  _G.DoEmote = function(token, who) emoted[#emoted + 1] = { token = token, who = who } end
+  W.now = W.now + 999
   -- why
   local said = {}
   local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
   DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
-  ok(pcall(S, "social why") and table.concat(said, "\n"):find("Groupy", 1, true), "/bist social why: who and why")
+  ok(pcall(S, "social why") and table.concat(said, "\n"):find("Mediumroar Dacraina", 1, true), "/bist social why: who and why")
+  -- a later piece of buff with no caster named must not hide who was thanked (Arn's paste: "last buff from:
+  -- nobody yet - the game did not say who", 48 s after it thanked Mediumroar)
+  fire({ addedAuras = { { isHelpful = true, sourceUnit = nil } } })
+  said = {}
+  S("social why")
+  local w2 = table.concat(said, "\n")
+  ok(w2:find("last thanked: ", 1, true) and w2:find("Mediumroar", 1, true) and w2:find("did not say who", 1, true),
+     "why keeps the last one thanked apart from the last buff seen", w2)
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
   -- LEAN: everyone else's auras change constantly; that costs one string compare
   local Cost = dofile("../_bisdev/dev/cost.lua")

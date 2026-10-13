@@ -88,10 +88,23 @@ function S.OnBuffs(db, info)
         else
           local list = (type(db.emotes) == "table" and #db.emotes > 0) and db.emotes or S.EMOTES
           local emote = list[math.random(#list)]
-          local ok = DoEmote and pcall(DoEmote, emote, name)
-          if not ok then return note("the game refused the emote", name) end
+          -- THE COOLDOWN STARTS BEFORE THE EMOTE, WHATEVER THE GAME ANSWERS (Arn, 12 Oct: "You hug
+          -- Mediumroar Dacraina." then "You thank Mediumroar Dacraina." two seconds apart - "it did it by
+          -- itself so it needs a cooldown to not be spammy"). It was set only after DoEmote came back
+          -- clean; an emote the game performs and THEN errors on left no cooldown, and the next piece of
+          -- the same buff emoted again. Any attempt now costs the full gap and marks the player.
           S.thanked[name] = now
           S.next = now + S.MIN_GAP + math.random() * (S.MAX_GAP - S.MIN_GAP)
+          -- kept apart from the last look: a buff lands in pieces, and a later piece with no caster
+          -- named overwrote "thanked" with "did not say who" (Arn's paste, 12 Oct)
+          S.lastThanked = { who = name, emote = emote, at = now }
+          local ok, err = false, nil
+          if DoEmote then ok, err = pcall(DoEmote, emote, name) end
+          if not ok then
+            S.lastThanked.err = tostring(err or "no DoEmote")
+            note("/" .. emote:lower() .. " - the game complained: " .. tostring(err), name)
+            return emote, name
+          end
           note("/" .. emote:lower() .. " - thanked", name)
           return emote, name
         end
@@ -105,7 +118,11 @@ S.thanked = {}
 
 function S.Why()
   NS.Print("social: thanks for buffs %s", T.text(S.db and S.db.thanks and "good" or "warn", S.db and S.db.thanks and "on" or "off"))
-  DEFAULT_CHAT_FRAME:AddMessage("  last buff from: " .. T.text("ink", tostring(S.lastWho or "nobody yet")) ..
+  local lt = S.lastThanked
+  local now = GetTime and GetTime() or 0
+  DEFAULT_CHAT_FRAME:AddMessage("  last thanked: " .. (lt and (T.text("ink", lt.who) .. T.text("muted",
+    (" (/%s, %d s ago)"):format(lt.emote:lower(), math.floor(now - lt.at + 0.5)))) or T.text("muted", "nobody yet")))
+  DEFAULT_CHAT_FRAME:AddMessage("  last buff seen: " .. T.text("ink", tostring(S.lastWho or "-")) ..
     " - " .. T.text("muted", tostring(S.lastWhy or "-")))
   local left = S.next and GetTime and (S.next - GetTime()) or 0
   if left > 0 then DEFAULT_CHAT_FRAME:AddMessage("  next emote possible in " .. math.floor(left + 0.5) .. " s") end
