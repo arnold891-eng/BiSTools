@@ -1764,8 +1764,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (2) -> 4 headers + 16 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7 + 2, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (3) -> 4 headers + 17 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7 + 3, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -2883,6 +2883,55 @@ do
   R:SetEnabled("recap", true)
   _G.C_NamePlate.GetNamePlateForUnit = keepGet
   W.plates.nameplate7, W.plates.nameplate8 = { name = "Hunting Moms" }, nil
+
+  -- THE RIVAL TARGET BUTTON (Arn: "i just did /tar Ford Knox and i was able to target an enemy
+  -- player what about a small button that targets all our rivals"). The mock refuses an attribute
+  -- set in combat, as the client does.
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  local tb = RC.tbtn
+  ok(tb and tb.template == "SecureActionButtonTemplate" and tb.attrs.type == "macro", "a secure macro button")
+  ok(tb.attrs.macrotext == "/target Hunting Moms" and tb.shown, "one gold rival: /target them, and the button shows")
+  rivals["Hunting Moms"].seen, rivals["Légolas Thiliaere"].seen = W.now - 50, W.now
+  RC.SetActive(rdb2, "Légolas Thiliaere", true)
+  ok(tb.attrs.macrotext == "/target Hunting Moms\n/target Légolas Thiliaere",
+     "two gold: the most recently seen runs last, so it is the one you get", tb.attrs.macrotext)
+  -- in a fight the button cannot be rewritten: it waits
+  W.combat = true
+  ok(pcall(RC.SetActive, rdb2, "Légolas Thiliaere", false), "a rival sent to silver mid-fight: nothing thrown")
+  ok(RC.btnDirty and tb.attrs.macrotext:find("Légolas", 1, true), "the button keeps its macro until the fight ends")
+  W.combat = false
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  ok(not RC.btnDirty and tb.attrs.macrotext == "/target Hunting Moms", "and is rewritten the moment it does")
+  -- a key, and off again
+  S("recap key f6")
+  ok(W.binds[tb] and W.binds[tb].key == "F6" and W.binds[tb].btn == "BiSToolsRivalTarget", "/bist recap key F6 binds it")
+  S("recap key off")
+  ok(W.binds[tb] == nil and rdb2.key == nil, "and key off unbinds it")
+  -- nobody gold: hidden; the option off: hidden
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(not tb.shown and tb.attrs.macrotext == "", "nobody gold: no button")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  rdb2.button = false RC.ApplyButton(rdb2)
+  ok(not tb.shown, "'rival target button' off: hidden")
+  rdb2.button = nil RC.ApplyButton(rdb2)
+  -- never moved in a fight
+  local moved = 0
+  local keepMove = tb.StartMoving
+  tb.StartMoving = function() moved = moved + 1 end
+  W.combat = true tb.scripts.OnDragStart(tb) W.combat = false
+  tb.scripts.OnDragStart(tb)
+  tb.StartMoving = keepMove
+  ok(moved == 1, "right-drag moves it out of a fight, never in one")
+  -- twenty gold rivals: the macro stays within the client's length, the most recent kept
+  local keepList = rdb2.rivals
+  rdb2.rivals = {}
+  for i = 1, 20 do rdb2.rivals[("Rival Number%02d Longname"):format(i)] = { active = true, seen = i } end
+  local mtext, n20 = RC.TargetMacro(rdb2)
+  ok(#mtext <= RC.MACRO_MAX and n20 < 20 and mtext:find("Number20", 1, true) and not mtext:find("Number01", 1, true),
+     "twenty gold rivals: as many as fit in 255 characters, the most recently seen kept", #mtext)
+  rdb2.rivals = keepList
+  RC.ApplyButton(rdb2)
 
   -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
   -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way

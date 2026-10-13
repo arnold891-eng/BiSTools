@@ -307,6 +307,7 @@ function RC.ToggleRival(db, a)
   if list[a.title] then
     list[a.title] = nil
     RC.UnmarkRival(a.title)
+    RC.ApplyButton(db)
     NS.Print("%s is no longer a rival", a.title)
     return false
   end
@@ -315,6 +316,7 @@ function RC.ToggleRival(db, a)
   list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0, active = true }
   NS.Print("%s added to your rivals", T.text("warn", a.title))
   RC.PaintRivals()
+  RC.ApplyButton(db)
   return true
 end
 
@@ -324,6 +326,7 @@ function RC.SetActive(db, name, on)
   if not r then return nil end
   r.active = on and true or false
   if not r.active then RC.UnmarkRival(name) end
+  RC.ApplyButton(db)
   RC.PaintRivals()
   return r.active
 end
@@ -462,6 +465,90 @@ function RC.UnmarkRival(rival)
   for unit, f in pairs(RC.marks) do
     if f.rival == rival then RC.UnmarkUnit(unit) end
   end
+end
+
+-- ---------------------------------------------------------------- the rival target button
+-- Arn, 12 Oct: "i just did /tar Ford Knox and i was able to target an enemy player what about a small
+-- button that targets all our rivals". /target is a macro command, so a SECURE button may run it on a
+-- click - the farm key's road. One line per gold rival, by the name the recap knows (the form Arn's
+-- /tar took); the last line that finds someone wins, so the most recently seen rival goes last. A
+-- secure button is rewritten OUT OF COMBAT only - a change in a fight waits for the fight to end.
+RC.MACRO_MAX = 255
+
+--- The macro: /target per gold rival, oldest-seen first, within the client's macro length.
+function RC.TargetMacro(db)
+  local gold = {}
+  for name, r in pairs(RC.Rivals(db)) do if r.active then gold[#gold + 1] = { name = name, r = r } end end
+  table.sort(gold, function(x, y) return (x.r.seen or x.r.added or 0) > (y.r.seen or y.r.added or 0) end)
+  local lines, len = {}, 0
+  for _, g in ipairs(gold) do                     -- most recent first, while there is room
+    local line = "/target " .. g.name
+    if len + #line + 1 > RC.MACRO_MAX then break end
+    table.insert(lines, 1, line)                  -- ... and written so the most recent runs LAST
+    len = len + #line + 1
+  end
+  return table.concat(lines, "\n"), #lines
+end
+
+function RC.TargetButton(db)
+  if RC.tbtn then return RC.tbtn end
+  local F = K()
+  local b = CreateFrame("Button", "BiSToolsRivalTarget", UIParent, "SecureActionButtonTemplate")
+  b:SetSize(26, 26)
+  b:SetFrameStrata("MEDIUM")
+  b:RegisterForClicks("AnyDown")
+  b:SetAttribute("type", "macro")
+  b:SetAttribute("macrotext", "")
+  F.tex(b, "BACKGROUND", "field", 0.95)
+  b.icon = b:CreateTexture(nil, "ARTWORK")
+  b.icon:SetPoint("TOPLEFT", 2, -2) b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+  b.icon:SetTexture("Interface\\Icons\\Ability_Hunter_SniperShot")
+  b.edge = F.border(b, "warn", 1)
+  -- RIGHT-drag moves it: the left button is the trigger. Never in a fight - it is a secure frame.
+  b:SetMovable(true)
+  b:SetClampedToScreen(true)
+  b:RegisterForDrag("RightButton")
+  b:SetScript("OnDragStart", function(self)
+    if InCombatLockdown and InCombatLockdown() then return end
+    self:StartMoving()
+  end)
+  b:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, rel, x, y = self:GetPoint(1)
+    db.btnPos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+  end)
+  b:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Target a rival")
+    local gold = {}
+    for name, r in pairs(RC.Rivals(db)) do if r.active then gold[#gold + 1] = name end end
+    table.sort(gold)
+    GameTooltip:AddLine(table.concat(gold, ", "), 1, 0.82, 0.2, true)
+    GameTooltip:AddLine("Right-drag to move. /bist recap key <key> binds it.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+  local pos = db.btnPos or { "CENTER", 0, -160, "CENTER" }
+  b:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
+  b:Hide()
+  RC.tbtn = b
+  return b
+end
+
+--- Write the gold rivals into the button, show it when there is anyone to target, bind the key.
+--- In a fight: remembered, done when it ends.
+function RC.ApplyButton(db)
+  if InCombatLockdown and InCombatLockdown() then RC.btnDirty = true return false end
+  RC.btnDirty = nil
+  local b = RC.TargetButton(db)
+  local macro, n = RC.TargetMacro(db)
+  b:SetAttribute("macrotext", macro)
+  b.count = n
+  if n > 0 and db.button ~= false and R:Enabled("recap") then b:Show() else b:Hide() end
+  ClearOverrideBindings(b)
+  if db.key and n > 0 and R:Enabled("recap") then SetOverrideBindingClick(b, true, db.key, "BiSToolsRivalTarget") end
+  return true
 end
 
 --- The rival a name belongs to, or nil. MEASURED 12 Oct (Arn's /bist recap why, Hunting Moms on his
@@ -690,6 +777,7 @@ function RC.Build(db)
       if IsShiftKeyDown and IsShiftKeyDown() then
         RC.Rivals(db)[self.rival] = nil
         RC.UnmarkRival(self.rival)
+        RC.ApplyButton(db)
         NS.Print("%s is no longer a rival", self.rival)
         RC.PaintRivals()
       else
@@ -961,7 +1049,10 @@ function RC.OnEvent(_, event, unit)
     local rival = k and k.player and RC.Rivals(db)[k.title]
     if rival then rival.kills = (rival.kills or 0) + 1 rival.last = time and time() or 0 end
     if RC.last and db.popup ~= false then RC.Toggle(db, true) end
+  elseif event == "PLAYER_REGEN_ENABLED" and RC.btnDirty and not RC.waitFight then
+    RC.ApplyButton(db)
   elseif event == "PLAYER_REGEN_ENABLED" and RC.waitFight then
+    if RC.btnDirty then RC.ApplyButton(db) end
     RC.waitFight = nil
     RC.afterFight = RC.Read("after the fight")
   elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
@@ -982,24 +1073,35 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rivals | forget <name> | raw]",
+  usage = "/bist recap [rivals | forget <name> | key <key> | why | raw]",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
       set = function(db, on) db.popup = on and true or false end },
     { kind = "toggle", label = "sound when a rival is near", get = function(db) return db.sound ~= false end,
       set = function(db, on) db.sound = on and true or false end },
+    { kind = "toggle", label = "rival target button", get = function(db) return db.button ~= false end,
+      set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
   },
   OnOpen = function(_, db, recenter)
     if recenter then db.pos = { "CENTER", 0, 140, "CENTER" } if RC.win then RC.win:ClearAllPoints() RC.win:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end end
     RC.Toggle(db, true)
   end,
-  OnDisable = function()
+  OnDisable = function(_, db)
     if RC.win then RC.win:Hide() end
     for unit in pairs(RC.marks) do RC.UnmarkUnit(unit) end
+    RC.ApplyButton(db)
   end,
+  OnEnable = function(_, db) RC.ApplyButton(db) end,
+  OnLogin = function(_, db) RC.ApplyButton(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
+    local key = args:match("^key%s+(%S+)$")
+    if key then
+      db.key = (key:lower() ~= "off") and key:upper() or nil
+      RC.ApplyButton(db)
+      return NS.Print(db.key and ("%s targets your rivals"):format(db.key) or "rival key off")
+    end
     if args == "rivals" then
       local names = {}
       for name in pairs(RC.Rivals(db)) do names[#names + 1] = name end
@@ -1022,6 +1124,7 @@ NS.Registry:Register({
         if name:lower() == forget:lower() then
           list[name] = nil
           RC.UnmarkRival(name)
+          RC.ApplyButton(db)
           return NS.Print("%s is no longer a rival", name)
         end
       end
