@@ -2827,10 +2827,21 @@ do
   ok(why:find("gold: ", 1, true) and why:find("Hunting Moms", 1, true) and why:find("not a rival", 1, true)
      and why:find('"Somebody Else"', 1, true), "it names the gold rivals, the last look and its reason, and the target", why)
   said3 = {}
-  W.target = { name = "Hunting" }                     -- the nameplate's name shorter than the recap's
+  W.target = { name = "Hunting" }                     -- MEASURED: the game gives "Hunting", the recap "Hunting Moms"
   S("recap why")
-  ok(table.concat(said3, "\n"):find('not the same name as your rival "Hunting Moms"', 1, true),
-     "a name that is only part of a rival's is pointed out")
+  ok(table.concat(said3, "\n"):find("that is your rival Hunting Moms (gold)", 1, true),
+     "the character name alone is the rival (Forever's surname is not part of it)", table.concat(said3, "\n"))
+  said3 = {}
+  W.target = { name = "Hunt" }                        -- a different, shorter name is not them
+  S("recap why")
+  ok(not table.concat(said3, "\n"):find("that is your rival", 1, true), "a name that only starts the same is not a rival")
+  -- and the tracker calls them out under the first name, by the name the recap knows
+  W.notices = {}
+  W.now = W.now + RC.ALERT_GAP + 1
+  W.target = { name = "Hunting" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(W.notices[1] == "Rival nearby: Hunting Moms", "targeting \"Hunting\" calls out your rival Hunting Moms", tostring(W.notices[1]))
+  said3 = {}
   said3 = {}
   _G.UnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
   _G.issecretvalue = function(v) return type(v) == "table" end

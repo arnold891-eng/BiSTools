@@ -358,12 +358,27 @@ local function looked(unit, name, why)
   return nil
 end
 
+--- The rival a name belongs to, or nil. MEASURED 12 Oct (Arn's /bist recap why, Hunting Moms on his
+--- target): the death recap names a player WITH Forever's surname - "Hunting Moms" - and UnitName
+--- gives the character name alone - "Hunting". The character name is the unique one; the surname is
+--- Forever's addition. So a rival is found by its whole name or by its first word.
+function RC.Find(db, name)
+  if type(name) ~= "string" then return nil end
+  local list = RC.Rivals(db)
+  if list[name] then return list[name], name end
+  for key, r in pairs(list) do
+    if key:match("^(%S+)") == name then return r, key end
+  end
+  return nil
+end
+
 function RC.Spot(db, unit)
   if RC.GoldCount(db) == 0 then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
   if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
-  local r = RC.Rivals(db)[name]
+  local r, full = RC.Find(db, name)
   if not r then return looked(unit, name, "not a rival") end
+  name = full                                    -- called out by the name the recap knows them by
   if not r.active then return looked(unit, name, "a silver rival") end
   local now = GetTime and GetTime() or 0
   r.seen = time and time() or 0
@@ -687,8 +702,10 @@ function RC.Why(db)
   else said = '"' .. tostring(raw) .. '"' end
   DEFAULT_CHAT_FRAME:AddMessage("  your target's name, as the game gives it now: " .. T.text("ink", said))
   if ok and type(raw) == "string" and not hidden(raw) then
-    if list[raw] then
-      DEFAULT_CHAT_FRAME:AddMessage("  " .. T.text("good", "that is a rival" .. (list[raw].active and " (gold)" or " (silver)")))
+    local r, full = RC.Find(db, raw)
+    if r then
+      DEFAULT_CHAT_FRAME:AddMessage("  " .. T.text("good", ("that is your rival %s"):format(full)
+        .. (r.active and " (gold)" or " (silver)")))
     else
       -- the recap may know them by a longer name than the nameplate does (a surname)
       for name in pairs(list) do
