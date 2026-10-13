@@ -403,7 +403,7 @@ end
 --   L        BiS Healing's target brackets: an L at each corner
 --   aim      a scope: a line in from the middle of each side, a gap round the centre
 --   box      a thin outline all the way round
-RC.STYLES = { "rails", "L", "aim", "box" }    -- short: four share one options control
+RC.STYLES = { "rails", "L", "aim", "box", "scope", "drop", "chevron", "tee" }
 RC.SIGHT_LEN = 14
 
 local function crosshair(f, style, colour)
@@ -432,6 +432,20 @@ local function crosshair(f, style, colour)
     f.parts[#f.parts + 1] = t
     return t
   end
+  -- a piece centred on the frame's middle, moved by (x, y), turned by `rot` (radians) - the game
+  -- turns a texture about its own centre, so the black outline is turned the same way
+  local function mid(x, y, w, h, rot)
+    local o = bar(f, "BORDER", 0, 0, 0)
+    o:SetPoint("CENTER", f, "CENTER", x, y) o:SetSize(w + 2, h + 2)
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3])
+    t:SetPoint("CENTER", f, "CENTER", x, y) t:SetSize(w, h)
+    if rot and t.SetRotation then
+      pcall(o.SetRotation, o, rot)
+      pcall(t.SetRotation, t, rot)
+    end
+    f.parts[#f.parts + 1] = t
+    return t
+  end
   f.style = style
   if style == "L" then
     for _, p in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
@@ -445,6 +459,28 @@ local function crosshair(f, style, colour)
   elseif style == "box" then
     edge("TOPLEFT", "TOPRIGHT", "h") edge("BOTTOMLEFT", "BOTTOMRIGHT", "h")
     edge("TOPLEFT", "BOTTOMLEFT", "v") edge("TOPRIGHT", "BOTTOMRIGHT", "v")
+  -- AND FOUR FROM ARN'S PICTURES (12 Oct, "more ideas"): a rifle scope, an ACOG drop, a chevron, a tee.
+  -- Drawn round the frame's centre - the middle of the body under the nameplate.
+  elseif style == "scope" then
+    local P, L = 4, 12                            -- the thick posts, in from each edge
+    piece("TOP", P, L, 0, 0) piece("BOTTOM", P, L, 0, 0)
+    piece("LEFT", L, P, 0, 0) piece("RIGHT", L, P, 0, 0)
+    mid(0, 9, 1, 10) mid(0, -9, 1, 10)            -- the thin lines, stopping short of the centre
+    mid(-9, 0, 10, 1) mid(9, 0, 10, 1)
+    mid(0, 8, 5, 1) mid(0, -8, 5, 1)              -- a range tick across each thin line
+    mid(-8, 0, 1, 5) mid(8, 0, 1, 5)
+    mid(0, 0, 3, 3)                               -- the dot
+  elseif style == "drop" then
+    mid(-3, 2, 7, T, math.pi / 4)                 -- the chevron's two slants, meeting on top
+    mid(3, 2, 7, T, -math.pi / 4)
+    mid(0, -9, 1, 14)                             -- the ladder below it
+    mid(0, -5, 6, 1) mid(0, -10, 5, 1) mid(0, -15, 4, 1)
+  elseif style == "chevron" then
+    mid(-4, 0, 10, T + 1, math.pi / 4)
+    mid(4, 0, 10, T + 1, -math.pi / 4)
+  elseif style == "tee" then
+    mid(0, 3, 16, T + 1)                          -- the bar
+    mid(0, -3, T + 1, 12)                         -- and the stem down from its middle
   else
     f.style = "rails"
     f.leftRail = piece("TOPLEFT", T, RC.MARK_H, 0, 0)
@@ -1528,8 +1564,11 @@ NS.Registry:Register({
       set = function(db, on) db.popup = on and true or false end },
     { kind = "toggle", label = "sound when a rival is near", get = function(db) return db.sound ~= false end,
       set = function(db, on) db.sound = on and true or false end },
-    { kind = "seg", label = "crosshair", values = RC.STYLES, get = function(db) return db.style or "rails" end,
-      set = function(db, v) RC.SetStyle(db, v) end },
+    -- eight shapes do not fit one row of buttons: a stepper, the name shown, each step redrawn live
+    { kind = "step", label = "crosshair", min = 1, max = #RC.STYLES, step = 1,
+      get = function(db) for i, s in ipairs(RC.STYLES) do if s == (db.style or "rails") then return i end end return 1 end,
+      set = function(db, v) RC.SetStyle(db, RC.STYLES[v] or "rails") end,
+      show = function(db) return db.style or "rails" end },
     { kind = "toggle", label = "guild rivals (amber)", get = function(db) return db.guildShow ~= false end,
       set = function(db, on)
         db.guildShow = on and true or false

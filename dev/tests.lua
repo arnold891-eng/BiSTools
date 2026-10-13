@@ -2904,6 +2904,28 @@ do
   S("recap style l")
   ok(rdb2.style == "L", "/bist recap style l picks L")
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd4
+  -- FOUR FROM ARN'S PICTURES ("more ideas"): scope, drop, chevron, tee - centred on the body
+  RC.SetStyle(rdb2, "scope")
+  local sc = RC.marks.nameplate7
+  local centred = 0
+  for _, p in ipairs(sc.parts) do if p.anchor and p.anchor[1] == "CENTER" then centred = centred + 1 end end
+  ok(sc.style == "scope" and #sc.parts == 13 and centred == 9, "scope: four posts, thin lines, ticks and the dot", #sc.parts)
+  RC.SetStyle(rdb2, "drop")
+  local dr = RC.marks.nameplate7
+  ok(dr.style == "drop" and dr.parts[1].rot and dr.parts[2].rot and math.abs(dr.parts[1].rot + dr.parts[2].rot) < 1e-9,
+     "drop: a chevron of two slants turned opposite ways, and a ladder")
+  RC.SetStyle(rdb2, "chevron")
+  ok(RC.marks.nameplate7.style == "chevron" and #RC.marks.nameplate7.parts == 2, "chevron: just the ^")
+  RC.SetStyle(rdb2, "tee")
+  ok(RC.marks.nameplate7.style == "tee" and #RC.marks.nameplate7.parts == 2, "tee: a bar and a stem")
+  -- eight do not fit one row of buttons: the options stepper walks them, the name shown
+  local stepper
+  for _, o in ipairs(R:Get("recap").options) do if o.label == "crosshair" then stepper = o end end
+  ok(stepper and stepper.kind == "step" and stepper.max == 8 and stepper.get(rdb2) == 8 and stepper.show(rdb2) == "tee",
+     "the options stepper: eight styles, at tee")
+  stepper.set(rdb2, 5)
+  ok(rdb2.style == "scope" and RC.marks.nameplate7.style == "scope" and stepper.show(rdb2) == "scope",
+     "a step redraws the rival on screen in the next shape")
   RC.SetStyle(rdb2, "rails")
   mk = RC.marks.nameplate7
   ok(mk.style == "rails" and #mk.parts == 4, "and back to rails")
