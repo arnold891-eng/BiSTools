@@ -1182,7 +1182,28 @@ function RC.Build(db)
   local footTop = listTop + 11 + RC.ROWS * RC.ROW_H + 4
   f.foot = F.fs(f, "", 9, "ink2")
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", P, -footTop)
-  f:SetSize(RC.W, footTop + 16)
+  -- "STOP SHOWING THIS" (Arn, 12 Oct): on a line of its own, right - the total line above can be long.
+  -- It turns "open when you die" off and closes; with that already off it reads "show when I die".
+  local stop = CreateFrame("Button", nil, f)
+  stop:SetSize(110, 12)
+  stop:SetPoint("TOPRIGHT", f, "TOPRIGHT", -P, -(footTop + 13))
+  stop.label = F.fs(stop, "", 8, "muted")
+  stop.label:SetPoint("RIGHT", stop, "RIGHT", 0, 0)
+  stop:SetScript("OnClick", function()
+    db.popup = db.popup == false
+    if db.popup then
+      NS.Print("the recap opens again when you die")
+    else
+      NS.Print("the recap will not open when you die - %s shows your last death, or turn \"open when you die\" back on in the options",
+        NS.T.text("accent", "/bist recap"))
+      RC.Toggle(db, false)
+    end
+    RC.PaintStop(db)
+  end)
+  stop:SetScript("OnEnter", function(self) local r, g, b = F.color("ink") self.label:SetTextColor(r, g, b, 1) end)
+  stop:SetScript("OnLeave", function(self) local r, g, b = F.color("muted") self.label:SetTextColor(r, g, b, 1) end)
+  f.stop = stop
+  f:SetSize(RC.W, footTop + 28)
 
   -- THE DRAWER: every rival, gold first. A row is a button: click = gold/silver, shift-click = forget.
   local d = CreateFrame("Frame", nil, f)
@@ -1442,6 +1463,11 @@ function RC.SetExpanded(db, on)
   return db.expanded
 end
 
+function RC.PaintStop(db)
+  local s = RC.win and RC.win.stop
+  if s then s.label:SetText(db.popup == false and "show when I die" or "stop showing this") end
+end
+
 function RC.Toggle(db, want)
   RC.Build(db)
   if want == nil then want = not RC.win:IsShown() end
@@ -1457,6 +1483,7 @@ function RC.Toggle(db, want)
       return false
     end
     RC.Paint(RC.last)
+    RC.PaintStop(db)
     RC.SetExpanded(db, db.expanded or not RC.last)
     RC.win:Show()
   else

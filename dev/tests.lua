@@ -307,6 +307,8 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetCenter() return self.cx or 0, self.cy or 0 end
   function f:GetEffectiveScale() return 1 end
   function f:SetAlpha(a) self.alpha = a end
+  function f:SetScale(s) self.scale = s end
+  function f:GetScale() return self.scale or 1 end
   -- AN ANIMATION GROUP, RECORDED (12 Oct 2026, the rival crosshair's pulse): the client hands back a
   -- group that makes animations, loops, plays and stops - and runs them itself
   function f:CreateAnimationGroup()
@@ -1743,6 +1745,7 @@ do
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
   ok(hub and hub:IsShown() and #hub.rows == 3, "left click opens the Hub with a row per registered tool")
+  ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap", "rows in TOC order: farm, summon, recap")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
   ok(hub.con.slots.count and hub.con.slots.count.text == "3 of 3 on", "prompt slot counts the tools that are on")
@@ -1774,6 +1777,20 @@ do
   mm.scripts.OnClick(mm, "RightButton")
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
+  ok(opt.scale == 1.2, "and so is Options")
+  -- THE ICON THAT WENT DARK (Arn: "i click the minimap button it goes dark and stays dimmed"):
+  -- EllesmereUI's minimap collector backs a gathered button with a black box (a child, one level below)
+  -- and its click hook lifts every child to DIALOG - its box over the icon. A moment later it goes back.
+  local box2 = { level = 50, strata = "DIALOG" }
+  function box2:SetFrameLevel(l) self.level = l end
+  function box2:SetFrameStrata(s) self.strata = s end
+  mm.GetChildren = function() return box2 end
+  mm.GetFrameLevel = function() return 8 end
+  mm.GetFrameStrata = function() return "MEDIUM" end
+  mm.scripts.OnClick(mm, "RightButton") mm.scripts.OnClick(mm, "RightButton")   -- twice: Options as it was
+  W.runAfters(0.1)
+  ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
+  mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
   -- sections: tools (3 own rows), farm (5), summon (7), recap (6) -> 4 headers + 20 rows
   ok(#opt.rows == 4 + 3 + 5 + 7 + 6, "one row per section header and per option", #opt.rows)
@@ -2712,6 +2729,22 @@ do
   ok(w:IsShown(), "/bist recap opens your last death again")
   S("recap")
   ok(not w:IsShown(), "and closes it")
+
+  -- "STOP SHOWING THIS" (Arn, 12 Oct)
+  S("recap")
+  ok(w.stop and w.stop.label.text == "stop showing this", "the recap has a stop showing this line")
+  w.stop.scripts.OnClick(w.stop)
+  ok(rdb.popup == false and not w:IsShown(), "clicked: it closes, and will not open on a death")
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(not w:IsShown(), "dying again: it stays shut")
+  S("recap")
+  ok(w:IsShown() and w.stop.label.text == "show when I die", "/bist recap still opens it, offering it back")
+  fitsIn(w, "the recap with its stop line")
+  w.stop.scripts.OnClick(w.stop)
+  ok(rdb.popup == true and w.stop.label.text == "stop showing this", "and clicking that turns it back on")
+  w:Hide()
+  deadNow = false
 
   -- switched off: dying does not open it
   rdb.popup = false
