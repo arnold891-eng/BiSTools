@@ -18,7 +18,8 @@
 local _, NS = ...
 local R = NS.Registry
 
-local B = { SIZE = 28, GAP = 3, PAD = 4, HEADER = 14, MIN_W = 70 }
+local B = { SIZE = 28, GAP = 3, PAD = 4, HEADER = 14, MIN_W = 70, NOW_HEADER = 16 }
+B.DOCKS = { "auto", "right", "below", "left", "top" }
 NS.Box = B
 
 local function K() return NS.Farm end
@@ -49,15 +50,35 @@ function B.Build()
   head.label:SetText(NS.T.text("accent", "BiS>") .. " tools")
   head:EnableMouse(true)
   head:RegisterForDrag("LeftButton")
+  -- THE SAME CLICKS AS BiS> NOW'S HEADER (Arn, 12 Oct: "should have these same clicks and drags so i
+  -- can move it if i want"): drag it anywhere - that undocks it, and it stays where it is dropped;
+  -- shift-click sends it round BiS> now: auto, right, below, left, top, and auto again.
   head:SetScript("OnDragStart", function()
-    if B.docked or (InCombatLockdown and InCombatLockdown()) then return end
+    if InCombatLockdown and InCombatLockdown() then return end
     f:StartMoving()
+    B.moving = true
   end)
   head:SetScript("OnDragStop", function()
+    if not B.moving then return end
+    B.moving = false
     f:StopMovingOrSizing()
     local point, _, rel, x, y = f:GetPoint(1)
     B.DB().pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+    B.DB().dock = "free"
+    B.docked = false
   end)
+  head:SetScript("OnMouseUp", function(_, button)
+    if button == "LeftButton" and IsShiftKeyDown and IsShiftKeyDown() then B.NextDock() end
+  end)
+  head:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("drag to move the tools box", 1, 0.82, 0)
+    GameTooltip:AddLine("shift-click to send it round BiS> now", 1, 1, 1)
+    GameTooltip:AddLine("now: " .. (B.DB().dock or "auto"), 0.6, 0.6, 0.65)
+    GameTooltip:Show()
+  end)
+  head:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
   f.head = head
   f:Hide()
   B.frame = f
@@ -104,19 +125,55 @@ function B.Buttons()
   return out
 end
 
+-- a frame's edges on screen, or nil (a frame not yet placed answers nothing)
+local function rect(fr)
+  if not (fr and fr.GetLeft) then return nil end
+  local ok, l, r, t, b = pcall(function() return fr:GetLeft(), fr:GetRight(), fr:GetTop(), fr:GetBottom() end)
+  if not (ok and type(l) == "number" and type(r) == "number" and type(t) == "number" and type(b) == "number") then return nil end
+  return l, r, t, b
+end
+
+--- Would the box, put against BiS> now's right edge, sit on BiS Healing's grid (its header included)?
+function B.WouldCoverGrid(now)
+  local hdr = _G.BiSHealingForeverHeader
+  local grid = hdr and hdr.GetParent and hdr:GetParent()
+  local gl, gr, gt, gb = rect(grid)
+  local nl, nr, nt = rect(now)
+  if not (gl and nl) then return false end
+  local _, _, ht = rect(hdr)
+  gt = math.max(gt, ht or gt)                      -- the grid's own header sits above its cells
+  local w = (B.frame and B.frame:GetWidth()) or B.MIN_W
+  local h = (B.frame and B.frame:GetHeight()) or (B.SIZE + B.PAD * 2)
+  local x1, x2 = nr + 6, nr + 6 + (w or B.MIN_W)
+  local top, bottom = nt + B.HEADER + 1, nt - (h or B.SIZE)
+  return x1 < gr and x2 > gl and bottom < gt and top > gb
+end
+
 --- Where the box stands: docked to BiS> now when it is up, else where it was dragged.
 function B.Place()
   local f = B.frame
   if not f then return end
   local now = _G.BiSHealingNowBlock
   f:ClearAllPoints()
-  if now and now.IsShown and now:IsShown() then
-    f:SetPoint("TOPLEFT", now, "TOPRIGHT", 6, 0)
+  local want = B.DB().dock or "auto"
+  if now and now.IsShown and now:IsShown() and want ~= "free" then
+    -- AUTO: RIGHT OF IT, UNLESS THAT IS ON THE GRID (Arn, 12 Oct, BiS> now on the grid's left: "it
+    -- overlapped into the healing frames"). Then BELOW it, which is open ground wherever BiS> now sits.
+    local side = want
+    if side == "auto" then side = B.WouldCoverGrid(now) and "below" or "right" end
+    local H = B.HEADER + 4
+    if side == "below" then f:SetPoint("TOPLEFT", now, "BOTTOMLEFT", 0, -H)
+    elseif side == "left" then f:SetPoint("TOPRIGHT", now, "TOPLEFT", -6, 0)
+    elseif side == "top" then f:SetPoint("BOTTOMLEFT", now, "TOPLEFT", 0, H + B.NOW_HEADER)
+    else f:SetPoint("TOPLEFT", now, "TOPRIGHT", 6, 0) side = "right" end
+    B.dock = side
     B.docked = true
-    -- BiS> now showing or hiding moves us too (hooked once; out of combat, like every relayout)
+    -- BiS> now showing, hiding or moving (shift-click sends it round the grid) moves us too: hooked
+    -- once; the relayout itself waits for the end of a fight like every other
     if not B.nowHooked and now.HookScript then
       now:HookScript("OnShow", function() B.Refresh() end)
       now:HookScript("OnHide", function() B.Refresh() end)
+      if hooksecurefunc then pcall(hooksecurefunc, now, "SetPoint", function() B.Refresh() end) end
       B.nowHooked = true
     end
   else
@@ -124,6 +181,18 @@ function B.Place()
     f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
     B.docked = false
   end
+end
+
+--- Shift-click: the next place round BiS> now (a dragged box comes back to "auto").
+function B.NextDock()
+  local cur = B.DB().dock or "auto"
+  local nextOne = "auto"
+  for i, d in ipairs(B.DOCKS) do
+    if d == cur then nextOne = B.DOCKS[i % #B.DOCKS + 1] end
+  end
+  B.DB().dock = nextOne
+  B.Refresh()
+  return nextOne
 end
 
 --- Lay the box out: the buttons that have something to do, left to right; none, no box.

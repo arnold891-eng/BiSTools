@@ -3000,21 +3000,60 @@ do
   -- docked to BiS> now when it is up, its own place when not
   local now = CreateFrame("Frame", "BiSHealingNowBlock", nil)
   now.shown = true
+  -- where things are on screen (the client answers GetLeft/Right/Top/Bottom): BiS> now UNDER the grid
+  local function at(fr, l, r, t2, b) fr.GetLeft = function() return l end fr.GetRight = function() return r end
+    fr.GetTop = function() return t2 end fr.GetBottom = function() return b end end
+  local gridAnchor = CreateFrame("Frame", nil, nil)
+  local gridHeader = CreateFrame("Frame", "BiSHealingForeverHeader", gridAnchor)
+  at(gridAnchor, 300, 700, 600, 300) at(gridHeader, 300, 700, 618, 602)
+  at(now, 300, 400, 280, 240)                                   -- under the grid
+  Bx.DB().dock = nil
   Bx.Refresh()
-  ok(Bx.docked and box.point[2] == now and box.point[1] == "TOPLEFT" and box.point[3] == "TOPRIGHT",
-     "BiS> now is up: the box docks to its right edge")
+  ok(Bx.docked and Bx.dock == "right" and box.point[2] == now and box.point[1] == "TOPLEFT" and box.point[3] == "TOPRIGHT",
+     "BiS> now under the grid: the box docks to its right edge")
+  -- BiS> now on the grid's LEFT (Arn: "it overlapped into the healing frames"): right of it is the grid
+  at(now, 190, 295, 600, 560)
+  Bx.Refresh()
+  ok(Bx.dock == "below" and box.point[1] == "TOPLEFT" and box.point[3] == "BOTTOMLEFT",
+     "BiS> now left of the grid: the box goes below it, not onto the grid")
+  -- level with the grid's HEADER only (above its cells): that is the grid too
+  at(now, 190, 295, 650, 630)
+  Bx.Refresh()
+  ok(Bx.dock == "below", "the grid's own header counts as the grid")
+  at(now, 190, 295, 600, 560)
+  -- shift-click sends it round BiS> now (Arn: "should have these same clicks and drags")
+  W.shift = true
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "right" and Bx.dock == "right", "shift-click: right")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "below" and box.point[3] == "BOTTOMLEFT", "then below")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "left" and box.point[1] == "TOPRIGHT" and box.point[3] == "TOPLEFT", "then left")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "top" and box.point[1] == "BOTTOMLEFT" and box.point[3] == "TOPLEFT", "then on top")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "auto", "and round to auto")
+  W.shift = false
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "auto", "a plain click does nothing")
+  -- the header drags it anywhere - docked or not - and a dragged box stays where it is dropped
+  local moved = 0
+  local keepMove, keepStop = box.StartMoving, box.StopMovingOrSizing
+  box.StartMoving = function() moved = moved + 1 end
+  box.StopMovingOrSizing = function() end
+  W.combat = true box.head.scripts.OnDragStart(box.head) box.head.scripts.OnDragStop(box.head) W.combat = false
+  ok(moved == 0 and Bx.DB().dock == "auto", "never dragged in a fight")
+  box.head.scripts.OnDragStart(box.head) box.head.scripts.OnDragStop(box.head)
+  box.StartMoving, box.StopMovingOrSizing = keepMove, keepStop
+  ok(moved == 1 and Bx.DB().dock == "free" and not Bx.docked and Bx.DB().pos, "dragged, even docked: it stays where it is dropped")
+  Bx.Refresh()
+  ok(box.point[2] == UIParent, "and stays free while BiS> now is up")
+  W.shift = true box.head.scripts.OnMouseUp(box.head, "LeftButton") W.shift = false
+  ok(Bx.DB().dock == "auto" and Bx.docked, "shift-click brings a dragged box back to BiS> now")
   now:Hide() if now.scripts.OnHide then now.scripts.OnHide(now) end
   ok(not Bx.docked and box.point[2] == UIParent, "BiS> now hidden: the box stands on its own")
-  _G.BiSHealingNowBlock = nil
-  -- the header drags it - never in a fight, never while docked
-  local moved = 0
-  local keepMove = box.StartMoving
-  box.StartMoving = function() moved = moved + 1 end
-  W.combat = true box.head.scripts.OnDragStart(box.head) W.combat = false
-  box.head.scripts.OnDragStart(box.head)
-  Bx.docked = true box.head.scripts.OnDragStart(box.head) Bx.docked = false
-  box.StartMoving = keepMove
-  ok(moved == 1, "the header drags the box out of a fight, never in one, never while docked")
+  _G.BiSHealingNowBlock, _G.BiSHealingForeverHeader = nil, nil
+  Bx.DB().dock = nil
   -- a change in a fight waits for its end
   W.combat = true
   fdb.active = nil
