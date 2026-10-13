@@ -32,7 +32,7 @@ When you die, a small window opens with the last ten hits.
 Click a player on your recap, or right-click any player and pick **BiS: add rival**. They're gold now: hunted.
 
 - **They walk into view, you hear it.** A warning in the middle of your screen, a sound, and where you are. Once a minute at most.
-- **A crosshair on their body**, pinned under their nameplate, pulsing. Eight shapes to pick from: rails, corner brackets, a scope, an ACOG drop, a chevron, a box and more.
+- **A crosshair on their body**, pinned under their nameplate, pulsing. Eight shapes to pick from - rails, corner brackets, a scope, an ACOG drop, a chevron, a box and more - or none. It needs enemy nameplates on; the options have a button for that.
 - **One button targets them.** It sits in the BiS> tools box, shows only while you have a gold rival, and takes a key if you want one.
 - **The rivals list**: gold for the ones you're hunting, silver for the ones you're done with, how often they've killed you, and where you last saw them.
 
@@ -45,6 +45,10 @@ Right-click a player and pick **BiS: add guild rival**, and every guildmate runn
 ## Guildmates in passing
 
 Out in the world on your own, a guildmate's nameplate gets a small teal **+**. Nothing else: no sound, no text. Join a party, a raid or a battleground and it's gone.
+
+## A thank-you for buffs
+
+A stranger buffs you on the road and you're mid-pull, or just didn't notice. Switch on `/bist social on` and BiS Tools does it for you: a random friendly emote at them, a thank or a hug or a bow. Two to five minutes between emotes, never the same person twice in ten, never in a fight, and your group left alone. It's off until you turn it on.
 
 ## Farm
 
@@ -72,6 +76,7 @@ Left-click the minimap button for the tools, right-click for the options. Or typ
 | `/bist recap key F6` | a key that targets a gold rival - `off` to drop it |
 | `/bist recap style scope` | the crosshair: rails, L, aim, box, scope, drop, chevron, tee |
 | `/bist recap why` | what the tracker last saw, and why it stayed quiet |
+| `/bist social on` · `off` · `group` · `why` | the thank-you emote for buffs |
 | `/bist farm` | the farm window |
 | `/bist farm key F5` | the skull key |
 | `/bist farm spots` · `pins on` · `arrow on` · `guide on` | spawn timers, map pins, the arrow, RestedXP's mobs |

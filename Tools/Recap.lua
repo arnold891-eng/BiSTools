@@ -403,7 +403,9 @@ end
 --   L        BiS Healing's target brackets: an L at each corner
 --   aim      a scope: a line in from the middle of each side, a gap round the centre
 --   box      a thin outline all the way round
-RC.STYLES = { "rails", "L", "aim", "box", "scope", "drop", "chevron", "tee" }
+-- and "none" (Arn, 12 Oct: "they can select none cross hair if they dont want one"): no mark at all - the
+-- warning, the sound and the target button still work
+RC.STYLES = { "rails", "L", "aim", "box", "scope", "drop", "chevron", "tee", "none" }
 RC.SIGHT_LEN = 14
 
 local function crosshair(f, style, colour)
@@ -528,6 +530,7 @@ end
 --- Put the crosshair on this nameplate unit for that rival. Answers true when it stands.
 function RC.MarkPlate(unit, rival, kind)
   kind = kind or "own"
+  if (RC.style or "rails") == "none" then return false end
   if type(unit) ~= "string" or not unit:find("^nameplate") then return false end
   if RC.marks[unit] then
     if RC.marks[unit].kind == kind then RC.marks[unit].rival = rival return true end
@@ -1596,6 +1599,13 @@ NS.Registry:Register({
       get = function(db) for i, s in ipairs(RC.STYLES) do if s == (db.style or "rails") then return i end end return 1 end,
       set = function(db, v) RC.SetStyle(db, RC.STYLES[v] or "rails") end,
       show = function(db) return db.style or "rails" end },
+    -- THE HINT (Arn: "a hint that says need nameplates on"): the crosshair hangs under a nameplate, and the
+    -- game shows none for enemies until it is told to. The button tells it.
+    { kind = "button", label = "needs nameplates on", button = "turn on", action = function()
+        if InCombatLockdown and InCombatLockdown() then return NS.Print("not in a fight - try again after") end
+        local set = (C_CVar and C_CVar.SetCVar) or SetCVar
+        if set and pcall(set, "nameplateShowEnemies", "1") then NS.Print("enemy nameplates on") end
+      end },
     { kind = "toggle", label = "guild rivals (amber)", get = function(db) return db.guildShow ~= false end,
       set = function(db, on)
         db.guildShow = on and true or false

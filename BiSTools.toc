@@ -27,4 +27,5 @@ Tools\FarmGuide.lua
 Tools\Summon.lua
 Tools\Recap.lua
 Tools\Box.lua
+Tools\Social.lua
 Tools\Hub.lua

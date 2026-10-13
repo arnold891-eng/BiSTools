@@ -1744,14 +1744,14 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 3, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 4, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap", "rows in TOC order: farm, summon, recap")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social", "rows in TOC order: farm, summon, recap, social")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "3 of 3 on", "prompt slot counts the tools that are on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 4 on", "prompt slot counts the tools that are on")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 3 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 4 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1769,7 +1769,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "2 of 3 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 4 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1792,8 +1792,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (5), summon (7), recap (6) -> 4 headers + 20 rows
-  ok(#opt.rows == 4 + 3 + 5 + 7 + 6, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2) -> 5 headers + 24 rows
+  ok(#opt.rows == 5 + 3 + 5 + 7 + 7 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -1802,7 +1802,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "2 of 3 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 4 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -2954,7 +2954,7 @@ do
   -- eight do not fit one row of buttons: the options stepper walks them, the name shown
   local stepper
   for _, o in ipairs(R:Get("recap").options) do if o.label == "crosshair" then stepper = o end end
-  ok(stepper and stepper.kind == "step" and stepper.max == 8 and stepper.get(rdb2) == 8 and stepper.show(rdb2) == "tee",
+  ok(stepper and stepper.kind == "step" and stepper.max == 9 and stepper.get(rdb2) == 8 and stepper.show(rdb2) == "tee",
      "the options stepper: eight styles, at tee")
   stepper.set(rdb2, 5)
   ok(rdb2.style == "scope" and RC.marks.nameplate7.style == "scope" and stepper.show(rdb2) == "scope",
@@ -3411,6 +3411,109 @@ do
   _G.C_DeathRecap, _G.UnitIsDeadOrGhost = keepDR, keepDead
   RC.last = nil
   w:Hide()
+end
+
+-- ---------------------------------------------------------------- the social tool: a thank-you emote
+-- (12 Oct 2026) Arn: "when i get a buff from a friendly player i hate having to say /thanks /kiss /hug etc.
+-- can we track who buffed us and it select a random friendly emote to auto emote them maybe with a 2-5 min
+-- cooldown". UNIT_AURA for "player" carries addedAuras with sourceUnit; in a fight it can be hidden.
+do
+  local Sc = NS.Social
+  local sdb = R:DBFor(R:Get("social"))
+  local emoted = {}
+  local keep = { DoEmote = _G.DoEmote, UnitIsPlayer = _G.UnitIsPlayer, UnitIsUnit = _G.UnitIsUnit,
+                 UnitName = _G.UnitName, UnitInParty = _G.UnitInParty }
+  _G.DoEmote = function(token, who) emoted[#emoted + 1] = { token = token, who = who } end
+  local units = { target = { name = "Kindpally", player = true }, nameplate9 = { name = "Wolfie", player = false },
+                  party1 = { name = "Groupy", player = true, party = true } }
+  _G.UnitName = function(u) if u == "player" then return "Me" end return units[u] and units[u].name end
+  _G.UnitIsPlayer = function(u) return u == "player" or (units[u] and units[u].player) or false end
+  _G.UnitIsUnit = function(a, b) return a == b end
+  _G.UnitInParty = function(u) return units[u] and units[u].party or false end
+  local function buff(src) return { addedAuras = { { isHelpful = true, sourceUnit = src, spellId = 1243 } } } end
+  local fire = function(info) Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "player", info) end
+
+  ok(sdb.thanks == false, "off until switched on: nobody gets hugged the day it is installed")
+  fire(buff("target"))
+  ok(#emoted == 0, "off: no emote")
+  S("social on")
+  ok(sdb.thanks == true, "/bist social on")
+  Sc.next, Sc.thanked = nil, {}
+  fire(buff("target"))
+  local e = emoted[1]
+  ok(e and e.who == "Kindpally", "a friendly player buffs you: an emote at them")
+  local isFriendly = false
+  for _, t in ipairs(Sc.EMOTES) do if e and e.token == t then isFriendly = true end end
+  ok(isFriendly, "a friendly one, from the list", e and e.token)
+  units.focus = { name = "Another", player = true }
+  fire(buff("focus"))
+  ok(#emoted == 1 and Sc.lastWhy:find("cooldown", 1, true), "within the 2-5 minute cooldown: no second emote")
+  ok(Sc.next - W.now >= Sc.MIN_GAP and Sc.next - W.now <= Sc.MAX_GAP, "the cooldown is 2 to 5 minutes")
+  W.now = W.now + Sc.MAX_GAP + 1
+  fire(buff("target"))
+  ok(#emoted == 1 and Sc.lastWhy:find("ten minutes", 1, true), "the same player again within ten minutes: no")
+  fire(buff("focus"))
+  ok(#emoted == 2 and emoted[2].who == "Another", "someone else after the cooldown: yes")
+  W.now = W.now + 999
+  -- who is never thanked
+  fire(buff("player")) ok(#emoted == 2 and Sc.lastWhy == "your own buff", "your own buff: no")
+  fire(buff("nameplate9")) ok(#emoted == 2 and Sc.lastWhy:find("not a player", 1, true), "a pet or creature: no")
+  fire(buff("party1")) ok(#emoted == 2 and Sc.lastWhy:find("groupmate", 1, true), "a groupmate: left alone")
+  fire({ addedAuras = { { isHelpful = true, sourceUnit = nil } } })
+  ok(#emoted == 2 and Sc.lastWhy:find("did not say who", 1, true), "a buff from someone the game will not name: no")
+  fire({ addedAuras = { { isHelpful = false, sourceUnit = "target" } } })
+  ok(#emoted == 2, "a debuff: no")
+  W.combat = true fire(buff("target")) W.combat = false
+  ok(#emoted == 2 and Sc.lastWhy:find("fight", 1, true), "in a fight: never")
+  local hiddenInfo = setmetatable({}, { __index = function() error("secret") end })
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function(v) return v == hiddenInfo end
+  ok(pcall(fire, hiddenInfo) and #emoted == 2, "a hidden payload: not read, no emote")
+  _G.issecretvalue = keepIs
+  S("social group")
+  fire(buff("party1"))
+  ok(#emoted == 3 and emoted[3].who == "Groupy", "/bist social group: groupmates thanked too")
+  S("social group")
+  -- why
+  local said = {}
+  local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
+  ok(pcall(S, "social why") and table.concat(said, "\n"):find("Groupy", 1, true), "/bist social why: who and why")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  -- LEAN: everyone else's auras change constantly; that costs one string compare
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n = Cost.Count(function() for i = 1, 500 do Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "raid" .. (i % 25 + 1), buff("target")) end end)
+  ok(n == 0, "500 aura changes on other people: no client calls: " .. n)
+  S("social off")
+  -- every name put back, the ones that were not there before included (pairs skips a nil)
+  for _, k in ipairs({ "DoEmote", "UnitIsPlayer", "UnitIsUnit", "UnitName", "UnitInParty" }) do _G[k] = keep[k] end
+end
+
+-- ---------------------------------------------------------------- "none", and the nameplate hint
+do
+  local RC = NS.Recap
+  local rdb = R:DBFor(R:Get("recap"))
+  RC.SetStyle(rdb, "none")
+  local p = CreateFrame("Frame", nil, nil)
+  _G.C_NamePlate.GetNamePlateForUnit = function() return p end
+  ok(RC.MarkPlate("nameplate1", "Somebody", "own") == false and RC.marks.nameplate1 == nil,
+     "crosshair \"none\": no mark at all (Arn: \"they can select none\")")
+  RC.SetStyle(rdb, "rails")
+  ok(RC.MarkPlate("nameplate1", "Somebody", "own") == true, "and back to rails, marked")
+  RC.UnmarkUnit("nameplate1")
+  _G.C_NamePlate.GetNamePlateForUnit = nil
+  local hint
+  for _, o in ipairs(R:Get("recap").options) do if o.label == "needs nameplates on" then hint = o end end
+  local cvars = {}
+  local keepCV = _G.C_CVar
+  _G.C_CVar = { SetCVar = function(k, v) cvars[k] = v return true end }
+  ok(hint and hint.kind == "button" and hint.button == "turn on", "the options say the crosshair needs nameplates, with a button")
+  hint.action()
+  ok(cvars.nameplateShowEnemies == "1", "which turns enemy nameplates on")
+  cvars = {}
+  W.combat = true hint.action() W.combat = false
+  ok(cvars.nameplateShowEnemies == nil, "never in a fight")
+  _G.C_CVar = keepCV
 end
 
 -- leaked globals
