@@ -288,6 +288,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetText() return self.text or "" end
   function f:ClearFocus() end
   function f:GetHeight() return self.h end
+  function f:GetWidth() return self.w end                -- the client answers both (12 Oct 2026)
   function f:SetPoint(p, rel, rp, x, y) self.point = { p, rel, rp, x, y } end
   function f:ClearAllPoints() self.point = nil end
   function f:GetPoint() return "TOPLEFT", nil, "CENTER", 12, -34 end
@@ -2841,14 +2842,16 @@ do
   local keepGet = _G.C_NamePlate.GetNamePlateForUnit
   _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
   plates.nameplate7 = CreateFrame("Frame", nil, nil)
+  plates.nameplate7:SetSize(180, 20)
   plates.nameplate8 = CreateFrame("Frame", nil, nil)
   RC.SetActive(rdb2, "Hunting Moms", true)
   W.plates.nameplate7 = { name = "Hunting" }                -- the character name, as a nameplate gives it
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
   local mk = RC.marks.nameplate7
   ok(mk and mk.shown and mk.rival == "Hunting Moms" and mk.point and mk.point[2] == plates.nameplate7
-     and mk.point[1] == "TOPRIGHT" and mk.point[3] == "BOTTOMRIGHT",
+     and mk.point[1] == "TOP" and mk.point[3] == "BOTTOM",
      "a gold rival's nameplate wears the crosshair, hanging under the plate")
+  ok(mk.w == 90 and mk.h == RC.MARK_H, "half the plate's width (Arn: \"tighten it up 50%\"), centred", mk.w)
   -- Arn's shape: a rail down each side of the body, a tick in at the middle of each
   ok(#mk.parts == 4 and mk.leftRail.h == RC.MARK_H and mk.rightRail.h == RC.MARK_H
      and mk.leftTick.anchor[1] == "LEFT" and mk.rightTick.anchor[1] == "RIGHT"
@@ -2861,6 +2864,11 @@ do
   ok(RC.marks.nameplate7 == nil and not mk.shown and not mk.pulse:IsPlaying(), "the plate leaves: the crosshair goes")
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
   ok(RC.marks.nameplate7 == mk, "and comes back from the pool, not a new frame")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  plates.nameplate7.w = nil                                  -- a plate that will not say how wide it is
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 and RC.marks.nameplate7.w == RC.MARK_W, "a plate with no width: 60 px, never an error")
+  plates.nameplate7.w = 180
   W.plates.nameplate8 = { name = "Légolas" }               -- a silver rival
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
   ok(RC.marks.nameplate8 == nil, "a silver rival gets no crosshair")

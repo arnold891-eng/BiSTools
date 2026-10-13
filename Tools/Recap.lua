@@ -374,6 +374,7 @@ RC.marks, RC.markPool = {}, {}
 -- the rails hang MARK_H under the plate: a player's height at fighting range (nameplates keep their
 -- size with distance and bodies do not, so far off the frame is roomier than the body)
 RC.MARK_ARM, RC.MARK_THICK, RC.MARK_H = 8, 2, 70
+RC.MARK_WIDE, RC.MARK_W = 0.5, 60      -- half the plate's width; 60 px when the plate will not say
 RC.MARK_RED = { 1.00, 0.18, 0.18 }
 
 local function bar(f, layer, r, g, b)
@@ -436,12 +437,14 @@ function RC.MarkPlate(unit, rival)
   local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
   if not okF or forbidden then return false end
   local f = table.remove(RC.markPool) or newMark()
-  -- under the plate, as wide as it, MARK_H tall: the rails frame the body below the name
+  -- under the plate, centred, HALF its width (Arn, seeing them in game: "maybe we can tighten it up
+  -- 50%" - a plate is far wider than a body), MARK_H tall: the rails frame the body below the name
   local placed = pcall(function()
+    local pw = plate:GetWidth()
+    if type(pw) ~= "number" or hidden(pw) or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
     f:ClearAllPoints()
-    f:SetHeight(RC.MARK_H)
-    f:SetPoint("TOPLEFT", plate, "BOTTOMLEFT", 0, -2)
-    f:SetPoint("TOPRIGHT", plate, "BOTTOMRIGHT", 0, -2)
+    f:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
   end)
   if not placed then RC.markPool[#RC.markPool + 1] = f return false end
   f.rival, f.unit = rival, unit
