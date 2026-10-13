@@ -1765,8 +1765,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (3) -> 4 headers + 17 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7 + 3, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (4) -> 4 headers + 18 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -2869,6 +2869,34 @@ do
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
   ok(RC.marks.nameplate7 and RC.marks.nameplate7.w == RC.MARK_W, "a plate with no width: 60 px, never an error")
   plates.nameplate7.w = 180
+  -- CROSSHAIRS TO PLAY WITH (Arn: "maybe in the recap or options we can play around with different
+  -- crosshairs"): picking one redraws the rival already on screen, so they can be compared
+  local function anchors(f) local a = {} for _, p in ipairs(f.parts) do a[#a + 1] = p.anchor and p.anchor[1] end table.sort(a) return table.concat(a, ",") end
+  ok(RC.SetStyle(rdb2, "L") and rdb2.style == "L", "L: chosen")
+  local mL = RC.marks.nameplate7
+  ok(mL and mL ~= mk and mL.style == "L" and #mL.parts == 8 and not mk.shown,
+     "L: the rival on screen is redrawn at once, eight arms at the four corners")
+  ok(anchors(mL) == "BOTTOMLEFT,BOTTOMLEFT,BOTTOMRIGHT,BOTTOMRIGHT,TOPLEFT,TOPLEFT,TOPRIGHT,TOPRIGHT", "an L at each corner", anchors(mL))
+  RC.SetStyle(rdb2, "aim")
+  local mA = RC.marks.nameplate7
+  ok(mA.style == "aim" and anchors(mA) == "BOTTOM,LEFT,RIGHT,TOP" and mA.parts[1].h == RC.SIGHT_LEN,
+     "aim: a line in from the middle of each side", anchors(mA))
+  RC.SetStyle(rdb2, "box")
+  local mB = RC.marks.nameplate7
+  ok(mB.style == "box" and #mB.parts == 4 and mB.parts[1].h == RC.MARK_THICK and mB.parts[3].w == RC.MARK_THICK,
+     "box: four edges all the way round")
+  ok(RC.SetStyle(rdb2, "swirl") == false and rdb2.style == "box", "a style that does not exist changes nothing")
+  local said4 = {}
+  local keepAdd4 = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said4[#said4 + 1] = m end
+  S("recap style swirl")
+  ok(table.concat(said4, "\n"):find("rails, L, aim, box", 1, true), "/bist recap style with a wrong name lists them")
+  S("recap style l")
+  ok(rdb2.style == "L", "/bist recap style l picks L")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd4
+  RC.SetStyle(rdb2, "rails")
+  mk = RC.marks.nameplate7
+  ok(mk.style == "rails" and #mk.parts == 4, "and back to rails")
   W.plates.nameplate8 = { name = "Légolas" }               -- a silver rival
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
   ok(RC.marks.nameplate8 == nil, "a silver rival gets no crosshair")

@@ -390,29 +390,85 @@ end
 --      |_        -|
 --      |          |
 -- Each piece drawn twice: black underneath, a pixel wider all round, red on top.
-local function crosshair(f)
+-- AND OTHER SHAPES TO PLAY WITH (Arn, 12 Oct: "maybe in the recap or options we can play around with
+-- different crosshairs"). Each is built from the same outlined red pieces, in the same frame - half
+-- the plate's width, MARK_H tall, under the plate:
+--   rails    | _       - |   a rail down each side, a tick in at the middle (Arn's)
+--   L        BiS Healing's target brackets: an L at each corner
+--   aim      a scope: a line in from the middle of each side, a gap round the centre
+--   box      a thin outline all the way round
+RC.STYLES = { "rails", "L", "aim", "box" }    -- short: four share one options control
+RC.SIGHT_LEN = 14
+
+local function crosshair(f, style)
   local T, A = RC.MARK_THICK, RC.MARK_ARM
   local c = RC.MARK_RED
+  -- a fixed-size piece at one anchor
   local function piece(point, w, h, x, y)
     local o = bar(f, "BORDER", 0, 0, 0)
     o:SetPoint(point, f, point, x, y) o:SetSize(w + 2, h + 2)
     local t = bar(f, "ARTWORK", c[1], c[2], c[3])
-    t:SetPoint(point, f, point, x + (point:find("LEFT") and 1 or point:find("RIGHT") and -1 or 0), y)
+    t:SetPoint(point, f, point, x + (point:find("LEFT") and 1 or point:find("RIGHT") and -1 or 0),
+      y + (point:find("TOP") and -1 or point:find("BOTTOM") and 1 or 0))
     t:SetSize(w, h)
     f.parts[#f.parts + 1] = t
     return t
   end
-  f.leftRail = piece("TOPLEFT", T, RC.MARK_H, 0, 0)
-  f.rightRail = piece("TOPRIGHT", T, RC.MARK_H, 0, 0)
-  f.leftTick = piece("LEFT", A, T, 0, 0)          -- "_", in from the left at the middle
-  f.rightTick = piece("RIGHT", A, T, 0, 0)        -- "-", in from the right
+  -- a whole edge, stretched between two corners
+  local function edge(p1, p2, across)
+    local o = bar(f, "BORDER", 0, 0, 0)
+    o:SetPoint(p1, f, p1) o:SetPoint(p2, f, p2)
+    if across == "h" then o:SetHeight(T + 2) else o:SetWidth(T + 2) end
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3])
+    local dx, dy = (across == "v") and (p1:find("LEFT") and 1 or -1) or 0, (across == "h") and (p1:find("TOP") and -1 or 1) or 0
+    t:SetPoint(p1, f, p1, dx, dy) t:SetPoint(p2, f, p2, dx, dy)
+    if across == "h" then t:SetHeight(T) else t:SetWidth(T) end
+    f.parts[#f.parts + 1] = t
+    return t
+  end
+  f.style = style
+  if style == "L" then
+    for _, p in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
+      piece(p, A + 4, T, 0, 0)                    -- the flat arm of the L
+      piece(p, T, A + 4, 0, 0)                    -- and the upright one
+    end
+  elseif style == "aim" then
+    local L = RC.SIGHT_LEN
+    piece("TOP", T, L, 0, 0) piece("BOTTOM", T, L, 0, 0)
+    piece("LEFT", L, T, 0, 0) piece("RIGHT", L, T, 0, 0)
+  elseif style == "box" then
+    edge("TOPLEFT", "TOPRIGHT", "h") edge("BOTTOMLEFT", "BOTTOMRIGHT", "h")
+    edge("TOPLEFT", "BOTTOMLEFT", "v") edge("TOPRIGHT", "BOTTOMRIGHT", "v")
+  else
+    f.style = "rails"
+    f.leftRail = piece("TOPLEFT", T, RC.MARK_H, 0, 0)
+    f.rightRail = piece("TOPRIGHT", T, RC.MARK_H, 0, 0)
+    f.leftTick = piece("LEFT", A, T, 0, 0)        -- "_", in from the left at the middle
+    f.rightTick = piece("RIGHT", A, T, 0, 0)      -- "-", in from the right
+  end
+end
+
+--- Pick a crosshair; every rival on screen is redrawn in it at once, so styles can be compared.
+function RC.SetStyle(db, style)
+  local valid = false
+  for _, s in ipairs(RC.STYLES) do if s == style then valid = true end end
+  if not valid then return false end
+  db.style = style
+  local live = {}
+  for unit, f in pairs(RC.marks) do live[unit] = f.rival end
+  for unit in pairs(live) do RC.UnmarkUnit(unit) end
+  for _, f in ipairs(RC.markPool) do f:Hide() end
+  RC.markPool = {}                                -- frames of the old shape are not reused
+  RC.style = style
+  for unit, rival in pairs(live) do RC.MarkPlate(unit, rival) end
+  return true
 end
 
 local function newMark()
   local f = CreateFrame("Frame", nil, UIParent)
   f:SetFrameStrata("BACKGROUND")
   f.parts = {}
-  crosshair(f)
+  crosshair(f, RC.style or "rails")
   if f.CreateAnimationGroup then
     local ok, pulse = pcall(f.CreateAnimationGroup, f)
     if ok and pulse then
@@ -1133,13 +1189,15 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rivals | forget <name> | key <key> | why | raw]",
+  usage = "/bist recap [rivals | forget <name> | key <key> | style <name> | why | raw]",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
       set = function(db, on) db.popup = on and true or false end },
     { kind = "toggle", label = "sound when a rival is near", get = function(db) return db.sound ~= false end,
       set = function(db, on) db.sound = on and true or false end },
+    { kind = "seg", label = "crosshair", values = RC.STYLES, get = function(db) return db.style or "rails" end,
+      set = function(db, v) RC.SetStyle(db, v) end },
     { kind = "toggle", label = "rival target button", get = function(db) return db.button ~= false end,
       set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
   },
@@ -1153,9 +1211,14 @@ NS.Registry:Register({
     RC.ApplyButton(db)
   end,
   OnEnable = function(_, db) RC.ApplyButton(db) end,
-  OnLogin = function(_, db) RC.ApplyButton(db) RC.HookMenus(db) end,
+  OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
+    local style = args:match("^style%s*(%S*)$")
+    if style then
+      if RC.SetStyle(db, (style == "l" or style == "L") and "L" or style:lower()) then return NS.Print("crosshair: %s", db.style) end
+      return NS.Print("crosshair styles: %s (now: %s)", table.concat(RC.STYLES, ", "), db.style or "rails")
+    end
     local key = args:match("^key%s+(%S+)$")
     if key then
       db.key = (key:lower() ~= "off") and key:upper() or nil
