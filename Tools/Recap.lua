@@ -306,6 +306,7 @@ function RC.ToggleRival(db, a)
   local list = RC.Rivals(db)
   if list[a.title] then
     list[a.title] = nil
+    RC.UnmarkRival(a.title)
     NS.Print("%s is no longer a rival", a.title)
     return false
   end
@@ -322,6 +323,7 @@ function RC.SetActive(db, name, on)
   local r = RC.Rivals(db)[name]
   if not r then return nil end
   r.active = on and true or false
+  if not r.active then RC.UnmarkRival(name) end
   RC.PaintRivals()
   return r.active
 end
@@ -358,6 +360,110 @@ local function looked(unit, name, why)
   return nil
 end
 
+-- ---------------------------------------------------------------- the crosshair on a rival's nameplate
+-- Arn, 12 Oct, in a crowd at Hillsbrad: "is there a way to draw a crosshairs like our healing addon via
+-- the name plates" ... "gold rivals only, pulsing". BiS Healing's target crosshair - thick corner
+-- brackets, a tick in from each side, outlined - in red, pinned to the rival's nameplate so the client
+-- carries it as they move: no OnUpdate, nothing run per frame. The pulse is the client's own
+-- animation, like the shield button's. A nameplate the client locks away (IsForbidden - inside an
+-- instance, possibly) gets no crosshair and costs no error.
+RC.marks, RC.markPool = {}, {}
+-- the rails hang MARK_H under the plate: a player's height at fighting range (nameplates keep their
+-- size with distance and bodies do not, so far off the frame is roomier than the body)
+RC.MARK_ARM, RC.MARK_THICK, RC.MARK_H = 8, 2, 70
+RC.MARK_RED = { 1.00, 0.18, 0.18 }
+
+local function bar(f, layer, r, g, b)
+  local t = f:CreateTexture(nil, layer)
+  t:SetColorTexture(r, g, b, 1)
+  return t
+end
+
+-- ARN'S SHAPE (12 Oct, the second ask): the nameplate on top, and under it a rail down each side of
+-- the body with a tick pointing in at the middle -
+--      [name plate]
+--      |          |
+--      |_        -|
+--      |          |
+-- Each piece drawn twice: black underneath, a pixel wider all round, red on top.
+local function crosshair(f)
+  local T, A = RC.MARK_THICK, RC.MARK_ARM
+  local c = RC.MARK_RED
+  local function piece(point, w, h, x, y)
+    local o = bar(f, "BORDER", 0, 0, 0)
+    o:SetPoint(point, f, point, x, y) o:SetSize(w + 2, h + 2)
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3])
+    t:SetPoint(point, f, point, x + (point:find("LEFT") and 1 or point:find("RIGHT") and -1 or 0), y)
+    t:SetSize(w, h)
+    f.parts[#f.parts + 1] = t
+    return t
+  end
+  f.leftRail = piece("TOPLEFT", T, RC.MARK_H, 0, 0)
+  f.rightRail = piece("TOPRIGHT", T, RC.MARK_H, 0, 0)
+  f.leftTick = piece("LEFT", A, T, 0, 0)          -- "_", in from the left at the middle
+  f.rightTick = piece("RIGHT", A, T, 0, 0)        -- "-", in from the right
+end
+
+local function newMark()
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f.parts = {}
+  crosshair(f)
+  if f.CreateAnimationGroup then
+    local ok, pulse = pcall(f.CreateAnimationGroup, f)
+    if ok and pulse then
+      local fade = pulse:CreateAnimation("Alpha")
+      fade:SetFromAlpha(1) fade:SetToAlpha(0.35) fade:SetDuration(0.6)
+      if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
+      pulse:SetLooping("BOUNCE")
+      f.pulse = pulse
+    end
+  end
+  return f
+end
+
+--- Put the crosshair on this nameplate unit for that rival. Answers true when it stands.
+function RC.MarkPlate(unit, rival)
+  if type(unit) ~= "string" or not unit:find("^nameplate") then return false end
+  if RC.marks[unit] then RC.marks[unit].rival = rival return true end
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return false end
+  local okP, plate = pcall(get, unit)
+  if not okP or not plate then return false end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return false end
+  local f = table.remove(RC.markPool) or newMark()
+  -- under the plate, as wide as it, MARK_H tall: the rails frame the body below the name
+  local placed = pcall(function()
+    f:ClearAllPoints()
+    f:SetHeight(RC.MARK_H)
+    f:SetPoint("TOPLEFT", plate, "BOTTOMLEFT", 0, -2)
+    f:SetPoint("TOPRIGHT", plate, "BOTTOMRIGHT", 0, -2)
+  end)
+  if not placed then RC.markPool[#RC.markPool + 1] = f return false end
+  f.rival, f.unit = rival, unit
+  f:Show()
+  if f.pulse then f.pulse:Play() end
+  RC.marks[unit] = f
+  return true
+end
+
+--- Take the crosshair off one nameplate (it left), or off every plate of one rival (silver, forgotten).
+function RC.UnmarkUnit(unit)
+  local f = RC.marks[unit]
+  if not f then return end
+  if f.pulse then f.pulse:Stop() end
+  f:Hide()
+  f:ClearAllPoints()
+  RC.marks[unit] = nil
+  RC.markPool[#RC.markPool + 1] = f
+end
+function RC.UnmarkRival(rival)
+  for unit, f in pairs(RC.marks) do
+    if f.rival == rival then RC.UnmarkUnit(unit) end
+  end
+end
+
 --- The rival a name belongs to, or nil. MEASURED 12 Oct (Arn's /bist recap why, Hunting Moms on his
 --- target): the death recap names a player WITH Forever's surname - "Hunting Moms" - and UnitName
 --- gives the character name alone - "Hunting". The character name is the unique one; the surname is
@@ -380,6 +486,7 @@ function RC.Spot(db, unit)
   if not r then return looked(unit, name, "not a rival") end
   name = full                                    -- called out by the name the recap knows them by
   if not r.active then return looked(unit, name, "a silver rival") end
+  RC.MarkPlate(unit, full)                       -- gold: the crosshair, whether or not it is called out now
   local now = GetTime and GetTime() or 0
   r.seen = time and time() or 0
   r.where = place()
@@ -582,6 +689,7 @@ function RC.Build(db)
       if not self.rival then return end
       if IsShiftKeyDown and IsShiftKeyDown() then
         RC.Rivals(db)[self.rival] = nil
+        RC.UnmarkRival(self.rival)
         NS.Print("%s is no longer a rival", self.rival)
         RC.PaintRivals()
       else
@@ -832,7 +940,10 @@ function RC.OnEvent(_, event, unit)
   if not R:Enabled("recap") then return end
   local db = R:DBFor(R:Get("recap"))
   -- THE TRACKER: a nameplate appearing, a new target, the mouse on someone
-  if event == "NAME_PLATE_UNIT_ADDED" then
+  if event == "NAME_PLATE_UNIT_REMOVED" then
+    if RC.marks[unit] then RC.UnmarkUnit(unit) end
+    return
+  elseif event == "NAME_PLATE_UNIT_ADDED" then
     if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
@@ -863,7 +974,7 @@ end
 
 RC.frame = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_DEAD", "PLAYER_REGEN_ENABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE",
-                     "NAME_PLATE_UNIT_ADDED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT" }) do
+                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT" }) do
   RC.frame:RegisterEvent(e)
 end
 RC.frame:SetScript("OnEvent", RC.OnEvent)
@@ -883,7 +994,10 @@ NS.Registry:Register({
     if recenter then db.pos = { "CENTER", 0, 140, "CENTER" } if RC.win then RC.win:ClearAllPoints() RC.win:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end end
     RC.Toggle(db, true)
   end,
-  OnDisable = function() if RC.win then RC.win:Hide() end end,
+  OnDisable = function()
+    if RC.win then RC.win:Hide() end
+    for unit in pairs(RC.marks) do RC.UnmarkUnit(unit) end
+  end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
     if args == "rivals" then
@@ -907,6 +1021,7 @@ NS.Registry:Register({
       for name in pairs(list) do
         if name:lower() == forget:lower() then
           list[name] = nil
+          RC.UnmarkRival(name)
           return NS.Print("%s is no longer a rival", name)
         end
       end

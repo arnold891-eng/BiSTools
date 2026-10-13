@@ -296,6 +296,25 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetCenter() return self.cx or 0, self.cy or 0 end
   function f:GetEffectiveScale() return 1 end
   function f:SetAlpha(a) self.alpha = a end
+  -- AN ANIMATION GROUP, RECORDED (12 Oct 2026, the rival crosshair's pulse): the client hands back a
+  -- group that makes animations, loops, plays and stops - and runs them itself
+  function f:CreateAnimationGroup()
+    local g = { anims = {}, playing = false }
+    function g:CreateAnimation(kind)
+      local a = { kind = kind }
+      function a:SetFromAlpha(v) self.from = v end
+      function a:SetToAlpha(v) self.to = v end
+      function a:SetDuration(v) self.duration = v end
+      function a:SetSmoothing(v) self.smoothing = v end
+      self.anims[#self.anims + 1] = a
+      return a
+    end
+    function g:SetLooping(v) self.looping = v end
+    function g:Play() self.playing = true end
+    function g:Stop() self.playing = false end
+    function g:IsPlaying() return self.playing end
+    return g
+  end
   function f:SetMovable() end
   function f:EnableMouse() end
   function f:SetClampedToScreen() end
@@ -2814,6 +2833,56 @@ do
   ok(pcall(RC.frame.scripts.OnEvent, RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") and #W.notices == 3,
      "a hidden name is not read, and nothing is called out")
   _G.UnitName, _G.issecretvalue = keepName, keepIs
+
+  -- THE CROSSHAIR ON A GOLD RIVAL'S NAMEPLATE (Arn: "is there a way to draw a crosshairs like our
+  -- healing addon via the name plates" ... "gold rivals only, pulsing"). The client hands an addon the
+  -- nameplate frame; one it locks away says so with IsForbidden.
+  local plates = {}
+  local keepGet = _G.C_NamePlate.GetNamePlateForUnit
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  plates.nameplate7 = CreateFrame("Frame", nil, nil)
+  plates.nameplate8 = CreateFrame("Frame", nil, nil)
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  W.plates.nameplate7 = { name = "Hunting" }                -- the character name, as a nameplate gives it
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  local mk = RC.marks.nameplate7
+  ok(mk and mk.shown and mk.rival == "Hunting Moms" and mk.point and mk.point[2] == plates.nameplate7
+     and mk.point[1] == "TOPRIGHT" and mk.point[3] == "BOTTOMRIGHT",
+     "a gold rival's nameplate wears the crosshair, hanging under the plate")
+  -- Arn's shape: a rail down each side of the body, a tick in at the middle of each
+  ok(#mk.parts == 4 and mk.leftRail.h == RC.MARK_H and mk.rightRail.h == RC.MARK_H
+     and mk.leftTick.anchor[1] == "LEFT" and mk.rightTick.anchor[1] == "RIGHT"
+     and mk.leftTick.w > mk.leftTick.h and mk.parts[1].color[1] == 1 and mk.parts[1].color[2] < 0.3,
+     "two red rails the body's height, a tick in from each side at the middle")
+  ok(mk.pulse and mk.pulse:IsPlaying() and mk.pulse.looping == "BOUNCE", "and it pulses on the client's own loop")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == mk, "the same plate twice: one crosshair")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  ok(RC.marks.nameplate7 == nil and not mk.shown and not mk.pulse:IsPlaying(), "the plate leaves: the crosshair goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == mk, "and comes back from the pool, not a new frame")
+  W.plates.nameplate8 = { name = "Légolas" }               -- a silver rival
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
+  ok(RC.marks.nameplate8 == nil, "a silver rival gets no crosshair")
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(RC.marks.nameplate7 == nil and not mk.shown, "sending a rival to silver takes their crosshair off")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  plates.nameplate7.IsForbidden = function() return true end
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == nil, "a nameplate the client locks away gets none, and no error")
+  plates.nameplate7.IsForbidden = nil
+  W.target = { name = "Hunting" }
+  plates.target = CreateFrame("Frame", nil, nil)          -- the client WOULD hand back a plate for it
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  plates.target = nil
+  ok(RC.marks.target == nil, "only nameplates carry it - a target has no plate event to take it down")
+  W.target = nil
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  R:SetEnabled("recap", false)
+  ok(next(RC.marks) == nil, "switching the tool off takes every crosshair down")
+  R:SetEnabled("recap", true)
+  _G.C_NamePlate.GetNamePlateForUnit = keepGet
+  W.plates.nameplate7, W.plates.nameplate8 = { name = "Hunting Moms" }, nil
 
   -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
   -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way
