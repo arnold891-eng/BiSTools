@@ -350,16 +350,29 @@ local function place()
   return zone
 end
 
+-- WHAT THE TRACKER LAST SAW, AND WHY IT STAYED QUIET (12 Oct 2026). Arn, with Hunting Moms on his
+-- target: "dont think i got a notification or sound". /bist recap why prints this. Kept in three
+-- plain fields, not a table per look: a nameplate storm must not churn memory for a diagnostic.
+local function looked(unit, name, why)
+  RC.lookUnit, RC.lookName, RC.lookWhy = unit, name, why
+  return nil
+end
+
 function RC.Spot(db, unit)
-  if RC.GoldCount(db) == 0 then return nil end
+  if RC.GoldCount(db) == 0 then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
-  if not name then return nil end
+  if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
   local r = RC.Rivals(db)[name]
-  if not (r and r.active) then return nil end
+  if not r then return looked(unit, name, "not a rival") end
+  if not r.active then return looked(unit, name, "a silver rival") end
   local now = GetTime and GetTime() or 0
   r.seen = time and time() or 0
   r.where = place()
-  if r.alertAt and now - r.alertAt < RC.ALERT_GAP then return name end
+  if r.alertAt and now - r.alertAt < RC.ALERT_GAP then
+    looked(unit, name, "called out less than a minute ago")
+    return name
+  end
+  looked(unit, name, "called out")
   r.alertAt = now
   local cc = r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[r.class]
   if RaidNotice_AddMessage and RaidWarningFrame then
@@ -652,6 +665,47 @@ function RC.Paint(s)
   end
 end
 
+--- /bist recap why: the tracker's own account of itself, for "it did not call them out".
+function RC.Why(db)
+  local list, gold = RC.Rivals(db), {}
+  local n = 0
+  for name, r in pairs(list) do
+    n = n + 1
+    if r.active then gold[#gold + 1] = name end
+  end
+  table.sort(gold)
+  NS.Print("tracker: %d rival%s, gold: %s", n, n == 1 and "" or "s",
+    #gold > 0 and T.text("gold", table.concat(gold, ", ")) or T.text("warn", "nobody"))
+  DEFAULT_CHAT_FRAME:AddMessage("  last look: " .. T.text("muted", ("%s - %s - %s"):format(
+    tostring(RC.lookUnit or "none yet"), tostring(RC.lookName or "no name"), tostring(RC.lookWhy or "-"))))
+  -- the target, read now, every way it can go wrong
+  local ok, raw = pcall(UnitName, "target")
+  local said
+  if not ok then said = "refused"
+  elseif raw == nil then said = "no target"
+  elseif hidden(raw) then said = "HIDDEN by the game"
+  else said = '"' .. tostring(raw) .. '"' end
+  DEFAULT_CHAT_FRAME:AddMessage("  your target's name, as the game gives it now: " .. T.text("ink", said))
+  if ok and type(raw) == "string" and not hidden(raw) then
+    if list[raw] then
+      DEFAULT_CHAT_FRAME:AddMessage("  " .. T.text("good", "that is a rival" .. (list[raw].active and " (gold)" or " (silver)")))
+    else
+      -- the recap may know them by a longer name than the nameplate does (a surname)
+      for name in pairs(list) do
+        if name:sub(1, #raw) == raw or raw:sub(1, #name) == name then
+          DEFAULT_CHAT_FRAME:AddMessage("  " .. T.text("warn", ("not the same name as your rival \"%s\""):format(name)))
+        end
+      end
+    end
+  end
+  local cvar = C_CVar and C_CVar.GetCVar or GetCVar
+  if cvar then
+    local okC, v = pcall(cvar, "nameplateShowEnemies")
+    DEFAULT_CHAT_FRAME:AddMessage("  enemy nameplates: " .. T.text("muted",
+      (okC and not hidden(v)) and ((v == "1" or v == 1) and "on" or "off") or "?"))
+  end
+end
+
 -- "3m ago" / "2h ago" / "4d ago"
 local function ago(stamp)
   local now = time and time() or 0
@@ -814,6 +868,7 @@ NS.Registry:Register({
   end,
   OnDisable = function() if RC.win then RC.win:Hide() end end,
   OnSlash = function(_, db, args)
+    if args == "why" then return RC.Why(db) end
     if args == "rivals" then
       local names = {}
       for name in pairs(RC.Rivals(db)) do names[#names + 1] = name end

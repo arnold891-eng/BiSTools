@@ -2815,6 +2815,30 @@ do
      "a hidden name is not read, and nothing is called out")
   _G.UnitName, _G.issecretvalue = keepName, keepIs
 
+  -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
+  -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way
+  local said3 = {}
+  local keepAdd3 = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said3[#said3 + 1] = m end
+  W.target = { name = "Somebody Else" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(pcall(S, "recap why"), "/bist recap why never throws")
+  local why = table.concat(said3, "\n")
+  ok(why:find("gold: ", 1, true) and why:find("Hunting Moms", 1, true) and why:find("not a rival", 1, true)
+     and why:find('"Somebody Else"', 1, true), "it names the gold rivals, the last look and its reason, and the target", why)
+  said3 = {}
+  W.target = { name = "Hunting" }                     -- the nameplate's name shorter than the recap's
+  S("recap why")
+  ok(table.concat(said3, "\n"):find('not the same name as your rival "Hunting Moms"', 1, true),
+     "a name that is only part of a rival's is pointed out")
+  said3 = {}
+  _G.UnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+  _G.issecretvalue = function(v) return type(v) == "table" end
+  ok(pcall(S, "recap why") and table.concat(said3, "\n"):find("HIDDEN by the game", 1, true), "a hidden target name is said to be hidden")
+  _G.UnitName, _G.issecretvalue = keepName, keepIs
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd3
+  W.target = nil
+
   -- LEAN: hunting nobody costs nothing; hunting someone costs a name check a nameplate
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9") end end)
