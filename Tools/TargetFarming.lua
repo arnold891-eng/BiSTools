@@ -579,6 +579,52 @@ function F.Search(db, name)
   if db.active ~= name then F.SetActive(db, name) else F.Refresh(db) end
 end
 
+-- ---------------------------------------------------------------- right-click a mob
+-- Arn, 13 Oct 2026, right-clicking a Dalaran Summoner's portrait: track it "not just type their
+-- name or wait till you kill one". The same road as the recap's "BiS: add rival" (Recap.lua,
+-- read off Olympus, MIT): Menu.ModifyMenu("MENU_UNIT_" .. kind, fn) adds a line, nothing of the
+-- game's is replaced. An NPC's portrait menu is TARGET (or FOCUS); a player's are the rival's
+-- kinds, so the two never share a menu. Which tag Forever uses for an NPC: UNVERIFIED - if the
+-- line never shows, that is the first thing to check.
+F.MENUS = { "TARGET", "FOCUS" }
+
+--- The mob a menu is about, or nil: a plain-no to "a player?", a plain-yes to "can I attack it?",
+--- and a name the game will show. Anything hidden gets no line.
+function F.MenuMob(ctx)
+  if type(ctx) ~= "table" then return nil end
+  local okU, u = pcall(function() return ctx.unit end)
+  u = okU and F.Plain(u) or nil
+  if type(u) ~= "string" then return nil end
+  if F.Plain(UnitIsPlayer(u)) ~= false then return nil end
+  if F.Plain(UnitCanAttack("player", u)) ~= true then return nil end
+  return F.Name(u)
+end
+
+function F.MenuLines(db, root, ctx)
+  if not (NS.Registry:Enabled("farm") and root and root.CreateButton) then return end
+  local name = F.MenuMob(ctx)
+  if not name then return end
+  if root.CreateDivider then root:CreateDivider() end
+  if db.active == name then
+    root:CreateButton("BiS: stop farming", function() F.Clear(db) end)
+  else
+    root:CreateButton("BiS: track in farm", function()
+      F.Search(db, name)                       -- what /bist farm add <name> does
+      F.Toggle(db, true)
+    end)
+  end
+end
+
+function F.HookMenus(db)
+  if F.menusHooked then return true end
+  if not (Menu and type(Menu.ModifyMenu) == "function") then return false end
+  for _, kind in ipairs(F.MENUS) do
+    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) F.MenuLines(db, root, ctx) end)
+  end
+  F.menusHooked = true
+  return true
+end
+
 function F.SetCollapsed(db, on)
   db.collapsed = on and true or false
   F.Refresh(db)
@@ -719,7 +765,7 @@ NS.Registry:Register({
     F.events = CreateFrame("Frame")
     F.events:SetScript("OnEvent", function(_, ev, ...) F.OnEvent(db, ev, ...) end)
   end,
-  OnLogin = function(self, db) F.Hook(db) end,
+  OnLogin = function(self, db) F.Hook(db) F.HookMenus(db) end,
   -- the Hub: open the window; recenter drags it to the middle (Arn: "no idea
   -- where the farm window is at")
   IsOpen = function(self, db) return F.frame ~= nil and F.frame:IsShown() end,

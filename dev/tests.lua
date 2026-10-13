@@ -3211,6 +3211,51 @@ do
   ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
   _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
 
+  -- "TRACK IN FARM" ON A MOB'S RIGHT-CLICK MENU (Arn, 13 Oct: "right click npc ... track in the farm
+  -- module not just type their name or wait till you kill one")
+  do
+    local menus = {}
+    _G.Menu = { ModifyMenu = function(tag, fn) menus[tag] = fn end }
+    F.menusHooked = nil
+    ok(F.HookMenus(db) and menus.MENU_UNIT_TARGET and menus.MENU_UNIT_FOCUS, "a mob's portrait menus get the farm line")
+    ok(not menus.MENU_UNIT_ENEMY_PLAYER and not menus.MENU_UNIT_PLAYER, "never a player's menu (the rival line lives there)")
+    local keepIsPlayer, keepTarget = _G.UnitIsPlayer, W.target
+    _G.UnitIsPlayer = function(u) local x = (u == "target") and W.target return x and x.player or false end
+    F.Clear(db)
+    W.target = { name = "Dalaran Summoner", guid = "Creature-0-0-0-0-1915-00A1" }
+    local m = root()
+    menus.MENU_UNIT_TARGET(nil, m, { unit = "target", name = "Dalaran Summoner" })
+    ok(m.lines[1] == "--" and m.lines[2] == "BiS: track in farm", "a mob's menu says: BiS: track in farm", m.lines[2])
+    BiSToolsFarm:Hide()
+    m.click()
+    ok(db.active == "Dalaran Summoner" and db.custom == "Dalaran Summoner",
+       "clicked: the farm tracks it, the same as /bist farm add")
+    ok(BiSToolsFarm:IsShown(), "and the farm window opens")
+    m = root()
+    menus.MENU_UNIT_FOCUS(nil, m, { unit = "target" })
+    ok(m.lines[2] == "BiS: stop farming", "the next time: BiS: stop farming", m.lines[2])
+    m.click()
+    ok(db.active == nil, "and that stops it")
+    W.target = { name = "Kumlance", player = true }
+    m = root() menus.MENU_UNIT_TARGET(nil, m, { unit = "target" })
+    ok(#m.lines == 0, "no line on a player")
+    W.target = { name = "Stormwind Guard", hostile = false }
+    m = root() menus.MENU_UNIT_TARGET(nil, m, { unit = "target" })
+    ok(#m.lines == 0, "no line on a mob you cannot attack")
+    m = root() menus.MENU_UNIT_TARGET(nil, m, { name = "Dalaran Summoner" })
+    ok(#m.lines == 0, "no line when the menu names no unit")
+    W.target = { name = "Dalaran Summoner", guid = "Creature-0-0-0-0-1915-00A1" }
+    R:SetEnabled("farm", false)
+    m = root() menus.MENU_UNIT_TARGET(nil, m, { unit = "target" })
+    ok(#m.lines == 0, "none while the farm tool is off")
+    R:SetEnabled("farm", true)
+    _G.Menu = nil
+    F.menusHooked = nil
+    ok(F.HookMenus(db) == false, "a client without Menu.ModifyMenu: no farm line, no error")
+    _G.UnitIsPlayer, W.target = keepIsPlayer, keepTarget
+    F.Clear(db)
+  end
+
   -- GUILD RIVALS (Arn: "a toggle dont show guild rivals etc or show with a different color crosshair to
   -- know it was from someone else"), over LibBiSComm's GUILD channel
   local lib2 = _G.LibBiSComm

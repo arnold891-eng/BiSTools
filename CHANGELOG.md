@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Farm a mob from its right-click menu**: right-click a mob's portrait and pick **BiS: track in farm** - no typing its name, no killing one first. On the mob you are already farming it says **BiS: stop farming**. Only on mobs you can attack, never on players.
+
 ## 0.5.1
 
 - **Which button is which, at a glance**: in the BiS> tools box the farm's skull has a **purple** edge (mobs) and the rival button a **red** edge with **crossed swords** (players) - the same colours as their crosshairs.
