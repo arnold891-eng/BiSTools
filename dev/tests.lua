@@ -1765,8 +1765,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (4) -> 4 headers + 18 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (4), summon (7), recap (6) -> 4 headers + 20 rows
+  ok(#opt.rows == 4 + 3 + 4 + 7 + 6, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -3015,6 +3015,149 @@ do
   ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
   _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
 
+  -- GUILD RIVALS (Arn: "a toggle dont show guild rivals etc or show with a different color crosshair to
+  -- know it was from someone else"), over LibBiSComm's GUILD channel
+  local lib2 = _G.LibBiSComm
+  local sent = {}
+  local keepSendTo = lib2.SendTo
+  lib2.SendTo = function(_, chan, mod, cmd, ...) sent[#sent + 1] = { chan = chan, mod = mod, cmd = cmd, args = { ... } } return true end
+  _G.IsInGuild = function() return true end
+  RC.guildHooked = nil
+  ok(RC.HookGuild(rdb2) and lib2.guildMods.RIVAL and lib2.handlers.RIVAL.ADD and lib2.handlers.RIVAL.SEEN,
+     "the guild channel carries RIVAL: ADD, DEL, SEEN, ASK, LIST")
+  local mg = root()
+  _G.Menu = { ModifyMenu = function() end }
+  RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
+  ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
+  _G.UnitClass = function() return "Mage", "MAGE" end
+  mg.click()
+  _G.UnitClass = keepClass
+  local g = RC.GuildRivals(rdb2)
+  ok(g["Kill Er"] and g["Kill Er"].class == "MAGE" and sent[#sent].chan == "GUILD" and sent[#sent].cmd == "ADD"
+     and sent[#sent].args[1] == "Kill Er", "added: on the guild's list, and the guild told")
+  -- from someone else
+  lib2.handlers.RIVAL.ADD("Tyrone", "Ganka Boy", "ROGUE")
+  ok(g["Ganka Boy"] and g["Ganka Boy"].by == "Tyrone", "a guildmate's guild rival arrives, with who added it")
+  -- in sight: amber, no noise, the guild told once a minute
+  W.notices, W.sounds = {}, {}
+  local nSent = #sent
+  plates.nameplate5 = CreateFrame("Frame", nil, nil) plates.nameplate5:SetSize(160, 20)
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  W.plates.nameplate5 = { name = "Ganka" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  local gm = RC.marks.nameplate5
+  ok(gm and gm.kind == "guild" and gm.parts[1].color[2] > 0.5, "a guild rival wears the AMBER crosshair")
+  ok(#W.notices == 0 and #W.sounds == 0, "and makes no noise")
+  ok(#sent == nSent + 1 and sent[#sent].cmd == "SEEN" and sent[#sent].args[1] == "Ganka Boy", "the guild is told they were seen")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate5")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(#sent == nSent + 1, "seen again within a minute: not said twice")
+  -- a guild rival who is also YOUR gold rival: red
+  RC.ToggleRival(rdb2, { player = true, title = "Ganka Boy", class = "ROGUE" })
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(RC.marks.nameplate5.kind == "own", "yours as well: red, your crosshair wins")
+  RC.ToggleRival(rdb2, { player = true, title = "Ganka Boy" })
+  -- someone else saw one
+  lib2.handlers.RIVAL.SEEN("Tyrone", "Kill Er", "Tarren Mill")
+  ok(g["Kill Er"].where == "Tarren Mill" and g["Kill Er"].seenBy == "Tyrone", "a guildmate's sighting: where, and by whom")
+  rdb2.expanded = true RC.SetExpanded(rdb2, true)
+  local grow
+  for _, b in ipairs(w.drawer.rows) do if b.rival == "Kill Er" then grow = b end end
+  ok(grow and grow.guild and grow.info.text:find("guild", 1, true) and grow.info.text:find("Tarren Mill (Tyrone)", 1, true)
+     and grow.mark.color[2] > 0.5, "the drawer: amber, guild, where and who saw them", grow and grow.info.text)
+  fitsIn(w.drawer, "the drawer with guild rivals")
+  -- guild rows: click = yours, shift-click = off the guild's list (and the guild told)
+  grow.scripts.OnClick(grow, "LeftButton")
+  ok(rivals["Kill Er"] and rivals["Kill Er"].active, "clicking a guild row makes them your gold rival")
+  RC.ToggleRival(rdb2, { player = true, title = "Kill Er" })
+  for _, b in ipairs(w.drawer.rows) do if b.rival == "Kill Er" then grow = b end end
+  W.shift = true grow.scripts.OnClick(grow, "LeftButton") W.shift = false
+  ok(g["Kill Er"] == nil and sent[#sent].cmd == "DEL", "shift-click takes them off the guild's list, for everyone")
+  lib2.handlers.RIVAL.DEL("Tyrone", "Ganka Boy")
+  ok(g["Ganka Boy"] == nil and RC.marks.nameplate5 == nil, "a guildmate's DEL: gone, crosshair and all")
+  -- a newcomer asks; one answer is enough
+  lib2.handlers.RIVAL.ADD("Tyrone", "Third Guy", "PRIEST")
+  -- (other tools' timers send too: only RIVAL LISTs are counted)
+  local function lists() local n, last = 0, nil for _, s in ipairs(sent) do if s.mod == "RIVAL" and s.cmd == "LIST" then n, last = n + 1, s end end return n, last end
+  local before = lists()
+  lib2.handlers.RIVAL.ASK("Newbie")
+  W.runAfters(5)
+  local nL, lastL = lists()
+  ok(nL == before + 1 and lastL.args[1] == "Third Guy", "asked: the list is sent")
+  lib2.handlers.RIVAL.ASK("Newbie")
+  lib2.handlers.RIVAL.LIST("Someone", "Third Guy", "PRIEST")
+  W.runAfters(5)
+  ok(lists() == before + 1, "somebody else answered first: we stand down")
+  lib2.handlers.RIVAL.LIST("Someone", "Fourth One", "WARLOCK", "Fifth One", "HUNTER")
+  ok(g["Fourth One"] and g["Fifth One"].class == "HUNTER", "a LIST is merged in")
+  lib2.handlers.RIVAL.ADD("Tyrone", "bad|name", "X")
+  lib2.handlers.RIVAL.ADD("Tyrone", ("x"):rep(60), "X")
+  ok(g["bad|name"] == nil and g[("x"):rep(60)] == nil, "a name with a pipe, or absurdly long, is refused")
+  -- the switch: off hides them and stops listening
+  for _, o in ipairs(R:Get("recap").options) do
+    if o.label == "guild rivals (amber)" then o.set(rdb2, false) end
+  end
+  W.plates.nameplate5 = { name = "Third" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(RC.marks.nameplate5 == nil, "guild rivals off: no amber crosshair")
+  lib2.handlers.RIVAL.ADD("Tyrone", "Sixth Guy", "PRIEST")
+  ok(g["Sixth Guy"] == nil, "and the guild's additions are not taken in")
+  rdb2.guildShow = nil
+
+  -- GUILDMATES IN PASSING (Arn: "while not in a party and we see their name plate no noise just a
+  -- small little cross hair ... turn off during party and raid and battleground")
+  local keepMine = _G.UnitIsInMyGuild
+  local mates = { nameplate6 = true }
+  _G.UnitIsInMyGuild = function(u) return mates[u] == true end
+  plates.nameplate6 = CreateFrame("Frame", nil, nil)
+  W.plates.nameplate6 = { name = "Tyrone" }
+  RC.solo = true
+  W.notices, W.sounds = {}, {}
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  local mate = RC.mates.nameplate6
+  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal +")
+  ok(#W.notices == 0 and #W.sounds == 0, "with no noise at all")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil and not mate.shown, "their plate goes: so does the +")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  local keepGroup = _G.IsInGroup
+  _G.IsInGroup = function() return true end
+  RC.frame.scripts.OnEvent(RC.frame, "GROUP_ROSTER_UPDATE")
+  ok(RC.mates.nameplate6 == nil and RC.solo == false, "join a group: every + goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "and none while grouped")
+  _G.IsInGroup = keepGroup
+  local keepInst = _G.IsInInstance
+  _G.IsInInstance = function() return true, "pvp" end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ENTERING_WORLD")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "nor in a battleground")
+  _G.IsInInstance = keepInst
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ENTERING_WORLD")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6, "alone again: back")
+  rdb2.mates = false RC.ClearMates()
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "'guildmates' off: none")
+  rdb2.mates = nil
+  -- LEAN: a town of strangers' plates, alone, nobody gold and no guild rivals: a name and a guild question each
+  local Cost2 = dofile("../_bisdev/dev/cost.lua")
+  for k in pairs(g) do g[k] = nil end
+  RC.SetActive(rdb2, "Hunting Moms", false) RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  W.plates.nameplate4 = { name = "Stranger" }
+  local nM = Cost2.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate4") end end)
+  ok(nM <= 500 * 3, "500 strangers' plates, guildmates on: at most 3 client calls each: " .. nM)
+  rdb2.mates = false
+  local nOff = Cost2.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate4") end end)
+  ok(nOff == 0, "and with everything off: none at all: " .. nOff)
+  print(("   cost: 500 plates alone = %d calls (guildmates on), %d (all off)"):format(nM, nOff))
+  rdb2.mates = nil
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  _G.UnitIsInMyGuild, _G.C_NamePlate.GetNamePlateForUnit = keepMine, keepGet
+  lib2.SendTo = keepSendTo
+  _G.Menu, _G.IsInGuild = nil, nil
+  W.plates.nameplate4, W.plates.nameplate5, W.plates.nameplate6 = nil, nil, nil
+
   -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
   -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way
   local said3 = {}
@@ -3052,11 +3195,14 @@ do
 
   -- LEAN: hunting nobody costs nothing; hunting someone costs a name check a nameplate
   local Cost = dofile("../_bisdev/dev/cost.lua")
+  -- (the guildmate + off here: it is measured with its own budget in the guild section)
+  rdb2.mates = false
   local n = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9") end end)
   ok(n <= 500 * 2, "500 strangers' nameplates with a gold rival: at most 2 client calls each: " .. n)
   RC.SetActive(rdb2, "Hunting Moms", false)
   local n0 = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") end end)
   ok(n0 == 0, "500 nameplates with nobody gold: no client calls at all: " .. n0)
+  rdb2.mates = nil
   print(("   cost: 500 nameplates = %d calls hunting someone, %d hunting nobody"):format(n, n0))
   _G.GetZoneText = keepZone
   W.plates.nameplate7, W.plates.nameplate8, W.plates.nameplate9, W.target = nil, nil, nil, nil

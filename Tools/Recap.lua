@@ -309,6 +309,7 @@ function RC.ToggleRival(db, a)
     RC.UnmarkRival(a.title)
     RC.ApplyButton(db)
     NS.Print("%s is no longer a rival", a.title)
+    RC.PaintRivals()                            -- the drawer, too (it kept showing them)
     return false
   end
   -- GOLD from the start: a rival you just clicked is the one you are hunting (Arn, 12 Oct: "current
@@ -376,6 +377,9 @@ RC.marks, RC.markPool = {}, {}
 RC.MARK_ARM, RC.MARK_THICK, RC.MARK_H = 8, 2, 70
 RC.MARK_WIDE, RC.MARK_W = 0.5, 60      -- half the plate's width; 60 px when the plate will not say
 RC.MARK_RED = { 1.00, 0.18, 0.18 }
+-- yours red; a GUILD rival, added by somebody else, amber - "show with a different color crosshair to
+-- know it was from someone else" (Arn, 12 Oct)
+RC.MARK_COLOUR = { own = RC.MARK_RED, guild = { 1.00, 0.62, 0.10 } }
 
 local function bar(f, layer, r, g, b)
   local t = f:CreateTexture(nil, layer)
@@ -400,9 +404,9 @@ end
 RC.STYLES = { "rails", "L", "aim", "box" }    -- short: four share one options control
 RC.SIGHT_LEN = 14
 
-local function crosshair(f, style)
+local function crosshair(f, style, colour)
   local T, A = RC.MARK_THICK, RC.MARK_ARM
-  local c = RC.MARK_RED
+  local c = colour or RC.MARK_RED
   -- a fixed-size piece at one anchor
   local function piece(point, w, h, x, y)
     local o = bar(f, "BORDER", 0, 0, 0)
@@ -455,20 +459,21 @@ function RC.SetStyle(db, style)
   if not valid then return false end
   db.style = style
   local live = {}
-  for unit, f in pairs(RC.marks) do live[unit] = f.rival end
+  for unit, f in pairs(RC.marks) do live[unit] = { f.rival, f.kind } end
   for unit in pairs(live) do RC.UnmarkUnit(unit) end
-  for _, f in ipairs(RC.markPool) do f:Hide() end
+  for _, pool in pairs(RC.markPool) do for _, f in ipairs(pool) do f:Hide() end end
   RC.markPool = {}                                -- frames of the old shape are not reused
   RC.style = style
-  for unit, rival in pairs(live) do RC.MarkPlate(unit, rival) end
+  for unit, m in pairs(live) do RC.MarkPlate(unit, m[1], m[2]) end
   return true
 end
 
-local function newMark()
+local function newMark(kind)
   local f = CreateFrame("Frame", nil, UIParent)
   f:SetFrameStrata("BACKGROUND")
   f.parts = {}
-  crosshair(f, RC.style or "rails")
+  f.kind = kind
+  crosshair(f, RC.style or "rails", RC.MARK_COLOUR[kind] or RC.MARK_RED)
   if f.CreateAnimationGroup then
     local ok, pulse = pcall(f.CreateAnimationGroup, f)
     if ok and pulse then
@@ -483,16 +488,21 @@ local function newMark()
 end
 
 --- Put the crosshair on this nameplate unit for that rival. Answers true when it stands.
-function RC.MarkPlate(unit, rival)
+function RC.MarkPlate(unit, rival, kind)
+  kind = kind or "own"
   if type(unit) ~= "string" or not unit:find("^nameplate") then return false end
-  if RC.marks[unit] then RC.marks[unit].rival = rival return true end
+  if RC.marks[unit] then
+    if RC.marks[unit].kind == kind then RC.marks[unit].rival = rival return true end
+    RC.UnmarkUnit(unit)                          -- a guild rival who became yours: redrawn in your colour
+  end
   local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
   if not get then return false end
   local okP, plate = pcall(get, unit)
   if not okP or not plate then return false end
   local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
   if not okF or forbidden then return false end
-  local f = table.remove(RC.markPool) or newMark()
+  RC.markPool[kind] = RC.markPool[kind] or {}
+  local f = table.remove(RC.markPool[kind]) or newMark(kind)
   -- under the plate, centred, HALF its width (Arn, seeing them in game: "maybe we can tighten it up
   -- 50%" - a plate is far wider than a body), MARK_H tall: the rails frame the body below the name
   local placed = pcall(function()
@@ -502,7 +512,7 @@ function RC.MarkPlate(unit, rival)
     f:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
     f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
   end)
-  if not placed then RC.markPool[#RC.markPool + 1] = f return false end
+  if not placed then table.insert(RC.markPool[kind], f) return false end
   f.rival, f.unit = rival, unit
   f:Show()
   if f.pulse then f.pulse:Play() end
@@ -518,12 +528,215 @@ function RC.UnmarkUnit(unit)
   f:Hide()
   f:ClearAllPoints()
   RC.marks[unit] = nil
-  RC.markPool[#RC.markPool + 1] = f
+  RC.markPool[f.kind or "own"] = RC.markPool[f.kind or "own"] or {}
+  table.insert(RC.markPool[f.kind or "own"], f)
 end
 function RC.UnmarkRival(rival)
   for unit, f in pairs(RC.marks) do
     if f.rival == rival then RC.UnmarkUnit(unit) end
   end
+end
+
+-- ---------------------------------------------------------------- guild rivals
+-- Arn, 12 Oct: "yes build it and lets make it a toggle dont show guild rivals etc or show with a
+-- different color crosshair to know it was from someone else". A GUILD rival is on everyone's list:
+-- added from the right-click menu, learned by every guildmate running BiS Tools, drawn AMBER where
+-- yours are red. Whoever has one in sight says so to the guild - once a minute per rival - and the
+-- drawer shows who saw them where. Over LibBiSComm's GUILD channel (a guild-scoped MOD, BiSLoot's
+-- road): the lib only lets a guild-roster sender in, drops our own echo, and limits each sender.
+--   ADD|name|class   DEL|name   SEEN|name|where   ASK   LIST|name|class|name|class...
+-- A newcomer ASKs once; one guildmate answers (whoever's jittered timer fires first - the others
+-- hear the LIST and stand down).
+RC.MOD, RC.SEEN_GAP, RC.LIST_PER = "RIVAL", 60, 6
+
+function RC.GuildRivals(db)
+  db.guildRivals = type(db.guildRivals) == "table" and db.guildRivals or {}
+  return db.guildRivals
+end
+
+local function cleanName(v)
+  if type(v) ~= "string" or hidden(v) or v == "" or #v > 48 or v:find("[|\n]") then return nil end
+  return v
+end
+
+local function lib()
+  local l = NS.Comm and NS.Comm.Lib and NS.Comm.Lib()
+  if l and l.Enabled and l:Enabled() then return l end
+  return nil
+end
+
+local function send(cmd, ...)
+  local l = lib()
+  if not l then return false end
+  return l:SendTo("GUILD", RC.MOD, cmd, ...)
+end
+
+--- A guild rival in, from you (sent) or from the guild (quiet).
+function RC.GuildAdd(db, name, class, by, fromGuild)
+  name = cleanName(name)
+  if not name then return false end
+  local g = RC.GuildRivals(db)
+  local e = g[name] or { added = time and time() or 0 }
+  e.class = (type(class) == "string" and class ~= "" and not hidden(class)) and class or e.class
+  e.by = e.by or by
+  g[name] = e
+  if not fromGuild then
+    send("ADD", name, e.class or "")
+    NS.Print("%s is a guild rival now - the guild sees them in amber", T.text("warn", name))
+  end
+  RC.PaintRivals()
+  return true
+end
+
+function RC.GuildDel(db, name, fromGuild)
+  name = cleanName(name)
+  if not name or not RC.GuildRivals(db)[name] then return false end
+  RC.GuildRivals(db)[name] = nil
+  for unit, f in pairs(RC.marks) do
+    if f.rival == name and f.kind == "guild" then RC.UnmarkUnit(unit) end
+  end
+  if not fromGuild then send("DEL", name) NS.Print("%s is off the guild's rivals", name) end
+  RC.PaintRivals()
+  return true
+end
+
+--- The guild rival a name belongs to (whole name, or the character name alone), or nil.
+function RC.FindGuild(db, name)
+  if type(name) ~= "string" then return nil end
+  local g = RC.GuildRivals(db)
+  if g[name] then return g[name], name end
+  for key, e in pairs(g) do
+    if key:match("^(%S+)") == name then return e, key end
+  end
+  return nil
+end
+
+-- what the guild hears
+function RC.OnGuild(db, sender, cmd, a, b, ...)
+  if db.guildShow == false and cmd ~= "ASK" then return end   -- switched off: deaf to it
+  if cmd == "ADD" then
+    RC.GuildAdd(db, a, b, sender, true)
+  elseif cmd == "DEL" then
+    RC.GuildDel(db, a, true)
+  elseif cmd == "SEEN" then
+    local name = cleanName(a)
+    local e = name and RC.GuildRivals(db)[name]
+    if e then
+      e.seen = time and time() or 0
+      e.where = cleanName(b) or ""
+      e.seenBy = cleanName(sender)
+      RC.PaintRivals()
+    end
+  elseif cmd == "ASK" then
+    if not next(RC.GuildRivals(db)) then return end
+    local asked = GetTime and GetTime() or 0
+    RC.askedAt = asked
+    local after = (C_Timer and C_Timer.After)
+    if not after then return end
+    after(1 + math.random() * 3, function()
+      if RC.listHeardAt and RC.listHeardAt >= asked then return end   -- somebody answered first
+      RC.SendList(db)
+    end)
+  elseif cmd == "LIST" then
+    RC.listHeardAt = GetTime and GetTime() or 0
+    local pairs_ = { a, b, ... }
+    for i = 1, #pairs_, 2 do RC.GuildAdd(db, pairs_[i], pairs_[i + 1], sender, true) end
+  end
+end
+
+function RC.SendList(db)
+  local names = {}
+  for name in pairs(RC.GuildRivals(db)) do names[#names + 1] = name end
+  table.sort(names)
+  for i = 1, #names, RC.LIST_PER do
+    local args = {}
+    for j = i, math.min(#names, i + RC.LIST_PER - 1) do
+      args[#args + 1] = names[j]
+      args[#args + 1] = RC.GuildRivals(db)[names[j]].class or ""
+    end
+    send("LIST", unpack(args))
+  end
+end
+
+function RC.HookGuild(db)
+  local l = NS.Comm and NS.Comm.Lib and NS.Comm.Lib()
+  if not (l and l.RegisterGuildMod and l.RegisterHandler) or RC.guildHooked then return false end
+  l:RegisterGuildMod(RC.MOD)
+  for _, cmd in ipairs({ "ADD", "DEL", "SEEN", "ASK", "LIST" }) do
+    l:RegisterHandler(RC.MOD, cmd, function(sender, ...) RC.OnGuild(db, sender, cmd, ...) end)
+  end
+  RC.guildHooked = true
+  -- a newcomer asks once, after the roster has had time to arrive
+  if C_Timer and C_Timer.After then
+    C_Timer.After(15, function() if IsInGuild and IsInGuild() and db.guildShow ~= false then send("ASK") end end)
+  end
+  return true
+end
+
+-- ---------------------------------------------------------------- guildmates, in passing
+-- Arn, 12 Oct: "while not in a party and we see their name plate no noise just a small little cross
+-- hair or something so if we pass by each other in town but turn off during party and raid and
+-- battleground so its not spammy". A small teal + under a guildmate's nameplate; nothing else. Only
+-- while SOLO - not in a group, not in a battleground or arena - and gone the moment that changes.
+RC.mates = {}
+RC.matePool = {}
+RC.MATE = { 0.31, 0.82, 0.81 }
+
+function RC.Solo()
+  if IsInGroup and IsInGroup() then return false end
+  if IsInInstance then
+    local ok, inside, kind = pcall(IsInInstance)
+    if ok and not hidden(kind) and (kind == "pvp" or kind == "arena") then return false end
+  end
+  return true
+end
+
+local function newMate()
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f:SetSize(11, 11)
+  local c = RC.MATE
+  for _, d in ipairs({ { 11, 2 }, { 2, 11 } }) do
+    local o = bar(f, "BORDER", 0, 0, 0) o:SetPoint("CENTER") o:SetSize(d[1] + 2, d[2] + 2)
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3]) t:SetPoint("CENTER") t:SetSize(d[1], d[2])
+    f.bar = t
+  end
+  return f
+end
+
+function RC.MarkMate(unit)
+  if RC.mates[unit] then return true end
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return false end
+  local okP, plate = pcall(get, unit)
+  if not okP or not plate then return false end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return false end
+  local f = table.remove(RC.matePool) or newMate()
+  if not pcall(function() f:ClearAllPoints() f:SetPoint("TOP", plate, "BOTTOM", 0, -2) end) then
+    table.insert(RC.matePool, f)
+    return false
+  end
+  f:Show()
+  RC.mates[unit] = f
+  return true
+end
+
+function RC.UnmarkMate(unit)
+  local f = RC.mates[unit]
+  if not f then return end
+  f:Hide() f:ClearAllPoints()
+  RC.mates[unit] = nil
+  table.insert(RC.matePool, f)
+end
+
+function RC.ClearMates() for unit in pairs(RC.mates) do RC.UnmarkMate(unit) end end
+
+--- Is this nameplate a guildmate? A plain yes only.
+local function isMate(unit)
+  if not UnitIsInMyGuild then return false end
+  local ok, yes = pcall(UnitIsInMyGuild, unit)
+  return ok and not hidden(yes) and yes == true
 end
 
 -- ---------------------------------------------------------------- the rival target button
@@ -655,6 +868,19 @@ function RC.MenuLines(db, root, ctx)
     end
     RC.ToggleRival(db, { player = true, title = name, class = class, key = guid })
   end)
+  -- and the guild's list, for a player in a guild with the guild rivals on
+  if IsInGuild and IsInGuild() and db.guildShow ~= false then
+    local g, gkey = RC.FindGuild(db, name)
+    root:CreateButton(g and "BiS: remove guild rival" or "BiS: add guild rival", function()
+      if g then RC.GuildDel(db, gkey) return end
+      local unit, class = field(ctx, "unit"), nil
+      if type(unit) == "string" then
+        local okC, _, c = pcall(UnitClass, unit)
+        if okC and type(c) == "string" and not hidden(c) then class = c end
+      end
+      RC.GuildAdd(db, name, class, nil, false)
+    end)
+  end
 end
 
 function RC.HookMenus(db)
@@ -681,14 +907,42 @@ function RC.Find(db, name)
   return nil
 end
 
+--- A guild rival in sight: the amber crosshair, and the guild told - once a minute per rival.
+local function spotGuild(db, unit, e, full)
+  RC.MarkPlate(unit, full, "guild")
+  local now = GetTime and GetTime() or 0
+  e.seen = time and time() or 0
+  e.where = place()
+  e.seenBy = nil
+  if not e.sentAt or now - e.sentAt >= RC.SEEN_GAP then
+    e.sentAt = now
+    send("SEEN", full, e.where or "")
+  end
+  RC.PaintRivals()
+  return looked(unit, full, "a guild rival - amber, the guild told")
+end
+
 function RC.Spot(db, unit)
-  if RC.GoldCount(db) == 0 then return looked(unit, nil, "nobody is gold") end
+  local gold = RC.GoldCount(db) > 0
+  local guild = db.guildShow ~= false and next(RC.GuildRivals(db)) ~= nil
+  local mates = db.mates ~= false and RC.solo ~= false and type(unit) == "string" and unit:find("^nameplate") ~= nil
+  -- nothing to look for: no client call at all (a city of nameplates costs nothing)
+  if not (gold or guild or mates) then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
   if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
   local r, full = RC.Find(db, name)
-  if not r then return looked(unit, name, "not a rival") end
+  if not (r and r.active) then
+    local e, gfull = nil, nil
+    if guild then e, gfull = RC.FindGuild(db, name) end
+    if e then return spotGuild(db, unit, e, gfull) end
+    if mates and isMate(unit) then
+      RC.MarkMate(unit)
+      return looked(unit, name, "a guildmate - the small +")
+    end
+    if not r then return looked(unit, name, "not a rival") end
+    return looked(unit, full, "a silver rival")
+  end
   name = full                                    -- called out by the name the recap knows them by
-  if not r.active then return looked(unit, name, "a silver rival") end
   RC.MarkPlate(unit, full)                       -- gold: the crosshair, whether or not it is called out now
   local now = GetTime and GetTime() or 0
   r.seen = time and time() or 0
@@ -890,6 +1144,13 @@ function RC.Build(db)
     b.info = F.fs(b, "", 8, "muted")    b.info:SetPoint("RIGHT", b, "RIGHT", 0, 0)
     b:SetScript("OnClick", function(self)
       if not self.rival then return end
+      -- a GUILD row: click = make them yours (gold), shift-click = off the guild's list
+      if self.guild then
+        local e = RC.GuildRivals(db)[self.rival]
+        if IsShiftKeyDown and IsShiftKeyDown() then RC.GuildDel(db, self.rival)
+        elseif e then RC.ToggleRival(db, { player = true, title = self.rival, class = e.class }) end
+        return
+      end
       if IsShiftKeyDown and IsShiftKeyDown() then
         RC.Rivals(db)[self.rival] = nil
         RC.UnmarkRival(self.rival)
@@ -904,7 +1165,8 @@ function RC.Build(db)
       if not (self.rival and GameTooltip) then return end
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
       GameTooltip:AddLine(self.rival)
-      GameTooltip:AddLine("Click: gold (hunting) or silver. Shift-click: forget.", 1, 1, 1, true)
+      GameTooltip:AddLine(self.guild and "A guild rival. Click: make them yours. Shift-click: off the guild's list."
+        or "Click: gold (hunting) or silver. Shift-click: forget.", 1, 1, 1, true)
       GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -1050,27 +1312,40 @@ function RC.PaintRivals()
   local f, db = RC.win, RC.db
   if not (f and f.drawer and db) then return end
   local d, F = f.drawer, K()
+  -- yours gold, then the guild's (amber), then yours silver; the most recently seen first in each
   local list = {}
-  for name, r in pairs(RC.Rivals(db)) do list[#list + 1] = { name = name, r = r } end
+  for name, r in pairs(RC.Rivals(db)) do list[#list + 1] = { name = name, r = r, rank = r.active and 1 or 3 } end
+  if db.guildShow ~= false then
+    for name, e in pairs(RC.GuildRivals(db)) do
+      if not RC.Rivals(db)[name] then list[#list + 1] = { name = name, r = e, rank = 2, guild = true } end
+    end
+  end
   table.sort(list, function(x, y)
-    if (x.r.active and true or false) ~= (y.r.active and true or false) then return x.r.active and true or false end
+    if x.rank ~= y.rank then return x.rank < y.rank end
     return (x.r.seen or x.r.added or 0) > (y.r.seen or y.r.added or 0)
   end)
   for i, b in ipairs(d.rows) do
     local e = list[i]
     if e then
-      b.rival = e.name
-      local gold = e.r.active
-      local mr, mg, mb = F.color(gold and "gold" or "dim")
+      b.rival, b.guild = e.name, e.guild
+      local gold = e.r.active or e.guild
+      local mr, mg, mb
+      if e.guild then mr, mg, mb = unpack(RC.MARK_COLOUR.guild) else mr, mg, mb = F.color(gold and "gold" or "dim") end
       b.mark:SetColorTexture(mr, mg, mb, 1)
       b.name:SetText(e.name)
       local cc = e.r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.r.class]
       if cc then b.name:SetTextColor(cc.r, cc.g, cc.b, gold and 1 or 0.55)
       else local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, gold and 1 or 0.55) end
       local bits = {}
+      if e.guild then bits[#bits + 1] = "guild" end
       if (e.r.kills or 0) > 0 then bits[#bits + 1] = ("killed you %d"):format(e.r.kills) end
       local seen = ago(e.r.seen)
-      if seen then bits[#bits + 1] = "seen " .. seen .. ((e.r.where and e.r.where ~= "") and (", " .. e.r.where) or "") end
+      if seen then
+        bits[#bits + 1] = "seen " .. seen .. ((e.r.where and e.r.where ~= "") and (", " .. e.r.where) or "")
+          .. ((e.guild and e.r.seenBy) and (" (" .. e.r.seenBy .. ")") or "")
+      elseif e.guild and e.r.by then
+        bits[#bits + 1] = "from " .. e.r.by
+      end
       fitText(b.info, table.concat(bits, " · "), RC.W - 160)
       b:Show()
     else
@@ -1146,6 +1421,12 @@ function RC.OnEvent(_, event, unit)
   -- THE TRACKER: a nameplate appearing, a new target, the mouse on someone
   if event == "NAME_PLATE_UNIT_REMOVED" then
     if RC.marks[unit] then RC.UnmarkUnit(unit) end
+    if RC.mates[unit] then RC.UnmarkMate(unit) end
+    return
+  elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+    -- the guildmate + is for passing each other alone: a group, a battleground or an arena ends it
+    RC.solo = RC.Solo()
+    if not RC.solo then RC.ClearMates() end
     return
   elseif event == "NAME_PLATE_UNIT_ADDED" then
     if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
@@ -1181,7 +1462,8 @@ end
 
 RC.frame = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_DEAD", "PLAYER_REGEN_ENABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE",
-                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT" }) do
+                     "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT",
+                     "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD" }) do
   RC.frame:RegisterEvent(e)
 end
 RC.frame:SetScript("OnEvent", RC.OnEvent)
@@ -1198,6 +1480,14 @@ NS.Registry:Register({
       set = function(db, on) db.sound = on and true or false end },
     { kind = "seg", label = "crosshair", values = RC.STYLES, get = function(db) return db.style or "rails" end,
       set = function(db, v) RC.SetStyle(db, v) end },
+    { kind = "toggle", label = "guild rivals (amber)", get = function(db) return db.guildShow ~= false end,
+      set = function(db, on)
+        db.guildShow = on and true or false
+        if not on then for unit, f in pairs(RC.marks) do if f.kind == "guild" then RC.UnmarkUnit(unit) end end end
+        RC.PaintRivals()
+      end },
+    { kind = "toggle", label = "guildmates (+, alone)", get = function(db) return db.mates ~= false end,
+      set = function(db, on) db.mates = on and true or false if not on then RC.ClearMates() end end },
     { kind = "toggle", label = "rival target button", get = function(db) return db.button ~= false end,
       set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
   },
@@ -1208,10 +1498,11 @@ NS.Registry:Register({
   OnDisable = function(_, db)
     if RC.win then RC.win:Hide() end
     for unit in pairs(RC.marks) do RC.UnmarkUnit(unit) end
+    RC.ClearMates()
     RC.ApplyButton(db)
   end,
   OnEnable = function(_, db) RC.ApplyButton(db) end,
-  OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) end,
+  OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) RC.HookGuild(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
     local style = args:match("^style%s*(%S*)$")
