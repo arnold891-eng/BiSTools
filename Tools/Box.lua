@@ -1,0 +1,173 @@
+-- BiSTools / Tools / Box.lua
+-- THE BUTTONS, IN ONE TIDY BOX (12 Oct 2026). Arn, asked where the farm's target button should go:
+-- "lets keep all button neat maybe in a bis farm box, like the bis now, maybe if we have bis now it just
+-- puts the button there cross addon".
+--
+-- "BiS> tools": a small header and a row of buttons - the farm's target button (F.TargetButton, the
+-- farm key, now with a face and a skull) and the rival target button (Recap.lua). Each shows only when
+-- it has something to do: a mob being farmed, a rival in gold. No button, no box.
+--
+-- BESIDE BiS> NOW, NOT INSIDE IT. When BiS Healing's "BiS> now" block is up, this box docks to its right
+-- edge and moves with it, so the two read as one strip; without it, the box stands where you dragged it.
+-- Putting these buttons INSIDE BiS Healing's block would mean two addons rewriting one set of secure
+-- buttons - each would have to know the other's layout and combat queue. Side by side, either addon
+-- still works alone.
+--
+-- Everything here is out of combat: the box holds secure buttons, so moving, showing or re-parenting it
+-- in a fight is refused. A change asked for in combat waits for PLAYER_REGEN_ENABLED.
+local _, NS = ...
+local R = NS.Registry
+
+local B = { SIZE = 28, GAP = 3, PAD = 4, HEADER = 14, MIN_W = 70 }
+NS.Box = B
+
+local function K() return NS.Farm end
+
+function B.DB()
+  local d = NS.DB()
+  d.box = type(d.box) == "table" and d.box or {}
+  return d.box
+end
+
+function B.Build()
+  if B.frame then return B.frame end
+  local F = K()
+  local f = CreateFrame("Frame", "BiSToolsBox", UIParent)
+  f:SetFrameStrata("MEDIUM")
+  f:SetMovable(true)
+  f:SetClampedToScreen(true)
+  F.tex(f, "BACKGROUND", "frame", 0.85)
+  F.border(f, "edge", 0.6)
+  -- the header: the family's "BiS>" and a word; drag it to move the box (when it is not docked)
+  local head = CreateFrame("Frame", nil, f)
+  head:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
+  head:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+  head:SetHeight(B.HEADER)
+  F.tex(head, "BACKGROUND", "header", 0.9)
+  head.label = F.fs(head, "", 8, "ink")
+  head.label:SetPoint("LEFT", head, "LEFT", 4, 0)
+  head.label:SetText(NS.T.text("accent", "BiS>") .. " tools")
+  head:EnableMouse(true)
+  head:RegisterForDrag("LeftButton")
+  head:SetScript("OnDragStart", function()
+    if B.docked or (InCombatLockdown and InCombatLockdown()) then return end
+    f:StartMoving()
+  end)
+  head:SetScript("OnDragStop", function()
+    f:StopMovingOrSizing()
+    local point, _, rel, x, y = f:GetPoint(1)
+    B.DB().pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+  end)
+  f.head = head
+  f:Hide()
+  B.frame = f
+  return f
+end
+
+--- Give a button a face: a dark well, the icon, a coloured edge.
+local function dress(b, icon, edge)
+  if b.boxed then return end
+  local F = K()
+  F.tex(b, "BACKGROUND", "field", 0.95)
+  b.icon = b.icon or b:CreateTexture(nil, "ARTWORK")
+  b.icon:SetPoint("TOPLEFT", 2, -2) b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+  b.icon:SetTexture(icon)
+  b.edge = b.edge or F.border(b, edge, 1)
+  b.boxed = true
+end
+
+--- The buttons the box may hold, each with when it shows.
+function B.Buttons()
+  local out = {}
+  local F, RC = K(), NS.Recap
+  if F and F.TargetButton then
+    local fb = F.TargetButton()
+    dress(fb, "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8", "accent")
+    if not fb.tipped then
+      fb:HookScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Target " .. tostring(F.db and F.db.active or "the mob you farm"))
+        GameTooltip:AddLine("A fresh copy, with the skull. /bist farm key <key> binds it.", 1, 1, 1, true)
+        GameTooltip:Show()
+      end)
+      fb:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+      fb.tipped = true
+    end
+    local fdb = F.db
+    out[#out + 1] = { b = fb, show = R:Enabled("farm") and fdb and fdb.active and fdb.button ~= false and true or false }
+  end
+  if RC and RC.tbtn then
+    local db = R:DBFor(R:Get("recap"))
+    out[#out + 1] = { b = RC.tbtn, show = (RC.tbtn.count or 0) > 0 and db.button ~= false and R:Enabled("recap") }
+  end
+  return out
+end
+
+--- Where the box stands: docked to BiS> now when it is up, else where it was dragged.
+function B.Place()
+  local f = B.frame
+  if not f then return end
+  local now = _G.BiSHealingNowBlock
+  f:ClearAllPoints()
+  if now and now.IsShown and now:IsShown() then
+    f:SetPoint("TOPLEFT", now, "TOPRIGHT", 6, 0)
+    B.docked = true
+    -- BiS> now showing or hiding moves us too (hooked once; out of combat, like every relayout)
+    if not B.nowHooked and now.HookScript then
+      now:HookScript("OnShow", function() B.Refresh() end)
+      now:HookScript("OnHide", function() B.Refresh() end)
+      B.nowHooked = true
+    end
+  else
+    local pos = B.DB().pos or { "CENTER", 0, -180, "CENTER" }
+    f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
+    B.docked = false
+  end
+end
+
+--- Lay the box out: the buttons that have something to do, left to right; none, no box.
+function B.Refresh()
+  if InCombatLockdown and InCombatLockdown() then B.dirty = true return false end
+  B.dirty = nil
+  local f = B.Build()
+  local n = 0
+  for _, e in ipairs(B.Buttons()) do
+    local b = e.b
+    if b:GetParent() ~= f then b:SetParent(f) end
+    b:ClearAllPoints()
+    if e.show then
+      b:SetSize(B.SIZE, B.SIZE)
+      b:SetPoint("TOPLEFT", f, "TOPLEFT", B.PAD + n * (B.SIZE + B.GAP), -B.PAD)
+      b:Show()
+      n = n + 1
+    else
+      b:Hide()
+    end
+  end
+  B.count = n
+  if n == 0 then f:Hide() return true end
+  f:SetSize(math.max(B.MIN_W, B.PAD * 2 + n * B.SIZE + (n - 1) * B.GAP), B.SIZE + B.PAD * 2)
+  B.Place()
+  f:Show()
+  return true
+end
+
+-- a tool switched on or off changes what the box holds
+do
+  local set = R.SetEnabled
+  function R:SetEnabled(...)
+    local r = set(self, ...)
+    B.Refresh()
+    return r
+  end
+end
+
+local ev = CreateFrame("Frame")
+ev:RegisterEvent("PLAYER_LOGIN")
+ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+ev:SetScript("OnEvent", function(_, event)
+  if event == "PLAYER_REGEN_ENABLED" and not B.dirty then return end
+  B.Refresh()
+end)
+B.events = ev

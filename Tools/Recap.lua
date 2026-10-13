@@ -377,9 +377,11 @@ RC.marks, RC.markPool = {}, {}
 RC.MARK_ARM, RC.MARK_THICK, RC.MARK_H = 8, 2, 70
 RC.MARK_WIDE, RC.MARK_W = 0.5, 60      -- half the plate's width; 60 px when the plate will not say
 RC.MARK_RED = { 1.00, 0.18, 0.18 }
--- yours red; a GUILD rival, added by somebody else, amber - "show with a different color crosshair to
--- know it was from someone else" (Arn, 12 Oct)
-RC.MARK_COLOUR = { own = RC.MARK_RED, guild = { 1.00, 0.62, 0.10 } }
+-- RED FOR PLAYERS, PURPLE FOR MOBS (Arn, 12 Oct: "lets keep red for players purple for mobs?"). Your rivals
+-- red; a GUILD rival, added by somebody else, amber ("show with a different color crosshair to know it was
+-- from someone else"); the mob you farm and the mobs RestedXP's guide wants (FarmGuide.lua), BiS purple.
+RC.MOB_PURPLE = { 0.73, 0.50, 1.00 }
+RC.MARK_COLOUR = { own = RC.MARK_RED, guild = { 1.00, 0.62, 0.10 }, farm = RC.MOB_PURPLE, guide = RC.MOB_PURPLE }
 
 local function bar(f, layer, r, g, b)
   local t = f:CreateTexture(nil, layer)
@@ -776,19 +778,7 @@ function RC.TargetButton(db)
   b.icon:SetPoint("TOPLEFT", 2, -2) b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
   b.icon:SetTexture("Interface\\Icons\\Ability_Hunter_SniperShot")
   b.edge = F.border(b, "warn", 1)
-  -- RIGHT-drag moves it: the left button is the trigger. Never in a fight - it is a secure frame.
-  b:SetMovable(true)
-  b:SetClampedToScreen(true)
-  b:RegisterForDrag("RightButton")
-  b:SetScript("OnDragStart", function(self)
-    if InCombatLockdown and InCombatLockdown() then return end
-    self:StartMoving()
-  end)
-  b:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    local point, _, rel, x, y = self:GetPoint(1)
-    db.btnPos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
-  end)
+  -- it lives in the "BiS> tools" box (Box.lua), which places, moves and shows it
   b:SetScript("OnEnter", function(self)
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -797,12 +787,10 @@ function RC.TargetButton(db)
     for name, r in pairs(RC.Rivals(db)) do if r.active then gold[#gold + 1] = name end end
     table.sort(gold)
     GameTooltip:AddLine(table.concat(gold, ", "), 1, 0.82, 0.2, true)
-    GameTooltip:AddLine("Right-drag to move. /bist recap key <key> binds it.", 1, 1, 1, true)
+    GameTooltip:AddLine("/bist recap key <key> binds it.", 1, 1, 1, true)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
-  local pos = db.btnPos or { "CENTER", 0, -160, "CENTER" }
-  b:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
   b:Hide()
   RC.tbtn = b
   return b
@@ -817,7 +805,9 @@ function RC.ApplyButton(db)
   local macro, n = RC.TargetMacro(db)
   b:SetAttribute("macrotext", macro)
   b.count = n
-  if n > 0 and db.button ~= false and R:Enabled("recap") then b:Show() else b:Hide() end
+  -- shown, placed and hidden by the box; without one (it loads later), shown here
+  if NS.Box and NS.Box.Refresh then NS.Box.Refresh()
+  elseif n > 0 and db.button ~= false and R:Enabled("recap") then b:Show() else b:Hide() end
   ClearOverrideBindings(b)
   if db.key and n > 0 and R:Enabled("recap") then SetOverrideBindingClick(b, true, db.key, "BiSToolsRivalTarget") end
   return true
@@ -922,14 +912,50 @@ local function spotGuild(db, unit, e, full)
   return looked(unit, full, "a guild rival - amber, the guild told")
 end
 
+--- Take every crosshair of one kind down (the farm moved on to another mob, or stopped).
+function RC.ClearKind(kind)
+  for unit, f in pairs(RC.marks) do if f.kind == kind then RC.UnmarkUnit(unit) end end
+end
+
+--- Is this a mob RestedXP's guide wants right now? Only while the farm tool shows the guide's mobs.
+local function guideWants(name)
+  local F = NS.Farm
+  local G, fdb = F and F.Guide, F and F.db
+  if not (G and G.mobs and #G.mobs > 0 and fdb and fdb.guide ~= false and fdb.cross ~= false and R:Enabled("farm")) then
+    return false
+  end
+  if name == nil then return true end           -- asked only "is there a list at all"
+  for _, n in ipairs(G.mobs) do if n == name then return true end end
+  return false
+end
+
+--- The farm tool's mob, when it is farming one and wants the crosshair - or nil.
+local function farmMob()
+  local F = NS.Farm
+  local fdb = F and F.db
+  if not (fdb and fdb.active and fdb.cross ~= false and R:Enabled("farm")) then return nil end
+  return fdb.active
+end
+
 function RC.Spot(db, unit)
   local gold = RC.GoldCount(db) > 0
+  local farm = type(unit) == "string" and unit:find("^nameplate") ~= nil and farmMob() or nil
   local guild = db.guildShow ~= false and next(RC.GuildRivals(db)) ~= nil
   local mates = db.mates ~= false and RC.solo ~= false and type(unit) == "string" and unit:find("^nameplate") ~= nil
   -- nothing to look for: no client call at all (a city of nameplates costs nothing)
-  if not (gold or guild or mates) then return looked(unit, nil, "nobody is gold") end
+  local guide = type(unit) == "string" and unit:find("^nameplate") ~= nil and guideWants(nil)
+  if not (gold or guild or mates or farm or guide) then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
   if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
+  -- the farmed mob: a clean copy (alive, untapped, attackable - the farm tool's own test) goes green
+  if farm and name == farm then
+    if NS.Farm.Clean(unit) then RC.MarkPlate(unit, name, "farm") end
+    return looked(unit, name, "the mob you farm")
+  end
+  if guide and guideWants(name) then
+    if NS.Farm.Clean(unit) then RC.MarkPlate(unit, name, "guide") end
+    return looked(unit, name, "a mob the RestedXP guide wants")
+  end
   local r, full = RC.Find(db, name)
   if not (r and r.active) then
     local e, gfull = nil, nil
@@ -1456,6 +1482,30 @@ function RC.OnEvent(_, event, unit)
     if RC.win and RC.win:IsShown() then
       local ok, dead = pcall(function() return UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") end)
       if ok and not hidden(dead) and not dead then RC.win:Hide() end
+    end
+  end
+end
+
+-- the farm moving to another mob (or stopping) takes the old green crosshairs down
+do
+  local F = NS.Farm
+  if F and F.SetActive then
+    local set = F.SetActive
+    F.SetActive = function(...)
+      local r = set(...)
+      RC.ClearKind("farm")
+      if NS.Box and NS.Box.Refresh then NS.Box.Refresh() end
+      return r
+    end
+  end
+  -- and a new guide step takes the old step's blue crosshairs down
+  local G = F and F.Guide
+  if G and G.Take then
+    local take = G.Take
+    G.Take = function(...)
+      local r = take(...)
+      RC.ClearKind("guide")
+      return r
     end
   end
 end

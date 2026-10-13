@@ -734,6 +734,13 @@ NS.Registry:Register({
     end
   end,
   options = {
+    -- the crosshair on the mob you farm (green) and on RestedXP's targets (blue) - drawn by the recap
+    -- tool's nameplate marks, in the style picked there (Arn, 12 Oct)
+    { kind = "toggle", label = "crosshair on the mob", get = function(db) return db.cross ~= false end,
+      set = function(db, on)
+        db.cross = on and true or false
+        if not on and NS.Recap then NS.Recap.ClearKind("farm") NS.Recap.ClearKind("guide") end
+      end },
     { kind = "seg", label = "find sound", values = F.SOUND_MODES,
       get = function(db) return db.sound or "first" end, set = function(db, v) F.SetSound(db, v) end },
     { kind = "step", label = "spot radius", min = 5, max = 60, step = 5, unit = "yd",

@@ -273,6 +273,16 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
+  -- RE-PARENTED, and REFUSED in combat for a secure frame - the client's rule (12 Oct 2026, the box)
+  function f:SetParent(p)
+    if W.combat and self.template and self.template:find("Secure") then error("SetParent on a secure frame in combat", 2) end
+    self.parent = p
+  end
+  -- HookScript CHAINS after what is there, as the client's does (12 Oct 2026, the BiS> tools box)
+  function f:HookScript(k, fn)
+    local prev = self.scripts[k]
+    self.scripts[k] = prev and function(...) prev(...) return fn(...) end or fn
+  end
   function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
   function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
@@ -1765,8 +1775,8 @@ do
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7), recap (6) -> 4 headers + 20 rows
-  ok(#opt.rows == 4 + 3 + 4 + 7 + 6, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3 own rows), farm (5), summon (7), recap (6) -> 4 headers + 20 rows
+  ok(#opt.rows == 4 + 3 + 5 + 7 + 6, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -2951,14 +2961,94 @@ do
   rdb2.button = false RC.ApplyButton(rdb2)
   ok(not tb.shown, "'rival target button' off: hidden")
   rdb2.button = nil RC.ApplyButton(rdb2)
-  -- never moved in a fight
+  -- THE BiS> TOOLS BOX (Arn: "lets keep all button neat maybe in a bis farm box, like the bis now, maybe if
+  -- we have bis now it just puts the button there cross addon")
+  local Bx = NS.Box
+  local box = Bx.frame
+  ok(box and tb.parent == box and box.shown and Bx.count >= 1, "the rival button lives in the BiS> tools box")
+  local fbtn = NS.Farm.TargetButton()
+  local fdb = NS.Farm.db
+  local keepActive2 = fdb.active
+  fdb.active = nil Bx.Refresh()
+  ok(not fbtn.shown and Bx.count == 1, "no mob farmed: no farm button")
+  fdb.active = "Kobold Miner" Bx.Refresh()
+  ok(fbtn.parent == box and fbtn.shown and Bx.count == 2 and fbtn.icon.file:find("RaidTargetingIcon_8", 1, true),
+     "farming: the farm's target button, with the skull, beside the rival one")
+  ok(box.w == math.max(Bx.MIN_W, Bx.PAD * 2 + 2 * Bx.SIZE + Bx.GAP), "the box is as wide as its buttons (and its name)", box.w)
+  -- docked to BiS> now when it is up, its own place when not
+  local now = CreateFrame("Frame", "BiSHealingNowBlock", nil)
+  now.shown = true
+  Bx.Refresh()
+  ok(Bx.docked and box.point[2] == now and box.point[1] == "TOPLEFT" and box.point[3] == "TOPRIGHT",
+     "BiS> now is up: the box docks to its right edge")
+  now:Hide() if now.scripts.OnHide then now.scripts.OnHide(now) end
+  ok(not Bx.docked and box.point[2] == UIParent, "BiS> now hidden: the box stands on its own")
+  _G.BiSHealingNowBlock = nil
+  -- the header drags it - never in a fight, never while docked
   local moved = 0
-  local keepMove = tb.StartMoving
-  tb.StartMoving = function() moved = moved + 1 end
-  W.combat = true tb.scripts.OnDragStart(tb) W.combat = false
-  tb.scripts.OnDragStart(tb)
-  tb.StartMoving = keepMove
-  ok(moved == 1, "right-drag moves it out of a fight, never in one")
+  local keepMove = box.StartMoving
+  box.StartMoving = function() moved = moved + 1 end
+  W.combat = true box.head.scripts.OnDragStart(box.head) W.combat = false
+  box.head.scripts.OnDragStart(box.head)
+  Bx.docked = true box.head.scripts.OnDragStart(box.head) Bx.docked = false
+  box.StartMoving = keepMove
+  ok(moved == 1, "the header drags the box out of a fight, never in one, never while docked")
+  -- a change in a fight waits for its end
+  W.combat = true
+  fdb.active = nil
+  ok(Bx.Refresh() == false and Bx.dirty and fbtn.shown, "in a fight the box is left as it is")
+  W.combat = false
+  Bx.events.scripts.OnEvent(Bx.events, "PLAYER_REGEN_ENABLED")
+  ok(not Bx.dirty and not fbtn.shown, "and laid out again when it ends")
+  -- nothing to do: no box
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(not box.shown, "no button with anything to do: no box")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  -- PURPLE FOR MOBS (Arn: "we should also add this to the farm module ... only the crosshair", "if rxp
+  -- calls for mobs to be able to be tracked we crosshairs them", "red for players purple for mobs")
+  local mplates = {}
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return mplates[u] end
+  mplates.nameplate3 = CreateFrame("Frame", nil, nil) mplates.nameplate3:SetSize(140, 20)
+  mplates.nameplate2 = CreateFrame("Frame", nil, nil) mplates.nameplate2:SetSize(140, 20)
+  fdb.active = "Kobold Miner"
+  W.plates.nameplate3 = { name = "Kobold Miner" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  local fm = RC.marks.nameplate3
+  ok(fm and fm.kind == "farm" and math.abs(fm.parts[1].color[1] - 0.73) < 0.01 and fm.parts[1].color[3] == 1,
+     "the mob you farm: a purple crosshair")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate3")
+  W.plates.nameplate3 = { name = "Kobold Miner", tapped = true }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  ok(RC.marks.nameplate3 == nil, "a copy somebody else tapped: none (the farm tool's own clean test)")
+  W.plates.nameplate3 = { name = "Kobold Miner" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  NS.Farm.SetActive(fdb, "Kobold Geomancer")
+  ok(RC.marks.nameplate3 == nil, "farm something else: the old crosshairs go")
+  NS.Farm.SetActive(fdb, "Kobold Miner")
+  -- RestedXP's Active Targets
+  NS.Farm.Guide.Take(nil, { "Murloc Hunter" }, false)
+  W.plates.nameplate2 = { name = "Murloc Hunter" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate2")
+  local gm2 = RC.marks.nameplate2
+  ok(gm2 and gm2.kind == "guide" and math.abs(gm2.parts[1].color[1] - 0.73) < 0.01, "a mob the RestedXP guide wants: purple too")
+  NS.Farm.Guide.Take(nil, { "Murloc Oracle" }, false)
+  ok(RC.marks.nameplate2 == nil, "the guide moves on: the old step's crosshairs go")
+  fdb.guide = false
+  NS.Farm.Guide.Take(nil, { "Murloc Hunter" }, false)
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate2")
+  ok(RC.marks.nameplate2 == nil, "the guide's mobs hidden in the farm tool: none")
+  fdb.guide = nil
+  -- the farm tool's switch
+  for _, o in ipairs(R:Get("farm").options) do if o.label == "crosshair on the mob" then o.set(fdb, false) end end
+  ok(next(RC.marks) == nil or (function() for _, f in pairs(RC.marks) do if f.kind == "farm" or f.kind == "guide" then return false end end return true end)(),
+     "'crosshair on the mob' off: every purple crosshair goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  ok(RC.marks.nameplate3 == nil, "and none drawn")
+  fdb.cross = nil
+  NS.Farm.Guide.Take(nil, {}, false)
+  W.plates.nameplate2, W.plates.nameplate3 = nil, nil
+  _G.C_NamePlate.GetNamePlateForUnit = nil
+  fdb.active = keepActive2 Bx.Refresh()
   -- twenty gold rivals: the macro stays within the client's length, the most recent kept
   local keepList = rdb2.rivals
   rdb2.rivals = {}
