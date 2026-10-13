@@ -1,4 +1,4 @@
-## Unreleased
+## 0.5.1
 
 - **Which button is which, at a glance**: in the BiS> tools box the farm's skull has a **purple** edge (mobs) and the rival button a **red** edge with **crossed swords** (players) - the same colours as their crosshairs.
 
