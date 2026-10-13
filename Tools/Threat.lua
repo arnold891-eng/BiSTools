@@ -283,13 +283,15 @@ function T.NewIndicator(look)
     f.parts[1] = t
   else
     -- a solid ring hugging the plate and a fainter one outside it: a small glow without anyone's
-    -- art. Each ring is a frame G (or 2G) bigger than the plate, its four edges G thick inside it.
+    -- art. Each ring is a frame G (or 2G) bigger than the plate, its edges G thick inside it.
+    -- SIDES AND BOTTOM ONLY - a U, open at the top (Arn, 13 Oct, on the first glow: the top edge
+    -- ran through the mob's name above the bar)
     local G = T.GLOW
     for ring = 1, 2 do
       local rf = CreateFrame("Frame", nil, f)
       rf:SetPoint("TOPLEFT", f, "TOPLEFT", -ring * G, ring * G)
       rf:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", ring * G, -ring * G)
-      for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", "h" }, { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
+      for _, e in ipairs({ { "BOTTOMLEFT", "BOTTOMRIGHT", "h" },
                            { "TOPLEFT", "BOTTOMLEFT", "v" }, { "TOPRIGHT", "BOTTOMRIGHT", "v" } }) do
         local t = tex(rf, "ARTWORK")
         t:SetPoint(e[1], rf, e[1]) t:SetPoint(e[2], rf, e[2])

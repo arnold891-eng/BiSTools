@@ -3883,8 +3883,19 @@ do
   -- the glow
   U.look.btns[3].scripts.OnClick(U.look.btns[3])
   ok(tdb.look == "glow" and ind("nameplate31") and ind("nameplate31").look == "glow", "the glow look")
-  ok(#ind("nameplate31").parts == 8, "two rings of four edges")
-  ok(ind("nameplate31").parts[5].ringAlpha < ind("nameplate31").parts[1].ringAlpha, "the outer ring fainter")
+  ok(#ind("nameplate31").parts == 6, "two rings, sides and bottom only - open at the top, off the name (Arn)")
+  do
+    -- the horizontal edges are the ones given a height: exactly two (one per ring), both the bottom
+    local across, bottoms = 0, 0
+    for _, t in ipairs(ind("nameplate31").parts) do
+      if t.h == Th.GLOW then
+        across = across + 1
+        if t.anchor and t.anchor[1] == "BOTTOMRIGHT" then bottoms = bottoms + 1 end
+      end
+    end
+    ok(across == 2 and bottoms == 2, "the only edges across are the bottoms: no edge along the top", across .. "/" .. bottoms)
+  end
+  ok(ind("nameplate31").parts[4].ringAlpha < ind("nameplate31").parts[1].ringAlpha, "the outer ring fainter")
   -- the crosshair look
   U.look.btns[1].scripts.OnClick(U.look.btns[1])
   ok(ind("nameplate31") == nil and RC.marks.nameplate31 and RC.marks.nameplate31.kind == "threat",

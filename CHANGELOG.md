@@ -3,7 +3,7 @@
 - **Threat marks** (new tool, `/bist threat` opens its window): what each mob's threat is doing, on its nameplate.
   - **Tank:** purple on you, grey on another tank, red and flashing on a non-tank, orange as a groupmate closes in on a mob you hold. Yellow out of combat if you want it (off by default).
   - **DPS and healers:** nothing until your threat on a mob reaches 60% of a pull, then it fades in yellow -> orange -> red; it flashes only from 95%, and when it turns on you.
-  - **Three looks:** a bar down the **left side** of the plate (default - readable when plates stack), a small **glow** round it, or your **crosshair**. Drawn beside the plate, so it works with any nameplate addon.
+  - **Three looks:** a bar down the **left side** of the plate (default - readable when plates stack), a small **glow** down the sides and under it (open at the top, so the name stays clear), or your **crosshair**. Drawn beside the plate, so it works with any nameplate addon.
   - **The window:** pick the look, tank or dps (or auto), switch each situation on or off, pick each colour from a palette, set where it starts showing and where it starts flashing, preview it on a fake plate, reset the colours.
   - Ideas from the guild. A crowd-controlled mob cannot be shown: the game hides a mob's debuffs in combat.
 
