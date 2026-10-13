@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **Threat crosshairs** (new tool, `/bist threat`): in a fight, a crosshair on the mobs whose threat you should watch. **Tank:** orange on a mob that is not on you, yellow on one you are only just holding. **DPS and healers:** nothing until you climb over the tank on a mob - yellow - then orange when it turns on you. Uses your crosshair style; never covers a rival's or the farm's. "Watch as" auto (your group role), tank or dps, in the options or `/bist threat tank|dps|auto`. Gone when the fight ends.
+- **Threat crosshairs** (new tool, `/bist threat`): a crosshair on a mob that grows as its threat turns. It starts barely visible at 60% of a pull, gets stronger and goes yellow -> orange -> red as it climbs, and only **flashes from 95%** - cutting it close at 85% is steady, not a strobe. **DPS and healers:** nothing until your own threat on a mob reaches 60%; red and flashing when it turns on you. **Tank:** on a mob you hold, it shows how close the nearest groupmate is to pulling it; a mob that is not on you is red and flashing. Uses your crosshair style; never covers a rival's or the farm's. Options: "watch as" auto (your group role) / tank / dps, and "show from" 30-90%. Gone when the fight ends.
 
 - **Farm a mob from its right-click menu**: right-click a mob's portrait and pick **BiS: track in farm** - no typing its name, no killing one first. On the mob you are already farming it says **BiS: stop farming**. Only on mobs you can attack, never on players.
 

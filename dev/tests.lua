@@ -1792,8 +1792,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (1) -> 6 headers + 25 rows
-  ok(#opt.rows == 6 + 3 + 5 + 7 + 7 + 2 + 1, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2) -> 6 headers + 26 rows
+  ok(#opt.rows == 6 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -3599,22 +3599,29 @@ end
 -- leaked globals
 -- ------------------------------------------------------------ the threat tool
 -- A BiS Tools user, through Arn (13 Oct): a tank sees what is NOT on them; a dps sees nothing until
--- they pull threat. UnitThreatSituation(you, mob): nil not on its list, 0 below the tank, 1 above
--- the tank, 2 on you with someone close, 3 on you safely.
+-- they pull threat. Then Arn: a CURVE - barely visible at 60% of a pull, stronger to 100%, yellow
+-- to red, and flashing only near the top ("dps like to cut it close"). UnitDetailedThreatSituation
+-- (who, mob): isTanking, status, scaledPercentage (100 = pulls it), ... - nothing when not listed.
 do
   local RC, Th = NS.Recap, NS.Threat
   ok(Th and R:Get("threat"), "the threat tool is registered")
   local tdb = R:DBFor(R:Get("threat"))
-  local plates, threat, role = {}, {}, "DAMAGER"
-  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, UnitThreatSituation = _G.UnitThreatSituation,
+  local plates, det, role = {}, { player = {} }, "DAMAGER"
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, UnitDetailedThreatSituation = _G.UnitDetailedThreatSituation,
     UnitGroupRolesAssigned = _G.UnitGroupRolesAssigned, IsInGroup = _G.IsInGroup, IsInInstance = _G.IsInInstance,
-    issecretvalue = _G.issecretvalue, style = RC.style }
+    IsInRaid = _G.IsInRaid, GetNumGroupMembers = _G.GetNumGroupMembers, issecretvalue = _G.issecretvalue, style = RC.style }
   _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
-  _G.UnitThreatSituation = function(_, u) return threat[u] end
+  _G.UnitDetailedThreatSituation = function(who, u)
+    local d = det[who] and det[who][u]
+    if not d then return end
+    return d[1], d[2] or (d[1] and 3 or 0), d[3], d[3], 1000
+  end
   _G.UnitGroupRolesAssigned = function() return role end
   local grouped = true
   _G.IsInGroup = function() return grouped end
   _G.IsInInstance = function() return grouped, grouped and "party" or "none" end
+  _G.IsInRaid = function() return false end
+  _G.GetNumGroupMembers = function() return grouped and 3 or 0 end
   local SECRET = setmetatable({}, {})
   _G.issecretvalue = function(v) return rawequal(v, SECRET) end
   RC.style = "rails"
@@ -3626,96 +3633,142 @@ do
     W.plates[u] = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-" .. i, hostile = true, combat = true }
     ev("NAME_PLATE_UNIT_ADDED", u)
   end
-  local function kind(u) return RC.marks[u] and RC.marks[u].kind end
+  local function mk(u) return RC.marks[u] end
+  local function me(u, tanking, pct) det.player[u] = { tanking, nil, pct } ev("UNIT_THREAT_LIST_UPDATE", u) end
 
-  threat.nameplate21 = 1
-  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(kind("nameplate21") == nil, "out of combat: no threat crosshairs")
+  me("nameplate21", false, 85)
+  ok(mk("nameplate21") == nil, "out of combat: no threat crosshairs")
   ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate21") == "threat", "dps above the tank on a mob: yellow")
-  local yc = RC.marks.nameplate21.parts[1].color
-  ok(yc[1] == 1 and yc[2] > 0.8 and yc[3] < 0.3, "yellow it is")
-  ok(kind("nameplate22") == nil, "dps not on a mob's list: nothing")
-  threat.nameplate22 = 0
+  ok(mk("nameplate21") and mk("nameplate21").kind == "threat", "a fight starts: the crosshair is there")
+
+  me("nameplate21", false, 50)
+  ok(mk("nameplate21") == nil, "dps at 50% of a pull: nothing")
+  me("nameplate21", false, 60)
+  ok(mk("nameplate21") == nil, "at 60% exactly: still nothing")
+  me("nameplate21", false, 61)
+  local m = mk("nameplate21")
+  ok(m and m.alpha < 0.06 and not m.flashing, "61%: barely visible (Arn: 'like 1%'), steady", m and m.alpha)
+  local c61 = m.parts[1].color
+  ok(c61[1] == 1 and c61[2] > 0.8, "and yellow")
+  local a = {}
+  for _, pct in ipairs({ 70, 80, 90 }) do me("nameplate21", false, pct) a[pct] = mk("nameplate21").alpha end
+  ok(a[70] < a[80] and a[80] < a[90], "70, 80, 90: stronger each step", a[70] .. " " .. a[80] .. " " .. a[90])
+  me("nameplate21", false, 80)
+  local c80 = mk("nameplate21").parts[1].color
+  ok(c80[2] > 0.35 and c80[2] < 0.55, "80%: orange", c80[2])
+  me("nameplate21", false, 90)
+  ok(not mk("nameplate21").flashing and not mk("nameplate21").pulse:IsPlaying(),
+     "90%: cutting it close is STEADY, not flashing (Arn: 'we don't want something flashing all the time')")
+  local c90 = mk("nameplate21").parts[1].color
+  ok(c90[2] < c80[2], "and redder")
+  me("nameplate21", false, 96)
+  ok(mk("nameplate21").flashing and mk("nameplate21").pulse:IsPlaying(), "96%: it flashes")
+  me("nameplate21", true, 100)
+  local cOn = mk("nameplate21").parts[1].color
+  ok(mk("nameplate21").flashing and cOn[2] < 0.2, "it turns on you: red, flashing")
+  me("nameplate21", false, 40)
+  ok(mk("nameplate21") == nil, "the tank takes it back: gone")
+  ok(mk("nameplate22") == nil, "a mob you are not on the list of: nothing for a dps")
+
+  S("threat from 80")
+  ok(tdb.from == 80, "/bist threat from 80")
+  me("nameplate21", false, 75)
+  ok(mk("nameplate21") == nil, "now 75% is still nothing")
+  me("nameplate21", false, 81)
+  ok(mk("nameplate21") and mk("nameplate21").alpha < 0.06, "and 81% is barely visible")
+  S("threat from 60")
+  me("nameplate21", false, 0)
+
+  det.player.nameplate22 = { SECRET, SECRET, SECRET }
   ev("UNIT_THREAT_LIST_UPDATE", "nameplate22")
-  ok(kind("nameplate22") == nil, "dps below the tank: nothing (no crosshairs until you pull threat)")
-  threat.nameplate21 = 3
-  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(kind("nameplate21") == "aggro", "it turns on you: orange")
-  local oc = RC.marks.nameplate21.parts[1].color
-  ok(oc[1] == 1 and oc[2] < 0.5, "orange it is")
-  threat.nameplate21 = 0
-  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(kind("nameplate21") == nil, "the tank takes it back: gone")
+  ok(mk("nameplate22") == nil, "a threat answer the game hides: nothing, no error")
   ev("PLAYER_REGEN_ENABLED")
+  ok(mk("nameplate21") == nil and mk("nameplate22") == nil, "the fight ends: every threat crosshair goes")
 
+  -- TANK: on you - the closest groupmate's % drives it; off you - red, flashing
   role = "TANK"
-  threat.nameplate21, threat.nameplate22, threat.nameplate23 = 3, 2, nil
+  det.player = { nameplate21 = { true, 3, 100 }, nameplate22 = { false, 0, 40 } }
+  det.party1 = { nameplate21 = { false, 0, 50 } }
+  det.party2 = { nameplate21 = { false, 0, 85 } }
   ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate21") == nil, "tank, safely on you: nothing")
-  ok(kind("nameplate22") == "threat", "tank, on you but someone is close: yellow")
-  ok(kind("nameplate23") == "aggro", "tank, a mob fighting the group you never touched: orange")
-  threat.nameplate21 = 0
+  local t21 = mk("nameplate21")
+  ok(t21 and not t21.flashing and t21.alpha > 0.3 and t21.alpha < 0.5,
+     "tank, on you, a dps at 85%: an orange warning, steady", t21 and t21.alpha)
+  ok(mk("nameplate22") and mk("nameplate22").flashing and mk("nameplate22").parts[1].color[2] < 0.2,
+     "tank, a mob that is NOT on you: red, flashing")
+  ok(mk("nameplate23") and mk("nameplate23").flashing,
+     "tank, a mob fighting the group you never touched (in a dungeon): red, flashing")
+  det.party2.nameplate21 = { false, 0, 97 }
   ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(kind("nameplate21") == "aggro", "tank, a mob that came off you: orange")
-  threat.nameplate22 = 3
-  ev("UNIT_THREAT_SITUATION_UPDATE", "player")
-  ok(kind("nameplate22") == nil, "your standing moves: every plate is looked at again")
+  ok(not mk("nameplate21").flashing, "the group is looked at no more than every half second per mob")
+  local keepTime = _G.GetTime
+  local tnow = keepTime() + Th.SCAN + 0.1
+  _G.GetTime = function() return tnow end
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
+  ok(mk("nameplate21").flashing, "half a second on: the dps at 97% makes it flash")
+  _G.GetTime = keepTime
+  det.party1, det.party2 = {}, {}
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
+  ok(mk("nameplate21") == nil, "tank, safely on you, nobody close: nothing")
   ev("PLAYER_REGEN_ENABLED")
-  ok(not kind("nameplate21") and not kind("nameplate23"), "the fight ends: every threat crosshair goes")
-
   grouped = false
   ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate23") == nil, "tank alone in the world: somebody else's fight is not yours")
+  ok(mk("nameplate23") == nil, "tank alone in the world: somebody else's fight is not yours")
   ev("PLAYER_REGEN_ENABLED")
   grouped = true
 
-  threat.nameplate22 = SECRET
+  RC.MarkPlate("nameplate22", "Defias Thug", "farm")
   ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate22") == nil, "a threat answer the game hides: no crosshair, no error")
+  ok(mk("nameplate22").kind == "farm", "the farm's crosshair (or a rival's) is never covered")
   ev("PLAYER_REGEN_ENABLED")
-  threat.nameplate22 = 2
-
-  RC.MarkPlate("nameplate23", "Defias Thug", "farm")
-  ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate23") == "farm", "the farm's crosshair (or a rival's) is never covered")
-  ev("PLAYER_REGEN_ENABLED")
-  RC.UnmarkUnit("nameplate23")
+  RC.UnmarkUnit("nameplate22")
 
   S("threat dps")
   ok(tdb.role == "dps", "/bist threat dps: watch as a dps whatever the group role says")
-  ev("PLAYER_REGEN_DISABLED")
-  ok(kind("nameplate22") == "aggro", "the TANK's mob reads as 'on you' to a dps")
   S("threat auto")
   ok(tdb.role == "auto", "/bist threat auto: back to the group role")
+  ev("PLAYER_REGEN_DISABLED")
   R:SetEnabled("threat", false)
-  ok(not kind("nameplate22"), "switching the tool off takes them down")
-  threat.nameplate21 = 1
-  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(not kind("nameplate21"), "and nothing more is drawn while it is off")
+  ok(not mk("nameplate22"), "switching the tool off takes them down")
+  me("nameplate22", false, 99)
+  ok(not mk("nameplate22"), "and nothing more is drawn while it is off")
   R:SetEnabled("threat", true)
   ev("PLAYER_REGEN_ENABLED")
 
-  -- COST: a raid's threat updates are many. 300 list updates across three mobs, in a fight. Measured
-  -- 1203 - about 4 a update: the threat read, a "secret?" for the unit and the answer, and a plate
-  -- lookup when the crosshair changes. Budget 1300.
+  -- COST. A dps: 300 list updates across three mobs, in a fight. A tank: the same, holding all
+  -- three, with two groupmates to look at - throttled to one look per mob per T.SCAN. Measured: dps
+  -- 1542 (~5 an update: the read and a "secret?" for the unit and each answer), tank 1800 (the group
+  -- look cached, plus the clock for the throttle). Budgets 1650 and 1950.
   local Cost = dofile("../_bisdev/dev/cost.lua")
   role = "DAMAGER"
+  det.player = {}
   ev("PLAYER_REGEN_DISABLED")
   local n, by = Cost.Count(function()
     for k = 1, 300 do
       local u = "nameplate" .. (21 + k % 3)
-      threat[u] = k % 4
+      det.player[u] = { false, 0, 55 + k % 45 }
       ev("UNIT_THREAT_LIST_UPDATE", u)
     end
   end)
-  ok(n <= 1300, "300 threat updates ask at most 1300 things: " .. n .. " " .. Cost.Top(by, 5))
+  ok(n <= 1650, "dps: 300 threat updates ask at most 1650 things: " .. n .. " " .. Cost.Top(by, 5))
+  ev("PLAYER_REGEN_ENABLED")
+  role = "TANK"
+  det.player = { nameplate21 = { true, 3, 100 }, nameplate22 = { true, 3, 100 }, nameplate23 = { true, 3, 100 } }
+  det.party1 = { nameplate21 = { false, 0, 70 }, nameplate22 = { false, 0, 70 }, nameplate23 = { false, 0, 70 } }
+  det.party2 = det.party1
+  ev("PLAYER_REGEN_DISABLED")
+  n, by = Cost.Count(function()
+    for k = 1, 300 do ev("UNIT_THREAT_LIST_UPDATE", "nameplate" .. (21 + k % 3)) end
+  end)
+  ok(n <= 1950, "tank: 300 threat updates ask at most 1950 things: " .. n .. " " .. Cost.Top(by, 5))
   ev("PLAYER_REGEN_ENABLED")
 
   for i = 21, 23 do ev("NAME_PLATE_UNIT_REMOVED", "nameplate" .. i) W.plates["nameplate" .. i] = nil end
   _G.C_NamePlate.GetNamePlateForUnit = keep.get
-  _G.UnitThreatSituation, _G.UnitGroupRolesAssigned = keep.UnitThreatSituation, keep.UnitGroupRolesAssigned
+  _G.UnitDetailedThreatSituation, _G.UnitGroupRolesAssigned = keep.UnitDetailedThreatSituation, keep.UnitGroupRolesAssigned
   _G.IsInGroup, _G.IsInInstance, _G.issecretvalue = keep.IsInGroup, keep.IsInInstance, keep.issecretvalue
+  _G.IsInRaid, _G.GetNumGroupMembers = keep.IsInRaid, keep.GetNumGroupMembers
   RC.style = keep.style
 end
 

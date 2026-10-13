@@ -1,23 +1,34 @@
 --[[
-  BiSTools :: Tools/Threat.lua - the threat tool: crosshairs on the mobs whose threat you should watch.
+  BiSTools :: Tools/Threat.lua - the threat tool: a crosshair that grows as a mob's threat turns.
 
   Asked for by a BiS Tools user, through Arn (13 Oct 2026): "a threat tracker ... like the cross
-  hairs, and if something is losing threat it changes color on stuff in combat but not attacking
-  them, and I guess dps can use it too the other way: no crosshairs until they start getting threat
-  on a target".
+  hairs, and if something is losing threat it changes color ... and I guess dps can use it too the
+  other way: no crosshairs until they start getting threat on a target".
 
-    TANK   a mob in the fight that is NOT on you: orange.  On you, but someone is close: yellow.
-    DPS    nothing - until you climb over the tank on a mob: yellow. It is on you: orange.
-    (a healer is "dps" here: the same warning that a mob is about to turn on you)
+  Then Arn, the same evening: "is there a color curve? ... as they approach 600 barely visible,
+  like 1%, 700, 800, 900, 1000 flashing red 100% ... dps like to cut it close and we don't want
+  something flashing all the time".
 
-  READABLE ON FOREVER: the desk's lockdown measurements list threat among what still reads inside
-  combat, and the census says ShouldUnitThreatValuesBeSecret = false. Every answer is still asked
-  "secret?" first (NS.Farm.Plain) - a hidden one draws nothing.
+  So ONE crosshair whose strength follows the threat, never a two-state flag:
+    level = how close the mob is to turning, from `db.from` (60% of what it takes to pull) to 100%
+    alpha  barely there at the start, full at the top
+    colour yellow -> orange -> red
+    flash  only from T.FLASH_AT (95%) up, or when it has turned. Cutting it close at 85% is steady.
 
-  The crosshair is the recap's (RC.MarkPlate - your chosen style, pinned to the nameplate, the
-  client carries it): two new kinds, "threat" (yellow) and "aggro" (orange). A rival's or the
-  farm's crosshair on the same plate is never covered. Everything is event-driven - no ticker,
-  nothing per frame - and the fight ending takes every threat crosshair down.
+    DPS / HEALER  the level is YOUR scaled threat on the mob (UnitDetailedThreatSituation's
+                  scaledPercentage: 100 = you pull it). On you: full red, flashing.
+    TANK          on you: the level is whoever in the group is closest to pulling it off you
+                  (their scaledPercentage, looked up at most every T.SCAN seconds per mob).
+                  Not on you - or, in a group in an instance, fighting the group and never touched
+                  by you: full red, flashing.
+
+  READABLE ON FOREVER: threat is on the desk's list of what still reads inside combat, and the
+  census says ShouldUnitThreatValuesBeSecret = false. Every answer is still asked "secret?" first;
+  a hidden answer draws NOTHING - which is not the same as "not on its list".
+
+  The crosshair is the recap's (RC.MarkPlate, your style, pinned to the nameplate), kind "threat",
+  tinted here. It never covers a rival's or the farm's crosshair. Events only - no ticker - and the
+  fight ending takes every threat crosshair down.
 ]]
 local _, NS = ...
 local R = NS.Registry
@@ -28,12 +39,16 @@ local T = {}
 NS.Threat = T
 
 T.YELLOW = { 1.00, 0.85, 0.15 }
-T.ORANGE = { 1.00, 0.35, 0.05 }
+T.ORANGE = { 1.00, 0.45, 0.05 }
+T.RED    = { 1.00, 0.12, 0.12 }
 RC.MARK_COLOUR.threat = T.YELLOW
-RC.MARK_COLOUR.aggro = T.ORANGE
-T.KINDS = { threat = true, aggro = true }
+T.FLASH_AT = 95                    -- % of a pull: from here on it flashes (Arn: not all the time)
+T.FROM = 60                        -- % of a pull where it starts to show (db.from overrides)
+T.MIN_ALPHA = 0.04                 -- "barely visible" at the start
+T.SCAN = 0.5                       -- a tank's look at the group, per mob, at most this often
 T.ROLES = { "auto", "tank", "dps" }
 T.plates = {}                      -- nameplate units on screen right now
+T.scan = {}                        -- unit -> { at, level } (the tank's group look, kept briefly)
 
 local plain = F.Plain
 
@@ -50,45 +65,109 @@ function T.Role(db)
   return yes(UnitGroupRolesAssigned, "player") == "TANK" and "tank" or "dps"
 end
 
---- The crosshair this mob earns now: "aggro", "threat" or nil.
----   UnitThreatSituation(you, mob): nil = you are not on its list; 0 = on it, below the tank;
----   1 = above the tank but it is not on you; 2 = on you, someone close; 3 = on you, safely.
-function T.Kind(role, u)
-  local okS, raw = pcall(UnitThreatSituation, "player", u)
-  if not okS then return nil end
-  -- HIDDEN IS NOT "NOT ON ITS LIST". A secret answer draws nothing; only a plain nil means you are
-  -- off the mob's list (the suite caught the first draft painting a hidden answer orange for a tank)
-  if raw ~= nil and plain(raw) == nil then return nil end
-  local s = raw
+--- One unit's threat on a mob: tanking (true/false), and how close to pulling it (0-100+), or nil
+--- when the game hides it. notListed = a plain "not on its list".
+local function secret(v)
+  if not issecretvalue then return false end
+  local ok, s = pcall(issecretvalue, v)
+  return (not ok) or s == true
+end
+
+function T.Read(who, u)
+  local res = { pcall(UnitDetailedThreatSituation, who, u) }
+  if not res[1] then return nil end
+  local tanking, status, scaled = res[2], res[3], res[4]
+  -- "secret?" BEFORE any comparison - on Forever even `== nil` on a secret counts against us
+  if secret(tanking) or secret(status) or secret(scaled) then return nil end     -- hidden: nothing
+  if tanking == nil and status == nil then return nil, nil, true end             -- not on its list
+  return tanking == true, type(scaled) == "number" and scaled or 0
+end
+
+--- 0-1 from `from`% to 100%.
+function T.Level(pct, from)
+  if type(pct) ~= "number" then return nil end
+  if pct >= 100 then return 1 end
+  local t = (pct - from) / (100 - from)
+  if t <= 0 then return nil end
+  return t
+end
+
+--- The tank's view of a mob ON them: how close the nearest groupmate is to pulling it.
+function T.Closest(u, from)
+  local now = GetTime()
+  local c = T.scan[u]
+  if c and now - c.at < T.SCAN then return c.level, c.pct end
+  local best = nil
+  local raid = yes(IsInRaid) == true
+  local n = yes(GetNumGroupMembers) or 0
+  -- cost: at most once per T.SCAN per mob on screen, and only for a tank holding it
+  for i = 1, raid and n or (n - 1) do
+    local _, pct = T.Read(raid and ("raid" .. i) or ("party" .. i), u)
+    if pct and (not best or pct > best) then best = pct end
+  end
+  local level = T.Level(best, from)
+  T.scan[u] = { at = now, level = level, pct = best }
+  return level, best
+end
+
+--- How strongly this mob is drawn now: level 0-1 (nil = not at all), and the % it stands at.
+function T.Measure(db, role, u)
+  local from = tonumber(db.from) or T.FROM
+  local tanking, pct, notListed = T.Read("player", u)
   if role == "tank" then
-    if type(s) ~= "number" then
-      -- not on its list at all: a mob fighting your group that you have never touched - in a
-      -- group, in an instance, attackable and in combat (the open world's other fights stay out)
+    if notListed then
+      -- a mob fighting your group that you never touched - in a group, in an instance,
+      -- attackable and in combat (the open world's other fights stay out)
       if not (T.grouped and T.instance) then return nil end
       if yes(UnitCanAttack, "player", u) ~= true then return nil end
       if yes(UnitAffectingCombat, u) ~= true then return nil end
-      return "aggro"
+      return 1, 100
     end
-    if s <= 1 then return "aggro" end
-    if s == 2 then return "threat" end
-    return nil
+    if tanking == nil then return nil end                 -- hidden
+    if not tanking then return 1, 100 end                 -- lost
+    return T.Closest(u, from)
   end
-  if type(s) ~= "number" then return nil end
-  if s >= 2 then return "aggro" end
-  if s == 1 then return "threat" end
-  return nil
+  if notListed or tanking == nil then return nil end
+  if tanking then return 1, 100 end                       -- it is on you
+  return T.Level(pct, from), pct
+end
+
+--- yellow -> orange -> red along the level
+function T.Colour(level)
+  local a, b, f
+  if level <= 0.5 then a, b, f = T.YELLOW, T.ORANGE, level / 0.5
+  else a, b, f = T.ORANGE, T.RED, (level - 0.5) / 0.5 end
+  return a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f
+end
+
+--- Tint a crosshair for a level: colour, strength, and the flash only near the top.
+function T.Tint(f, level, pct)
+  local r, g, b = T.Colour(level)
+  for _, part in ipairs(f.parts or {}) do part:SetColorTexture(r, g, b, 1) end
+  local flash = (pct or 0) >= T.FLASH_AT
+  if f.pulse then
+    if flash then
+      if not f.pulse:IsPlaying() then f.pulse:Play() end
+    elseif f.pulse:IsPlaying() then
+      f.pulse:Stop()
+    end
+  end
+  if not flash then f:SetAlpha(T.MIN_ALPHA + (1 - T.MIN_ALPHA) * level * level) end
+  f.level, f.flashing = level, flash
 end
 
 function T.On() return R:Enabled("threat") and T.fighting end
 
---- Draw (or take down) the threat crosshair on one nameplate.
+--- Draw, re-tint or take down the threat crosshair on one nameplate.
 function T.Paint(u)
   if not T.plates[u] then return end
   local have = RC.marks[u]
-  if have and not T.KINDS[have.kind] then return end      -- a rival's or the farm's stays
-  local kind = T.On() and T.Kind(T.role, u) or nil
-  if kind then
-    if not (have and have.kind == kind) then RC.MarkPlate(u, "threat", kind) end
+  if have and have.kind ~= "threat" then return end      -- a rival's or the farm's stays
+  local level, pct
+  if T.On() then level, pct = T.Measure(T.db, T.role, u) end
+  if level then
+    if not have and not RC.MarkPlate(u, "threat", "threat") then return end
+    T.Tint(RC.marks[u], level, pct)
   elseif have then
     RC.UnmarkUnit(u)
   end
@@ -98,7 +177,7 @@ function T.PaintAll() for u in pairs(T.plates) do T.Paint(u) end end
 
 function T.ClearAll()
   RC.ClearKind("threat")
-  RC.ClearKind("aggro")
+  T.scan = {}
 end
 
 --- What the fight is about, read once when it starts (not per threat change).
@@ -106,8 +185,8 @@ function T.Begin(db)
   T.fighting = true
   T.role = T.Role(db)
   T.grouped = yes(IsInGroup) == true
-  local inside = yes(IsInInstance)
-  T.instance = inside == true
+  T.instance = yes(IsInInstance) == true
+  T.scan = {}
   T.PaintAll()
 end
 
@@ -120,7 +199,7 @@ function T.OnEvent(_, event, unit)
       if T.On() then T.Paint(unit) end
     end
   elseif event == "NAME_PLATE_UNIT_REMOVED" then
-    if type(unit) == "string" and plain(unit) then T.plates[unit] = nil end
+    if type(unit) == "string" and plain(unit) then T.plates[unit] = nil T.scan[unit] = nil end
   elseif event == "UNIT_THREAT_LIST_UPDATE" then
     -- one mob's list moved: that mob only
     if T.On() and type(unit) == "string" and plain(unit) and T.plates[unit] then T.Paint(unit) end
@@ -146,26 +225,30 @@ T.frame:SetScript("OnEvent", T.OnEvent)
 
 function T.Why(db)
   local marked = 0
-  for _, f in pairs(RC.marks) do if T.KINDS[f.kind] then marked = marked + 1 end end
+  for _, f in pairs(RC.marks) do if f.kind == "threat" then marked = marked + 1 end end
   local plates = 0
   for _ in pairs(T.plates) do plates = plates + 1 end
-  NS.Print("threat: %s, as %s (%s); %d nameplate(s) in sight, %d with a threat crosshair%s",
-    R:Enabled("threat") and "on" or "off", T.Role(db), db.role or "auto", plates, marked,
-    T.fighting and "" or " - out of combat, so none")
+  NS.Print("threat: %s, as %s (%s); shows from %d%%, flashes from %d%%; %d nameplate(s) in sight, %d with a crosshair%s",
+    R:Enabled("threat") and "on" or "off", T.Role(db), db.role or "auto", tonumber(db.from) or T.FROM,
+    T.FLASH_AT, plates, marked, T.fighting and "" or " - out of combat, so none")
 end
 
 R:Register({
   name = "threat",
-  desc = "crosshairs on the mobs whose threat you should watch",
-  usage = "/bist threat [auto | tank | dps | why]",
-  defaults = { role = "auto" },
+  desc = "a crosshair that grows as a mob's threat turns",
+  usage = "/bist threat [auto | tank | dps | from <30-90> | why]",
+  defaults = { role = "auto", from = T.FROM },
   options = {
     { kind = "seg", label = "watch as", values = T.ROLES,
       get = function(db) return db.role or "auto" end,
       set = function(db, v)
         db.role = v
-        if T.fighting then T.role = T.Role(db) T.PaintAll() end
+        if T.fighting then T.role = T.Role(db) T.scan = {} T.PaintAll() end
       end },
+    { kind = "step", label = "show from", min = 30, max = 90, step = 10,
+      get = function(db) return tonumber(db.from) or T.FROM end,
+      set = function(db, v) db.from = v T.scan = {} if T.fighting then T.PaintAll() end end,
+      show = function(db) return (tonumber(db.from) or T.FROM) .. "%" end },
   },
   OnInit = function(_, db) T.db = db end,
   OnDisable = function() T.ClearAll() end,
@@ -174,8 +257,14 @@ R:Register({
     args = (args or ""):lower()
     if args == "auto" or args == "tank" or args == "dps" then
       db.role = args
-      if T.fighting then T.role = T.Role(db) T.PaintAll() end
+      if T.fighting then T.role = T.Role(db) T.scan = {} T.PaintAll() end
       return NS.Print("threat: watching as %s", args == "auto" and (T.Role(db) .. " (auto)") or args)
+    end
+    local from = tonumber(args:match("^from%s+(%d+)$") or "")
+    if from then
+      db.from = math.max(30, math.min(90, from))
+      T.scan = {}
+      return NS.Print("threat: shows from %d%% of a pull", db.from)
     end
     T.Why(db)
   end,
