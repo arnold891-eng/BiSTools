@@ -3021,6 +3021,13 @@ do
   local Bx = NS.Box
   local box = Bx.frame
   ok(box and tb.parent == box and box.shown and Bx.count >= 1, "the rival button lives in the BiS> tools box")
+  -- ONE LOOK FOR EVERY BiS> BAR (Arn: "the bis headers are all different fonts some different color some
+  -- blinking _ some static lets get them all the same"): the box's bar wears the prompt, BiS Healing's height
+  local hc = box.head.con
+  W.now = W.now + 1 box.head.scripts.OnUpdate(box.head, 0.3) W.now = W.now + 1 box.head.scripts.OnUpdate(box.head, 0.3)
+  local hp = hc and (hc:Text():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+  ok(hp and hp:find("BiS> tools", 1, true), "the box's bar wears the family prompt", hp)
+  ok(box.head.h == 16, "at BiS Healing's bar height", box.head.h)
   local fbtn = NS.Farm.TargetButton()
   local fdb = NS.Farm.db
   local keepActive2 = fdb.active

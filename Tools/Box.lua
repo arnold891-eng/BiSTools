@@ -18,7 +18,8 @@
 local _, NS = ...
 local R = NS.Registry
 
-local B = { SIZE = 28, GAP = 3, PAD = 4, HEADER = 14, MIN_W = 70, NOW_HEADER = 16 }
+-- HEADER 16 and lifted 2, BiS Healing's bars' (Grid.lua HEADER_H, HEADER_LIFT): the box sits beside them
+local B = { SIZE = 28, GAP = 3, PAD = 4, HEADER = 16, LIFT = 2, MIN_W = 70, NOW_HEADER = 16 }
 B.DOCKS = { "auto", "right", "below", "left", "top" }
 NS.Box = B
 
@@ -41,13 +42,26 @@ function B.Build()
   F.border(f, "edge", 0.6)
   -- the header: the family's "BiS>" and a word; drag it to move the box (when it is not docked)
   local head = CreateFrame("Frame", nil, f)
-  head:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
-  head:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+  head:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, B.LIFT)
+  head:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, B.LIFT)
   head:SetHeight(B.HEADER)
   F.tex(head, "BACKGROUND", "header", 0.9)
-  head.label = F.fs(head, "", 8, "ink")
+  -- THE FAMILY PROMPT, like every BiS> bar (Arn, 12 Oct: "the bis headers are all different fonts ...
+  -- lets get them all the same"): purple BiS>, the word, the blinking _, at BiS Healing's size - the box
+  -- sits beside its bars. Painted from OnUpdate, which only runs while the box is shown.
+  head.label = head:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   head.label:SetPoint("LEFT", head, "LEFT", 4, 0)
-  head.label:SetText(NS.T.text("accent", "BiS>") .. " tools")
+  if BiSTheme and BiSTheme.Console then
+    head.con = BiSTheme.Console(head.label, { width = 90, size = 10 })
+    head.con:Set("name", "tools")
+    local acc = 0
+    head:SetScript("OnUpdate", function(_, dt)
+      acc = acc + (dt or 0)
+      if acc >= 0.2 then acc = 0 head.con:Paint() end
+    end)
+  else
+    head.label:SetText(NS.T.text("accent", "BiS>") .. " tools")
+  end
   head:EnableMouse(true)
   head:RegisterForDrag("LeftButton")
   -- THE SAME CLICKS AS BiS> NOW'S HEADER (Arn, 12 Oct: "should have these same clicks and drags so i

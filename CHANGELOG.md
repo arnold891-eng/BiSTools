@@ -1,3 +1,7 @@
+## Unreleased
+
+- **The BiS> tools box's bar looks like every other BiS> bar**: the family prompt (purple BiS>, the word, the blinking _) at BiS Healing's size and height.
+
 ## 0.5.0
 
 - **Death recap.** When you die, a BiS window opens: the **killer** in the middle and the two biggest **assists** either side, each with their damage and share, the killing blow and its overkill; your **health** falling across the last hits, gold on crits; the **hits**, newest first; and "306 damage in 6.0 seconds". Mobs are grouped by who they really are - Forever gives a mob a new nickname on every hit. It closes when you are back in your body; `/bist recap` opens your last death again; "open when you die" in the options. Costs nothing until you die. Killed by players: their names in **class colour**, each card says what they mostly hit you with ("Arcane Shot 281"), and when more damage landed than you had health, it says you healed through some of it. **Click a player's card to make them a rival** (click again to undo) - the PvP tracker will watch for them; a rival who kills you again is counted. `/bist recap rivals` lists them, `/bist recap forget <name>` drops one.
