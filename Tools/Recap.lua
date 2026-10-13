@@ -554,6 +554,63 @@ function RC.ApplyButton(db)
   return true
 end
 
+-- ---------------------------------------------------------------- "add rival" on a player's right-click menu
+-- Arn, 12 Oct, right-clicking an enemy's portrait: "when i right click maybe we can add add rival here".
+-- The game's own way in: Menu.ModifyMenu("MENU_UNIT_" .. kind, fn) adds a line - nothing of the game's
+-- is replaced or hooked. Read off Olympus 1.2.3 (MIT), which hands back the player's `name` and
+-- `surname` apart (Forever's), and which learned to stay OUT of the guild roster menus: a line there
+-- left the game's own promote / kick refused from tainted code. So those are never touched here.
+RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_ROSTER" }
+
+--- The full name a menu is about ("Dai Joubu"), or nil when it is nobody, hidden, or you.
+function RC.MenuName(ctx)
+  if type(ctx) ~= "table" then return nil end
+  local first, sur = field(ctx, "name"), field(ctx, "surname")
+  if type(first) ~= "string" or first == "" then return nil end
+  local me = UnitName and UnitName("player")
+  if not hidden(me) and me == first then return nil end
+  if type(sur) == "string" and sur ~= "" then return first .. " " .. sur end
+  return first
+end
+
+--- The lines for one menu: add, or remove, this player as a rival.
+function RC.MenuLines(db, root, ctx)
+  if not (R:Enabled("recap") and root and root.CreateButton) then return end
+  local name = RC.MenuName(ctx)
+  if not name then return end
+  local r, key = RC.Find(db, name)
+  if root.CreateDivider then root:CreateDivider() end
+  root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
+    if r then
+      RC.Rivals(db)[key] = nil
+      RC.UnmarkRival(key)
+      NS.Print("%s is no longer a rival", key)
+      RC.PaintRivals()
+      RC.ApplyButton(db)
+      return
+    end
+    local unit = field(ctx, "unit")
+    local class, guid
+    if type(unit) == "string" then
+      local okC, _, c = pcall(UnitClass, unit)
+      if okC and type(c) == "string" and not hidden(c) then class = c end
+      local okG, g = pcall(UnitGUID, unit)
+      if okG and type(g) == "string" and not hidden(g) then guid = g end
+    end
+    RC.ToggleRival(db, { player = true, title = name, class = class, key = guid })
+  end)
+end
+
+function RC.HookMenus(db)
+  if RC.menusHooked then return true end
+  if not (Menu and type(Menu.ModifyMenu) == "function") then return false end
+  for _, kind in ipairs(RC.MENUS) do
+    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+  end
+  RC.menusHooked = true
+  return true
+end
+
 --- The rival a name belongs to, or nil. MEASURED 12 Oct (Arn's /bist recap why, Hunting Moms on his
 --- target): the death recap names a player WITH Forever's surname - "Hunting Moms" - and UnitName
 --- gives the character name alone - "Hunting". The character name is the unique one; the surname is
@@ -1096,7 +1153,7 @@ NS.Registry:Register({
     RC.ApplyButton(db)
   end,
   OnEnable = function(_, db) RC.ApplyButton(db) end,
-  OnLogin = function(_, db) RC.ApplyButton(db) end,
+  OnLogin = function(_, db) RC.ApplyButton(db) RC.HookMenus(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
     local key = args:match("^key%s+(%S+)$")

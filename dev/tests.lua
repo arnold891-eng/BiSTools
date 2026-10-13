@@ -2941,6 +2941,52 @@ do
   rdb2.rivals = keepList
   RC.ApplyButton(rdb2)
 
+  -- "ADD RIVAL" ON THE RIGHT-CLICK MENU (Arn: "when i right click maybe we can add add rival here").
+  -- The client's Menu.ModifyMenu, in Olympus's shape: (owner, root, ctx) with ctx.name and ctx.surname.
+  local hookedMenus = {}
+  _G.Menu = { ModifyMenu = function(tag, fn) hookedMenus[tag] = fn end }
+  RC.menusHooked = nil
+  ok(RC.HookMenus(rdb2) and hookedMenus.MENU_UNIT_ENEMY_PLAYER and hookedMenus.MENU_UNIT_PLAYER,
+     "the enemy and player menus get the line")
+  ok(not hookedMenus.MENU_UNIT_COMMUNITIES_GUILD_MEMBER and not hookedMenus.MENU_UNIT_GUILD,
+     "never the guild roster menus (the game's own promote and kick live there)")
+  local function root()
+    local r = { lines = {} }
+    function r:CreateDivider() self.lines[#self.lines + 1] = "--" end
+    function r:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.click = fn end
+    return r
+  end
+  local keepClass, keepGUID = _G.UnitClass, _G.UnitGUID
+  _G.UnitClass = function(u) if u == "target" then return "Rogue", "ROGUE" end return "Shaman", "SHAMAN" end
+  _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
+  local m = root()
+  hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: add rival", "an enemy's menu says: BiS: add rival", m.lines[2])
+  m.click()
+  ok(rivals["Dai Joubu"] and rivals["Dai Joubu"].active and rivals["Dai Joubu"].class == "ROGUE"
+     and rivals["Dai Joubu"].guid == "Player-4619-00DA1", "clicked: Dai Joubu is a gold rival, with class and GUID")
+  ok(tb.attrs.macrotext:find("/target Dai Joubu", 1, true), "and the target button knows them at once")
+  m = root()
+  hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: remove rival", "the next time: BiS: remove rival")
+  m.click()
+  ok(rivals["Dai Joubu"] == nil, "and that takes them off")
+  m = root()
+  hookedMenus.MENU_UNIT_FRIEND(nil, m, { name = "Hunting" })   -- a name in chat, no surname given
+  ok(m.lines[2] == "BiS: remove rival", "a chat name finds the rival by the character name alone")
+  m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = "Me" })
+  ok(#m.lines == 0, "no line on your own menu")
+  m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = setmetatable({}, { __index = function() error("secret") end }) })
+  ok(#m.lines == 0, "no line for a name the game hides")
+  R:SetEnabled("recap", false)
+  m = root() hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu" })
+  ok(#m.lines == 0, "and none while the tool is off")
+  R:SetEnabled("recap", true)
+  _G.Menu = nil
+  RC.menusHooked = nil
+  ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
+  _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
+
   -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
   -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way
   local said3 = {}
