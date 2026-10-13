@@ -111,6 +111,25 @@ local function dress(b, icon, edge)
   b.boxed = true
 end
 
+-- WHICH BUTTON IS WHICH, AT A GLANCE (Arn, 12 Oct: "whats the best way to distinguish ... the right one is the
+-- player and the left one is the npc farm mobs" ... "do the purple and red buttons"). The crosshair colours:
+-- PURPLE for mobs (the farm's skull), RED for players (the rival button, crossed swords). Two pixels, so
+-- the colour reads before the icon does.
+B.EDGE = 2
+function B.Colour(b, rgb)
+  local e = b and b.edge
+  if not (e and rgb) then return false end
+  for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+    local tex = e[side]
+    if tex then
+      tex:SetColorTexture(rgb[1], rgb[2], rgb[3], 1)
+      if side == "top" or side == "bottom" then tex:SetHeight(B.EDGE) else tex:SetWidth(B.EDGE) end
+    end
+  end
+  b.edgeColour = rgb
+  return true
+end
+
 --- The buttons the box may hold, each with when it shows.
 function B.Buttons()
   local out = {}
@@ -118,6 +137,7 @@ function B.Buttons()
   if F and F.TargetButton then
     local fb = F.TargetButton()
     dress(fb, "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8", "accent")
+    B.Colour(fb, RC and RC.MOB_PURPLE or { 0.73, 0.50, 1.00 })
     if not fb.tipped then
       fb:HookScript("OnEnter", function(self)
         if not GameTooltip then return end
@@ -133,6 +153,7 @@ function B.Buttons()
     out[#out + 1] = { b = fb, show = R:Enabled("farm") and fdb and fdb.active and fdb.button ~= false and true or false }
   end
   if RC and RC.tbtn then
+    B.Colour(RC.tbtn, RC.MARK_RED)
     local db = R:DBFor(R:Get("recap"))
     out[#out + 1] = { b = RC.tbtn, show = (RC.tbtn.count or 0) > 0 and db.button ~= false and R:Enabled("recap") }
   end
