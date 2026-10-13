@@ -244,7 +244,9 @@ local function FontString()
     local t, tex = tostring(self.text or ""), 0
     t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
     t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return #t * (self.size or 9) * 0.6 + tex
+    -- LETTERS, NOT BYTES (12 Oct 2026): "Légolas Thiliaere" fit in game and not here - the é is two
+    -- bytes, and the client measures glyphs. UTF-8 continuation bytes are not letters.
+    return #(t:gsub("[\128-\191]", "")) * (self.size or 9) * 0.6 + tex
   end
   function s:Hide() self.shown = false end
   function s:Show() self.shown = true end
@@ -271,6 +273,16 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
+  -- RE-PARENTED, and REFUSED in combat for a secure frame - the client's rule (12 Oct 2026, the box)
+  function f:SetParent(p)
+    if W.combat and self.template and self.template:find("Secure") then error("SetParent on a secure frame in combat", 2) end
+    self.parent = p
+  end
+  -- HookScript CHAINS after what is there, as the client's does (12 Oct 2026, the BiS> tools box)
+  function f:HookScript(k, fn)
+    local prev = self.scripts[k]
+    self.scripts[k] = prev and function(...) prev(...) return fn(...) end or fn
+  end
   function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
   function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
@@ -286,6 +298,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetText() return self.text or "" end
   function f:ClearFocus() end
   function f:GetHeight() return self.h end
+  function f:GetWidth() return self.w end                -- the client answers both (12 Oct 2026)
   function f:SetPoint(p, rel, rp, x, y) self.point = { p, rel, rp, x, y } end
   function f:ClearAllPoints() self.point = nil end
   function f:GetPoint() return "TOPLEFT", nil, "CENTER", 12, -34 end
@@ -294,6 +307,27 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:GetCenter() return self.cx or 0, self.cy or 0 end
   function f:GetEffectiveScale() return 1 end
   function f:SetAlpha(a) self.alpha = a end
+  function f:SetScale(s) self.scale = s end
+  function f:GetScale() return self.scale or 1 end
+  -- AN ANIMATION GROUP, RECORDED (12 Oct 2026, the rival crosshair's pulse): the client hands back a
+  -- group that makes animations, loops, plays and stops - and runs them itself
+  function f:CreateAnimationGroup()
+    local g = { anims = {}, playing = false }
+    function g:CreateAnimation(kind)
+      local a = { kind = kind }
+      function a:SetFromAlpha(v) self.from = v end
+      function a:SetToAlpha(v) self.to = v end
+      function a:SetDuration(v) self.duration = v end
+      function a:SetSmoothing(v) self.smoothing = v end
+      self.anims[#self.anims + 1] = a
+      return a
+    end
+    function g:SetLooping(v) self.looping = v end
+    function g:Play() self.playing = true end
+    function g:Stop() self.playing = false end
+    function g:IsPlaying() return self.playing end
+    return g
+  end
   function f:SetMovable() end
   function f:EnableMouse() end
   function f:SetClampedToScreen() end
@@ -1710,13 +1744,14 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 2, "left click opens the Hub with a row per registered tool")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon", "rows in TOC order: farm, summon")
+  ok(hub and hub:IsShown() and #hub.rows == 4, "left click opens the Hub with a row per registered tool")
+  ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social", "rows in TOC order: farm, summon, recap, social")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "2 of 2 on", "prompt slot counts the tools that are on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 4 on", "prompt slot counts the tools that are on")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 2 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 4 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1734,7 +1769,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "1 of 2 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 4 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1742,9 +1777,23 @@ do
   mm.scripts.OnClick(mm, "RightButton")
   local opt = BiSToolsOptions
   ok(opt and opt:IsShown(), "right click opens Options")
+  ok(opt.scale == 1.2, "and so is Options")
+  -- THE ICON THAT WENT DARK (Arn: "i click the minimap button it goes dark and stays dimmed"):
+  -- EllesmereUI's minimap collector backs a gathered button with a black box (a child, one level below)
+  -- and its click hook lifts every child to DIALOG - its box over the icon. A moment later it goes back.
+  local box2 = { level = 50, strata = "DIALOG" }
+  function box2:SetFrameLevel(l) self.level = l end
+  function box2:SetFrameStrata(s) self.strata = s end
+  mm.GetChildren = function() return box2 end
+  mm.GetFrameLevel = function() return 8 end
+  mm.GetFrameStrata = function() return "MEDIUM" end
+  mm.scripts.OnClick(mm, "RightButton") mm.scripts.OnClick(mm, "RightButton")   -- twice: Options as it was
+  W.runAfters(0.1)
+  ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
+  mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3 own rows), farm (4), summon (7) -> 3 headers + 14 rows
-  ok(#opt.rows == 3 + 3 + 4 + 7, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2) -> 5 headers + 24 rows
+  ok(#opt.rows == 5 + 3 + 5 + 7 + 7 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -1753,7 +1802,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "1 of 2 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 4 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -2200,8 +2249,9 @@ local function realWidth(fs)
   t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
   t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
   local size, px = fs.size or 9, 0
-  for ch in t:gmatch(".") do
-    if ch:match("[%u%d]") then px = px + 0.75 elseif ch:match("%l") then px = px + 0.55 else px = px + 0.3 end
+  -- one glyph per UTF-8 character; an accented letter (é) measures as a lowercase one
+  for ch in t:gmatch("[%z\1-\127\192-\247][\128-\191]*") do
+    if #ch > 1 or ch:match("%l") then px = px + 0.55 elseif ch:match("[%u%d]") then px = px + 0.75 else px = px + 0.3 end
   end
   return px * size + tex
 end
@@ -2486,6 +2536,1007 @@ do
   Sp.Toggle(db, false)
   S("farm arrow off")
   db.spots, db.active, db.arrow, db.shelf = keep.spots, keep.active, keep.arrow, keep.shelf
+end
+
+-- ---------------------------------------------------------------- what killed you: the measuring tool
+-- (12 Oct 2026) Arn, for a friend: "a death recap of who or what killed him". Step one only
+-- MEASURES what C_DeathRecap hands over on Forever, and when. The mock is as unkind as the client
+-- may be: a hidden field refuses every touch (index, concat, compare) and says "string" to type();
+-- a whole row, or the whole list, may be hidden; the call may throw.
+do
+  local RC = NS.Recap
+  local secretMeta = { __index = function(_, k) error("attempt to use a secret value (" .. tostring(k) .. ")", 2) end,
+                       __eq = function() error("attempt to compare a secret value", 2) end,
+                       __lt = function() error("attempt to compare a secret value", 2) end,
+                       __concat = function() error("attempt to concatenate a secret value", 2) end }
+  local function secret() return setmetatable({}, secretMeta) end
+  local realType = type
+  local keep = { type = _G.type, issecretvalue = _G.issecretvalue, issecrettable = _G.issecrettable,
+                 canaccessvalue = _G.canaccessvalue, C_DeathRecap = _G.C_DeathRecap,
+                 chat = DEFAULT_CHAT_FRAME.AddMessage }
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  local hiddenTables = {}
+  _G.issecrettable = function(t) return hiddenTables[t] == true end
+  local said = {}
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
+  local function heard() local s = table.concat(said, "\n") said = {} return s end
+
+  -- a client with no death recap at all: says so, never throws
+  _G.C_DeathRecap = nil
+  ok(pcall(S, "recap raw"), "/bist recap raw on a client with no death recap does not throw")
+  ok(heard():find("no death recap to read", 1, true), "and says the client has none")
+
+  -- THE GAME'S RECORD, the moment you die: who and with what readable, how much hidden
+  local hide = true
+  local function hit(i)
+    return { event = "SPELL_DAMAGE", sourceName = "Defias Thug", spellId = 1752, spellName = "Sinister Strike",
+             amount = hide and secret() or 52 + i, currentHP = hide and secret() or 300 - i, timestamp = 1000 + i }
+  end
+  local events, throw = {}, false
+  _G.C_DeathRecap = {
+    HasRecapEvents = function() return #events > 0 end,
+    GetRecapMaxHealth = function() return hide and secret() or 1344 end,
+    GetRecapEvents = function()
+      if throw then error("Attempt to access forbidden object", 2) end
+      if #events == 0 then return nil end
+      local out = {}
+      for i = 1, #events do out[i] = hit(i) end
+      return out
+    end,
+  }
+  events = { 1, 2, 3 }
+  W.combat = true
+  local onEvent = RC.frame.scripts.OnEvent
+  ok(RC.frame.events.PLAYER_DEAD and RC.frame.events.PLAYER_REGEN_ENABLED, "it listens for dying and for the fight ending")
+  ok(pcall(onEvent, RC.frame, "PLAYER_DEAD"), "dying with hidden numbers does not throw")
+  ok(RC.win and RC.win:IsShown(), "and opens the recap window, hidden numbers and all")
+  ok(RC.win.mid.dmg.text == "?" and RC.win.foot.text:find("some amounts hidden", 1, true),
+     "where the game hid a number the window says ?, never a guess")
+  heard()
+  local d = RC.atDeath
+  ok(d and d.count == 3 and #d.rows == 3, "every hit is recorded at death")
+  ok(d.rows[1]:find('sourceName="Defias Thug"', 1, true) and d.rows[1]:find("spellId=1752", 1, true),
+     "who hit you, and with what, read where the game lets it be read")
+  ok(d.rows[1]:find("amount=<hidden>", 1, true) and d.rows[1]:find("currentHP=<hidden>", 1, true),
+     "and what it hid is named as hidden - never touched")
+  ok(d.hiddenFields.amount and d.hiddenFields.currentHP and not d.hiddenFields.sourceName,
+     "the hidden fields are listed by name")
+  ok(d.maxHealth == "<hidden>" and d.combat == "true", "max health hidden, and it says it was a fight")
+
+  -- THE FIGHT ENDS: read again - the answer that says whether waiting helps
+  hide = false
+  W.combat = false
+  onEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  local a = RC.afterFight
+  ok(a and a.rows[1]:find("amount=53", 1, true) and next(a.hiddenFields) == nil, "after the fight the same hits read plainly")
+  local before = RC.afterFight
+  onEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  ok(RC.afterFight == before, "a second fight ending without a death reads nothing")
+
+  -- /bist recap: all three readings, each with its verdict
+  S("recap raw")
+  local out = heard()
+  ok(out:find("at death", 1, true) and out:find("after the fight", 1, true) and out:find("right now", 1, true),
+     "/bist recap prints the reading at death, after the fight, and now")
+  ok(out:find("hidden: amount, currentHP", 1, true) and out:find("nothing hidden", 1, true),
+     "and which fields were hidden in each", out)
+  S("recap now")
+  out = heard()
+  ok(out:find("right now", 1, true) and not out:find("at death", 1, true), "/bist recap now: just the live read")
+
+  -- what the game may do instead of answering
+  hiddenTables = {}
+  local list
+  _G.C_DeathRecap.GetRecapEvents = function() list = { hit(1) } hiddenTables[list] = true return list end
+  ok(RC.Read("x").notes[1] == "the whole record is hidden", "a hidden list is said to be hidden")
+  _G.C_DeathRecap.GetRecapEvents = function() local r = hit(1) hiddenTables[r] = true return { r } end
+  ok(RC.Read("x").rows[1] == "#1 <hidden hit>", "a hidden hit is said to be hidden, not walked")
+  _G.C_DeathRecap.GetRecapEvents = function() error("forbidden", 2) end
+  local okR, snap = pcall(RC.Read, "x")
+  ok(okR and snap.notes[1]:find("refused", 1, true), "a refusal is reported, not thrown")
+  _G.C_DeathRecap.GetRecapEvents = function() local out2 = {} for i = 1, 15 do out2[i] = hit(i) end return out2 end
+  snap = RC.Read("x")
+  ok(snap.count == 15 and #snap.rows == RC.MAX_ROWS, "fifteen hits recorded, the newest ten printed")
+
+  -- switched off: dying is not even read
+  R:SetEnabled("recap", false)
+  RC.atDeath = nil
+  onEvent(RC.frame, "PLAYER_DEAD")
+  ok(RC.atDeath == nil, "with the tool off, a death is not read")
+  R:SetEnabled("recap", true)
+
+  -- LEAN: it costs nothing until you die - a fight ending reads nothing at all
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  RC.waitFight = nil
+  local n = Cost.Count(function() for _ = 1, 100 do onEvent(RC.frame, "PLAYER_REGEN_ENABLED") end end)
+  ok(n == 0, "100 fights ending without a death cost no client calls: " .. n)
+  print(("   cost: 100 fights ending, no death = %d calls"):format(n))
+
+  _G.type, _G.issecretvalue, _G.issecrettable, _G.canaccessvalue, _G.C_DeathRecap =
+    keep.type, keep.issecretvalue, keep.issecrettable, keep.canaccessvalue, keep.C_DeathRecap
+  DEFAULT_CHAT_FRAME.AddMessage = keep.chat
+  RC.atDeath, RC.afterFight, RC.waitFight = nil, nil, nil
+end
+
+-- ---------------------------------------------------------------- the death recap window, on Arn's death
+-- (12 Oct 2026) Ragefire Chasm, pasted from /bist recap: ten hits, nothing hidden. The window has to
+-- say what the mockup said - killer Molten Elemental 128 (42%), Earthborers 106 (35%) and 72 (24%),
+-- "306 damage in 6.0 seconds" - and group by GUID, because Forever re-names a mob on every hit.
+do
+  local RC = NS.Recap
+  local MOLTEN, EB_A, EB_B = "Creature-0-4621-389-178375-11321-0003CD6", "Creature-0-4621-389-178375-11320-0000CD6",
+                             "Creature-0-4621-389-178375-11320-0002CD6"
+  local function h(amount, crit, hp, t, name, guid, extra)
+    local r = { event = "SWING_DAMAGE", amount = amount, critical = crit, currentHP = hp, timestamp = 1791846000 + t,
+                sourceName = name, sourceGUID = guid, overkill = -1, school = 1 }
+    for k, v in pairs(extra or {}) do r[k] = v end
+    return r
+  end
+  local ARN = {   -- newest first, as the game gives it
+    h(27, false, 13, 504.529, "Molten Elemental Smitecrust", MOLTEN, { overkill = 14 }),
+    h(44, true, 57, 504.046, "Earthborer Milker", EB_A),
+    h(44, true, 101, 503.163, "Earthborer Arms", EB_B),
+    h(7, false, 108, 502.529, "Molten Elemental Shaquanda", MOLTEN, { blocked = 22 }),
+    h(2, false, 110, 502.046, "Earthborer Sama", EB_A, { blocked = 22 }),
+    h(44, true, 154, 501.146, "Earthborer Bee", EB_B),
+    h(49, true, 203, 500.512, "Molten Elemental Shaquanda", MOLTEN),
+    h(26, false, 229, 500.046, "Earthborer Deluxe", EB_A),
+    h(18, false, 247, 499.147, "Earthborer Beartotem", EB_B),
+    h(45, true, 292, 498.505, "Molten Elemental Flashs", MOLTEN),
+  }
+  local keepDR, keepDead = _G.C_DeathRecap, _G.UnitIsDeadOrGhost
+  local deadNow = true
+  _G.UnitIsDeadOrGhost = function() return deadNow end
+  _G.C_DeathRecap = { HasRecapEvents = function() return true end, GetRecapMaxHealth = function() return 1192 end,
+                      GetRecapEvents = function() return ARN end }
+
+  local s = RC.Summary(RC.Hits(ARN), 1192)
+  ok(#s.attackers == 3, "ten nicknames, three mobs: grouped by GUID")
+  ok(s.killer and s.killer.title == "Molten Elemental" and s.killer.total == 128, "the killer: the Molten Elemental, 128")
+  ok(s.assists[1].title == "Earthborer" and s.assists[1].total == 106 and s.assists[2].total == 72,
+     "the assists: the two Earthborers, 106 and 72")
+  ok(s.total == 306 and math.abs(s.seconds - 6.024) < 0.01 and s.startHP == 292, "306 damage in 6.0 seconds, from 292 health")
+  ok(table.concat(s.killer.nicks, ","):find("Smitecrust", 1, true) and table.concat(s.killer.nicks, ","):find("Flashs", 1, true),
+     "its nicknames listed under it")
+  ok(RC.Shared({ "Kumlust" }) == "Kumlust" and RC.Shared({ "Earthborer Milker", "Earthborer Arms" }) == "Earthborer",
+     "a lone name is kept whole; shared words make the kind")
+
+  -- dying opens it, painted from the record
+  local rdb = R:DBFor(R:Get("recap"))
+  rdb.popup = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  local w = RC.win
+  ok(w:IsShown(), "dying opens the death recap")
+  ok(w.mid.name.text == "Molten Elemental" and w.mid.role.text == "killer" and w.mid.dmg.text == "128 (42%)",
+     "the middle card: killer, Molten Elemental, 128 (42%)", w.mid.dmg.text)
+  ok(w.left.dmg.text == "106 (35%)" and w.right.dmg.text == "72 (24%)", "the assists either side, with their shares")
+  ok(w.mid.what.text == "killing blow 27 +14", "the killing blow and its overkill", w.mid.what.text)
+  ok(w.foot.text == "306 damage in 6.0 seconds", "the total line", w.foot.text)
+  ok(w.rows[1].amt.text == "27 +14" and w.rows[2].what.text == "melee crit" and w.rows[5].what.text == "melee 22 blk",
+     "the hits, newest first, crits and blocks marked")
+  ok(w.stripLeft.text == "292 of 1192 health when these began", "the strip says where the hits began", w.stripLeft.text)
+  ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
+  fitsIn(w, "the death recap")
+
+  -- back on your feet: it closes; still a ghost: it stays
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ALIVE")
+  ok(w:IsShown(), "releasing your spirit (still a ghost) leaves it open")
+  deadNow = false
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_UNGHOST")
+  ok(not w:IsShown(), "back in your body, it closes")
+  S("recap")
+  ok(w:IsShown(), "/bist recap opens your last death again")
+  S("recap")
+  ok(not w:IsShown(), "and closes it")
+
+  -- "STOP SHOWING THIS" (Arn, 12 Oct)
+  S("recap")
+  ok(w.stop and w.stop.label.text == "stop showing this", "the recap has a stop showing this line")
+  w.stop.scripts.OnClick(w.stop)
+  ok(rdb.popup == false and not w:IsShown(), "clicked: it closes, and will not open on a death")
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(not w:IsShown(), "dying again: it stays shut")
+  S("recap")
+  ok(w:IsShown() and w.stop.label.text == "show when I die", "/bist recap still opens it, offering it back")
+  fitsIn(w, "the recap with its stop line")
+  w.stop.scripts.OnClick(w.stop)
+  ok(rdb.popup == true and w.stop.label.text == "stop showing this", "and clicking that turns it back on")
+  w:Hide()
+  deadNow = false
+
+  -- switched off: dying does not open it
+  rdb.popup = false
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(not w:IsShown(), "with 'open when you die' off, it stays shut")
+  rdb.popup = true
+
+  -- a player killer (PvP): the name is the name
+  local pk = RC.Summary(RC.Hits({ h(80, true, 50, 10, "Kumlust", "Player-4619-00ABCDEF", { overkill = 30 }) }), 1192)
+  ok(pk.killer.title == "Kumlust" and #pk.killer.nicks == 0 and pk.assists[1] == nil, "a player who killed you is named as themselves")
+
+  -- KILLED BY THREE HUNTERS (Arn's screenshot, 12 Oct): player names in class colour, each card's
+  -- main spell, the healing note, and a click to make one a rival
+  local LEG, MOMS, EGGS = "Player-4619-0001", "Player-4619-0002", "Player-4619-0003"
+  local PVP = {
+    h(114, false, 114, 5.3, "Hunting Moms", MOMS, { spellName = "Auto Shot", event = "RANGE_DAMAGE", overkill = 38 }),
+    h(48, false, 162, 5.3, "Légolas Thiliaere", LEG, { spellName = "Serpent Sting", event = "SPELL_PERIODIC_DAMAGE" }),
+    h(137, true, 299, 5.2, "Hunting Moms", MOMS, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(151, true, 450, 3.8, "Légolas Thiliaere", LEG, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(104, false, 554, 3.7, "Hunting Moms", MOMS, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(26, false, 580, 2.6, "Eggs Benethicc", EGGS, { spellName = "Rend", event = "SPELL_PERIODIC_DAMAGE" }),
+    h(120, false, 700, 2.0, "Légolas Thiliaere", LEG, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(117, false, 817, 1.2, "Légolas Thiliaere", LEG, { spellName = "Auto Shot", event = "RANGE_DAMAGE" }),
+    h(130, true, 947, 0.5, "Légolas Thiliaere", LEG, { spellName = "Arcane Shot", event = "SPELL_DAMAGE" }),
+    h(100, false, 361, 0.0, "Légolas Thiliaere", LEG, { spellName = "Serpent Sting", event = "SPELL_PERIODIC_DAMAGE" }),
+  }
+  local CLASS = { [LEG] = "HUNTER", [MOMS] = "HUNTER", [EGGS] = "WARRIOR" }
+  local keepInfo, keepColors = _G.GetPlayerInfoByGUID, _G.RAID_CLASS_COLORS
+  _G.GetPlayerInfoByGUID = function(g) return "x", CLASS[g] end
+  _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 }, WARRIOR = { r = 0.78, g = 0.61, b = 0.43 } }
+  _G.C_DeathRecap.GetRecapEvents = function() return PVP end
+  local rdb2 = R:DBFor(R:Get("recap"))
+  rdb2.rivals = nil
+  deadNow = true
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  local p = RC.last
+  ok(p.killer.title == "Hunting Moms" and p.killer.player and p.killer.class == "HUNTER", "a player killer, with their class")
+  ok(w.left.name.text == "Légolas Thiliaere" and w.left.dmg.text == "666 (64%)", "the biggest assist: Légolas, 666 (64%)", w.left.dmg.text)
+  ok(w.left.what.text == "Arcane Shot 281", "each card says what they mostly hit you with", w.left.what.text)
+  ok(w.right.what.text == "Rend 26", "even a one-hit assist", w.right.what.text)
+  ok(w.left.name.color and math.abs(w.left.name.color[1] - 0.67) < 0.01, "a player's name in their class colour")
+  ok(w.foot.text == "1047 damage in 5.3 seconds - you healed through some of it", "more damage than health is explained", w.foot.text)
+
+  -- CLICK A PLAYER: a rival. Click again: not. A mob card is not clickable into the list.
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  local rivals = RC.Rivals(rdb2)
+  ok(rivals["Hunting Moms"] and rivals["Hunting Moms"].class == "HUNTER" and rivals["Hunting Moms"].guid == MOMS,
+     "clicking the killer's card makes them a rival, with class and GUID")
+  ok(w.mid.rival.text == "rival", "and the card says so")
+  fitsIn(w, "the death recap, a rival on it")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  ok(rivals["Hunting Moms"] == nil and w.mid.rival.text == "", "a second click takes them off")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  ok(rivals["Hunting Moms"].kills == 1, "a rival who kills you again is counted")
+  local said2 = {}
+  local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said2[#said2 + 1] = m end
+  S("recap rivals")
+  local listed = table.concat(said2, "\n")
+  ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
+  S("recap forget hunting moms")
+  ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  _G.C_DeathRecap.GetRecapEvents = function() return ARN end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")
+  ok(next(RC.Rivals(rdb2)) == nil, "a mob is never a rival")
+  -- THE BIG VIEW AND THE TRACKER (Arn, 12 Oct: "if i click a button it maximize and shows more info
+  -- all rivals etc. current target gold, all previous targets silver. can click them again to turn
+  -- them gold" ... "yes start the tracker")
+  _G.C_DeathRecap.GetRecapEvents = function() return PVP end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_DEAD")
+  w.mid.scripts.OnClick(w.mid, "LeftButton")                         -- Hunting Moms: gold
+  w.left.scripts.OnClick(w.left, "LeftButton")                       -- Légolas: gold
+  ok(RC.GoldCount(rdb2) == 2 and rivals["Légolas Thiliaere"].active, "a rival clicked from a recap starts gold")
+  RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  ok(RC.GoldCount(rdb2) == 1, "and can be sent to silver")
+  -- Légolas seen more recently than Moms: gold-first has to beat most-recent-first
+  rivals["Légolas Thiliaere"].seen = W.now + 100
+  rdb2.expanded = false
+  RC.SetExpanded(rdb2, false)
+  ok(not w.drawer:IsShown(), "small: no drawer")
+  w.moreBtn.scripts.OnClick(w.moreBtn)
+  ok(w.drawer:IsShown() and rdb2.expanded and w.moreBtn.label.text == "-", "the + button opens the rivals drawer")
+  local d = w.drawer
+  ok(d.rows[1].rival == "Hunting Moms" and d.rows[2].rival == "Légolas Thiliaere", "gold first, then silver")
+  ok(d.rows[1].mark.color[2] > d.rows[2].mark.color[2] - 0.0 and d.rows[2].name.color[4] < 1,
+     "a gold mark on the hunted, a dimmed silver row for the rest")
+  fitsIn(d, "the rivals drawer")
+  local function rowOf(name) for _, r in ipairs(d.rows) do if r.rival == name then return r end end end
+  rowOf("Légolas Thiliaere").scripts.OnClick(rowOf("Légolas Thiliaere"), "LeftButton")
+  ok(rivals["Légolas Thiliaere"].active, "clicking a silver rival turns them gold again")
+  rowOf("Légolas Thiliaere").scripts.OnClick(rowOf("Légolas Thiliaere"), "LeftButton")
+  ok(not rivals["Légolas Thiliaere"].active, "and back to silver")
+
+  -- the tracker: a gold rival's nameplate appears
+  local keepZone = _G.GetZoneText
+  _G.GetZoneText = function() return "The Barrens" end
+  W.notices, W.sounds = {}, {}
+  W.plates.nameplate7 = { name = "Hunting Moms" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(W.notices[1] == "Rival nearby: Hunting Moms" and #W.sounds == 1, "a gold rival in sight: a warning and a sound")
+  ok(rivals["Hunting Moms"].where == "The Barrens" and rivals["Hunting Moms"].seen == W.now, "and where and when is kept")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(#W.notices == 1, "the same rival again within a minute: quiet")
+  W.now = W.now + RC.ALERT_GAP + 1
+  W.target = { name = "Hunting Moms" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(#W.notices == 2, "a minute later, targeting them calls them out again")
+  W.plates.nameplate8 = { name = "Légolas Thiliaere" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
+  ok(#W.notices == 2, "a silver rival is remembered, not called out")
+  W.plates.nameplate9 = { name = "Somebody Else" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+  ok(#W.notices == 2, "a stranger is nobody's business")
+  rdb2.sound = false
+  local soundsBefore = #W.sounds
+  W.now = W.now + RC.ALERT_GAP + 1
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(#W.notices == 3 and #W.sounds == soundsBefore, "with the sound off: the warning, no sound")
+  rdb2.sound = nil
+  ok(d.rows[1].info.text:find("seen 0m ago, The Barrens", 1, true), "the drawer says where they were last seen", d.rows[1].info.text)
+  -- a nameplate whose name the game hides: nothing, and no error
+  local keepName = _G.UnitName
+  _G.UnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function(v) return type(v) == "table" end
+  ok(pcall(RC.frame.scripts.OnEvent, RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") and #W.notices == 3,
+     "a hidden name is not read, and nothing is called out")
+  _G.UnitName, _G.issecretvalue = keepName, keepIs
+
+  -- THE CROSSHAIR ON A GOLD RIVAL'S NAMEPLATE (Arn: "is there a way to draw a crosshairs like our
+  -- healing addon via the name plates" ... "gold rivals only, pulsing"). The client hands an addon the
+  -- nameplate frame; one it locks away says so with IsForbidden.
+  local plates = {}
+  local keepGet = _G.C_NamePlate.GetNamePlateForUnit
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  plates.nameplate7 = CreateFrame("Frame", nil, nil)
+  plates.nameplate7:SetSize(180, 20)
+  plates.nameplate8 = CreateFrame("Frame", nil, nil)
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  W.plates.nameplate7 = { name = "Hunting" }                -- the character name, as a nameplate gives it
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  local mk = RC.marks.nameplate7
+  ok(mk and mk.shown and mk.rival == "Hunting Moms" and mk.point and mk.point[2] == plates.nameplate7
+     and mk.point[1] == "TOP" and mk.point[3] == "BOTTOM",
+     "a gold rival's nameplate wears the crosshair, hanging under the plate")
+  ok(mk.w == 90 and mk.h == RC.MARK_H, "half the plate's width (Arn: \"tighten it up 50%\"), centred", mk.w)
+  -- Arn's shape: a rail down each side of the body, a tick in at the middle of each
+  ok(#mk.parts == 4 and mk.leftRail.h == RC.MARK_H and mk.rightRail.h == RC.MARK_H
+     and mk.leftTick.anchor[1] == "LEFT" and mk.rightTick.anchor[1] == "RIGHT"
+     and mk.leftTick.w > mk.leftTick.h and mk.parts[1].color[1] == 1 and mk.parts[1].color[2] < 0.3,
+     "two red rails the body's height, a tick in from each side at the middle")
+  ok(mk.pulse and mk.pulse:IsPlaying() and mk.pulse.looping == "BOUNCE", "and it pulses on the client's own loop")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == mk, "the same plate twice: one crosshair")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  ok(RC.marks.nameplate7 == nil and not mk.shown and not mk.pulse:IsPlaying(), "the plate leaves: the crosshair goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == mk, "and comes back from the pool, not a new frame")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  plates.nameplate7.w = nil                                  -- a plate that will not say how wide it is
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 and RC.marks.nameplate7.w == RC.MARK_W, "a plate with no width: 60 px, never an error")
+  plates.nameplate7.w = 180
+  -- CROSSHAIRS TO PLAY WITH (Arn: "maybe in the recap or options we can play around with different
+  -- crosshairs"): picking one redraws the rival already on screen, so they can be compared
+  local function anchors(f) local a = {} for _, p in ipairs(f.parts) do a[#a + 1] = p.anchor and p.anchor[1] end table.sort(a) return table.concat(a, ",") end
+  ok(RC.SetStyle(rdb2, "L") and rdb2.style == "L", "L: chosen")
+  local mL = RC.marks.nameplate7
+  ok(mL and mL ~= mk and mL.style == "L" and #mL.parts == 8 and not mk.shown,
+     "L: the rival on screen is redrawn at once, eight arms at the four corners")
+  ok(anchors(mL) == "BOTTOMLEFT,BOTTOMLEFT,BOTTOMRIGHT,BOTTOMRIGHT,TOPLEFT,TOPLEFT,TOPRIGHT,TOPRIGHT", "an L at each corner", anchors(mL))
+  RC.SetStyle(rdb2, "aim")
+  local mA = RC.marks.nameplate7
+  ok(mA.style == "aim" and anchors(mA) == "BOTTOM,LEFT,RIGHT,TOP" and mA.parts[1].h == RC.SIGHT_LEN,
+     "aim: a line in from the middle of each side", anchors(mA))
+  RC.SetStyle(rdb2, "box")
+  local mB = RC.marks.nameplate7
+  ok(mB.style == "box" and #mB.parts == 4 and mB.parts[1].h == RC.MARK_THICK and mB.parts[3].w == RC.MARK_THICK,
+     "box: four edges all the way round")
+  ok(RC.SetStyle(rdb2, "swirl") == false and rdb2.style == "box", "a style that does not exist changes nothing")
+  local said4 = {}
+  local keepAdd4 = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said4[#said4 + 1] = m end
+  S("recap style swirl")
+  ok(table.concat(said4, "\n"):find("rails, L, aim, box", 1, true), "/bist recap style with a wrong name lists them")
+  S("recap style l")
+  ok(rdb2.style == "L", "/bist recap style l picks L")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd4
+  -- FOUR FROM ARN'S PICTURES ("more ideas"): scope, drop, chevron, tee - centred on the body
+  RC.SetStyle(rdb2, "scope")
+  local sc = RC.marks.nameplate7
+  local centred = 0
+  for _, p in ipairs(sc.parts) do if p.anchor and p.anchor[1] == "CENTER" then centred = centred + 1 end end
+  ok(sc.style == "scope" and #sc.parts == 13 and centred == 9, "scope: four posts, thin lines, ticks and the dot", #sc.parts)
+  RC.SetStyle(rdb2, "drop")
+  local dr = RC.marks.nameplate7
+  ok(dr.style == "drop" and dr.parts[1].rot and dr.parts[2].rot and math.abs(dr.parts[1].rot + dr.parts[2].rot) < 1e-9,
+     "drop: a chevron of two slants turned opposite ways, and a ladder")
+  RC.SetStyle(rdb2, "chevron")
+  ok(RC.marks.nameplate7.style == "chevron" and #RC.marks.nameplate7.parts == 2, "chevron: just the ^")
+  RC.SetStyle(rdb2, "tee")
+  ok(RC.marks.nameplate7.style == "tee" and #RC.marks.nameplate7.parts == 2, "tee: a bar and a stem")
+  -- eight do not fit one row of buttons: the options stepper walks them, the name shown
+  local stepper
+  for _, o in ipairs(R:Get("recap").options) do if o.label == "crosshair" then stepper = o end end
+  ok(stepper and stepper.kind == "step" and stepper.max == 9 and stepper.get(rdb2) == 8 and stepper.show(rdb2) == "tee",
+     "the options stepper: eight styles, at tee")
+  stepper.set(rdb2, 5)
+  ok(rdb2.style == "scope" and RC.marks.nameplate7.style == "scope" and stepper.show(rdb2) == "scope",
+     "a step redraws the rival on screen in the next shape")
+  RC.SetStyle(rdb2, "rails")
+  mk = RC.marks.nameplate7
+  ok(mk.style == "rails" and #mk.parts == 4, "and back to rails")
+  W.plates.nameplate8 = { name = "Légolas" }               -- a silver rival
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate8")
+  ok(RC.marks.nameplate8 == nil, "a silver rival gets no crosshair")
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(RC.marks.nameplate7 == nil and not mk.shown, "sending a rival to silver takes their crosshair off")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  plates.nameplate7.IsForbidden = function() return true end
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.marks.nameplate7 == nil, "a nameplate the client locks away gets none, and no error")
+  plates.nameplate7.IsForbidden = nil
+  W.target = { name = "Hunting" }
+  plates.target = CreateFrame("Frame", nil, nil)          -- the client WOULD hand back a plate for it
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  plates.target = nil
+  ok(RC.marks.target == nil, "only nameplates carry it - a target has no plate event to take it down")
+  W.target = nil
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  R:SetEnabled("recap", false)
+  ok(next(RC.marks) == nil, "switching the tool off takes every crosshair down")
+  R:SetEnabled("recap", true)
+  _G.C_NamePlate.GetNamePlateForUnit = keepGet
+  W.plates.nameplate7, W.plates.nameplate8 = { name = "Hunting Moms" }, nil
+
+  -- THE RIVAL TARGET BUTTON (Arn: "i just did /tar Ford Knox and i was able to target an enemy
+  -- player what about a small button that targets all our rivals"). The mock refuses an attribute
+  -- set in combat, as the client does.
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  local tb = RC.tbtn
+  ok(tb and tb.template == "SecureActionButtonTemplate" and tb.attrs.type == "macro", "a secure macro button")
+  ok(tb.attrs.macrotext == "/target Hunting Moms" and tb.shown, "one gold rival: /target them, and the button shows")
+  rivals["Hunting Moms"].seen, rivals["Légolas Thiliaere"].seen = W.now - 50, W.now
+  RC.SetActive(rdb2, "Légolas Thiliaere", true)
+  ok(tb.attrs.macrotext == "/target Hunting Moms\n/target Légolas Thiliaere",
+     "two gold: the most recently seen runs last, so it is the one you get", tb.attrs.macrotext)
+  -- in a fight the button cannot be rewritten: it waits
+  W.combat = true
+  ok(pcall(RC.SetActive, rdb2, "Légolas Thiliaere", false), "a rival sent to silver mid-fight: nothing thrown")
+  ok(RC.btnDirty and tb.attrs.macrotext:find("Légolas", 1, true), "the button keeps its macro until the fight ends")
+  W.combat = false
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+  ok(not RC.btnDirty and tb.attrs.macrotext == "/target Hunting Moms", "and is rewritten the moment it does")
+  -- a key, and off again
+  S("recap key f6")
+  ok(W.binds[tb] and W.binds[tb].key == "F6" and W.binds[tb].btn == "BiSToolsRivalTarget", "/bist recap key F6 binds it")
+  S("recap key off")
+  ok(W.binds[tb] == nil and rdb2.key == nil, "and key off unbinds it")
+  -- nobody gold: hidden; the option off: hidden
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(not tb.shown and tb.attrs.macrotext == "", "nobody gold: no button")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  rdb2.button = false RC.ApplyButton(rdb2)
+  ok(not tb.shown, "'rival target button' off: hidden")
+  rdb2.button = nil RC.ApplyButton(rdb2)
+  -- THE BiS> TOOLS BOX (Arn: "lets keep all button neat maybe in a bis farm box, like the bis now, maybe if
+  -- we have bis now it just puts the button there cross addon")
+  local Bx = NS.Box
+  local box = Bx.frame
+  ok(box and tb.parent == box and box.shown and Bx.count >= 1, "the rival button lives in the BiS> tools box")
+  local fbtn = NS.Farm.TargetButton()
+  local fdb = NS.Farm.db
+  local keepActive2 = fdb.active
+  fdb.active = nil Bx.Refresh()
+  ok(not fbtn.shown and Bx.count == 1, "no mob farmed: no farm button")
+  fdb.active = "Kobold Miner" Bx.Refresh()
+  ok(fbtn.parent == box and fbtn.shown and Bx.count == 2 and fbtn.icon.file:find("RaidTargetingIcon_8", 1, true),
+     "farming: the farm's target button, with the skull, beside the rival one")
+  ok(box.w == math.max(Bx.MIN_W, Bx.PAD * 2 + 2 * Bx.SIZE + Bx.GAP), "the box is as wide as its buttons (and its name)", box.w)
+  -- docked to BiS> now when it is up, its own place when not
+  local now = CreateFrame("Frame", "BiSHealingNowBlock", nil)
+  now.shown = true
+  -- where things are on screen (the client answers GetLeft/Right/Top/Bottom): BiS> now UNDER the grid
+  local function at(fr, l, r, t2, b) fr.GetLeft = function() return l end fr.GetRight = function() return r end
+    fr.GetTop = function() return t2 end fr.GetBottom = function() return b end end
+  local gridAnchor = CreateFrame("Frame", nil, nil)
+  local gridHeader = CreateFrame("Frame", "BiSHealingForeverHeader", gridAnchor)
+  at(gridAnchor, 300, 700, 600, 300) at(gridHeader, 300, 700, 618, 602)
+  at(now, 300, 400, 280, 240)                                   -- under the grid
+  Bx.DB().dock = nil
+  Bx.Refresh()
+  ok(Bx.docked and Bx.dock == "right" and box.point[2] == now and box.point[1] == "TOPLEFT" and box.point[3] == "TOPRIGHT",
+     "BiS> now under the grid: the box docks to its right edge")
+  -- BiS> now on the grid's LEFT (Arn: "it overlapped into the healing frames"): right of it is the grid
+  at(now, 190, 295, 600, 560)
+  Bx.Refresh()
+  ok(Bx.dock == "below" and box.point[1] == "TOPLEFT" and box.point[3] == "BOTTOMLEFT",
+     "BiS> now left of the grid: the box goes below it, not onto the grid")
+  -- level with the grid's HEADER only (above its cells): that is the grid too
+  at(now, 190, 295, 650, 630)
+  Bx.Refresh()
+  ok(Bx.dock == "below", "the grid's own header counts as the grid")
+  at(now, 190, 295, 600, 560)
+  -- shift-click sends it round BiS> now (Arn: "should have these same clicks and drags")
+  W.shift = true
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "right" and Bx.dock == "right", "shift-click: right")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "below" and box.point[3] == "BOTTOMLEFT", "then below")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "left" and box.point[1] == "TOPRIGHT" and box.point[3] == "TOPLEFT", "then left")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "top" and box.point[1] == "BOTTOMLEFT" and box.point[3] == "TOPLEFT", "then on top")
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "auto", "and round to auto")
+  W.shift = false
+  box.head.scripts.OnMouseUp(box.head, "LeftButton")
+  ok(Bx.DB().dock == "auto", "a plain click does nothing")
+  -- the header drags it anywhere - docked or not - and a dragged box stays where it is dropped
+  local moved = 0
+  local keepMove, keepStop = box.StartMoving, box.StopMovingOrSizing
+  box.StartMoving = function() moved = moved + 1 end
+  box.StopMovingOrSizing = function() end
+  W.combat = true box.head.scripts.OnDragStart(box.head) box.head.scripts.OnDragStop(box.head) W.combat = false
+  ok(moved == 0 and Bx.DB().dock == "auto", "never dragged in a fight")
+  box.head.scripts.OnDragStart(box.head) box.head.scripts.OnDragStop(box.head)
+  box.StartMoving, box.StopMovingOrSizing = keepMove, keepStop
+  ok(moved == 1 and Bx.DB().dock == "free" and not Bx.docked and Bx.DB().pos, "dragged, even docked: it stays where it is dropped")
+  Bx.Refresh()
+  ok(box.point[2] == UIParent, "and stays free while BiS> now is up")
+  W.shift = true box.head.scripts.OnMouseUp(box.head, "LeftButton") W.shift = false
+  ok(Bx.DB().dock == "auto" and Bx.docked, "shift-click brings a dragged box back to BiS> now")
+  now:Hide() if now.scripts.OnHide then now.scripts.OnHide(now) end
+  ok(not Bx.docked and box.point[2] == UIParent, "BiS> now hidden: the box stands on its own")
+  _G.BiSHealingNowBlock, _G.BiSHealingForeverHeader = nil, nil
+  Bx.DB().dock = nil
+  -- a change in a fight waits for its end
+  W.combat = true
+  fdb.active = nil
+  ok(Bx.Refresh() == false and Bx.dirty and fbtn.shown, "in a fight the box is left as it is")
+  W.combat = false
+  Bx.events.scripts.OnEvent(Bx.events, "PLAYER_REGEN_ENABLED")
+  ok(not Bx.dirty and not fbtn.shown, "and laid out again when it ends")
+  -- nothing to do: no box
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  ok(not box.shown, "no button with anything to do: no box")
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  -- PURPLE FOR MOBS (Arn: "we should also add this to the farm module ... only the crosshair", "if rxp
+  -- calls for mobs to be able to be tracked we crosshairs them", "red for players purple for mobs")
+  local mplates = {}
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return mplates[u] end
+  mplates.nameplate3 = CreateFrame("Frame", nil, nil) mplates.nameplate3:SetSize(140, 20)
+  mplates.nameplate2 = CreateFrame("Frame", nil, nil) mplates.nameplate2:SetSize(140, 20)
+  fdb.active = "Kobold Miner"
+  W.plates.nameplate3 = { name = "Kobold Miner" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  local fm = RC.marks.nameplate3
+  ok(fm and fm.kind == "farm" and math.abs(fm.parts[1].color[1] - 0.73) < 0.01 and fm.parts[1].color[3] == 1,
+     "the mob you farm: a purple crosshair")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate3")
+  W.plates.nameplate3 = { name = "Kobold Miner", tapped = true }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  ok(RC.marks.nameplate3 == nil, "a copy somebody else tapped: none (the farm tool's own clean test)")
+  W.plates.nameplate3 = { name = "Kobold Miner" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  NS.Farm.SetActive(fdb, "Kobold Geomancer")
+  ok(RC.marks.nameplate3 == nil, "farm something else: the old crosshairs go")
+  NS.Farm.SetActive(fdb, "Kobold Miner")
+  -- RestedXP's Active Targets
+  NS.Farm.Guide.Take(nil, { "Murloc Hunter" }, false)
+  W.plates.nameplate2 = { name = "Murloc Hunter" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate2")
+  local gm2 = RC.marks.nameplate2
+  ok(gm2 and gm2.kind == "guide" and math.abs(gm2.parts[1].color[1] - 0.73) < 0.01, "a mob the RestedXP guide wants: purple too")
+  NS.Farm.Guide.Take(nil, { "Murloc Oracle" }, false)
+  ok(RC.marks.nameplate2 == nil, "the guide moves on: the old step's crosshairs go")
+  fdb.guide = false
+  NS.Farm.Guide.Take(nil, { "Murloc Hunter" }, false)
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate2")
+  ok(RC.marks.nameplate2 == nil, "the guide's mobs hidden in the farm tool: none")
+  fdb.guide = nil
+  -- the farm tool's switch
+  for _, o in ipairs(R:Get("farm").options) do if o.label == "crosshair on the mob" then o.set(fdb, false) end end
+  ok(next(RC.marks) == nil or (function() for _, f in pairs(RC.marks) do if f.kind == "farm" or f.kind == "guide" then return false end end return true end)(),
+     "'crosshair on the mob' off: every purple crosshair goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+  ok(RC.marks.nameplate3 == nil, "and none drawn")
+  fdb.cross = nil
+  NS.Farm.Guide.Take(nil, {}, false)
+  W.plates.nameplate2, W.plates.nameplate3 = nil, nil
+  _G.C_NamePlate.GetNamePlateForUnit = nil
+  fdb.active = keepActive2 Bx.Refresh()
+  -- twenty gold rivals: the macro stays within the client's length, the most recent kept
+  local keepList = rdb2.rivals
+  rdb2.rivals = {}
+  for i = 1, 20 do rdb2.rivals[("Rival Number%02d Longname"):format(i)] = { active = true, seen = i } end
+  local mtext, n20 = RC.TargetMacro(rdb2)
+  ok(#mtext <= RC.MACRO_MAX and n20 < 20 and mtext:find("Number20", 1, true) and not mtext:find("Number01", 1, true),
+     "twenty gold rivals: as many as fit in 255 characters, the most recently seen kept", #mtext)
+  rdb2.rivals = keepList
+  RC.ApplyButton(rdb2)
+
+  -- "ADD RIVAL" ON THE RIGHT-CLICK MENU (Arn: "when i right click maybe we can add add rival here").
+  -- The client's Menu.ModifyMenu, in Olympus's shape: (owner, root, ctx) with ctx.name and ctx.surname.
+  local hookedMenus = {}
+  _G.Menu = { ModifyMenu = function(tag, fn) hookedMenus[tag] = fn end }
+  RC.menusHooked = nil
+  ok(RC.HookMenus(rdb2) and hookedMenus.MENU_UNIT_ENEMY_PLAYER and hookedMenus.MENU_UNIT_PLAYER,
+     "the enemy and player menus get the line")
+  ok(not hookedMenus.MENU_UNIT_COMMUNITIES_GUILD_MEMBER and not hookedMenus.MENU_UNIT_GUILD,
+     "never the guild roster menus (the game's own promote and kick live there)")
+  local function root()
+    local r = { lines = {} }
+    function r:CreateDivider() self.lines[#self.lines + 1] = "--" end
+    function r:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.click = fn end
+    return r
+  end
+  local keepClass, keepGUID = _G.UnitClass, _G.UnitGUID
+  _G.UnitClass = function(u) if u == "target" then return "Rogue", "ROGUE" end return "Shaman", "SHAMAN" end
+  _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
+  local m = root()
+  hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: add rival", "an enemy's menu says: BiS: add rival", m.lines[2])
+  m.click()
+  ok(rivals["Dai Joubu"] and rivals["Dai Joubu"].active and rivals["Dai Joubu"].class == "ROGUE"
+     and rivals["Dai Joubu"].guid == "Player-4619-00DA1", "clicked: Dai Joubu is a gold rival, with class and GUID")
+  ok(tb.attrs.macrotext:find("/target Dai Joubu", 1, true), "and the target button knows them at once")
+  m = root()
+  hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: remove rival", "the next time: BiS: remove rival")
+  m.click()
+  ok(rivals["Dai Joubu"] == nil, "and that takes them off")
+  m = root()
+  hookedMenus.MENU_UNIT_FRIEND(nil, m, { name = "Hunting" })   -- a name in chat, no surname given
+  ok(m.lines[2] == "BiS: remove rival", "a chat name finds the rival by the character name alone")
+  m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = "Me" })
+  ok(#m.lines == 0, "no line on your own menu")
+  m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = setmetatable({}, { __index = function() error("secret") end }) })
+  ok(#m.lines == 0, "no line for a name the game hides")
+  R:SetEnabled("recap", false)
+  m = root() hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu" })
+  ok(#m.lines == 0, "and none while the tool is off")
+  R:SetEnabled("recap", true)
+  _G.Menu = nil
+  RC.menusHooked = nil
+  ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
+  _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
+
+  -- GUILD RIVALS (Arn: "a toggle dont show guild rivals etc or show with a different color crosshair to
+  -- know it was from someone else"), over LibBiSComm's GUILD channel
+  local lib2 = _G.LibBiSComm
+  local sent = {}
+  local keepSendTo = lib2.SendTo
+  lib2.SendTo = function(_, chan, mod, cmd, ...) sent[#sent + 1] = { chan = chan, mod = mod, cmd = cmd, args = { ... } } return true end
+  _G.IsInGuild = function() return true end
+  RC.guildHooked = nil
+  ok(RC.HookGuild(rdb2) and lib2.guildMods.RIVAL and lib2.handlers.RIVAL.ADD and lib2.handlers.RIVAL.SEEN,
+     "the guild channel carries RIVAL: ADD, DEL, SEEN, ASK, LIST")
+  local mg = root()
+  _G.Menu = { ModifyMenu = function() end }
+  RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
+  ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
+  _G.UnitClass = function() return "Mage", "MAGE" end
+  mg.click()
+  _G.UnitClass = keepClass
+  local g = RC.GuildRivals(rdb2)
+  ok(g["Kill Er"] and g["Kill Er"].class == "MAGE" and sent[#sent].chan == "GUILD" and sent[#sent].cmd == "ADD"
+     and sent[#sent].args[1] == "Kill Er", "added: on the guild's list, and the guild told")
+  -- from someone else
+  lib2.handlers.RIVAL.ADD("Tyrone", "Ganka Boy", "ROGUE")
+  ok(g["Ganka Boy"] and g["Ganka Boy"].by == "Tyrone", "a guildmate's guild rival arrives, with who added it")
+  -- in sight: amber, no noise, the guild told once a minute
+  W.notices, W.sounds = {}, {}
+  local nSent = #sent
+  plates.nameplate5 = CreateFrame("Frame", nil, nil) plates.nameplate5:SetSize(160, 20)
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  W.plates.nameplate5 = { name = "Ganka" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  local gm = RC.marks.nameplate5
+  ok(gm and gm.kind == "guild" and gm.parts[1].color[2] > 0.5, "a guild rival wears the AMBER crosshair")
+  ok(#W.notices == 0 and #W.sounds == 0, "and makes no noise")
+  ok(#sent == nSent + 1 and sent[#sent].cmd == "SEEN" and sent[#sent].args[1] == "Ganka Boy", "the guild is told they were seen")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate5")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(#sent == nSent + 1, "seen again within a minute: not said twice")
+  -- a guild rival who is also YOUR gold rival: red
+  RC.ToggleRival(rdb2, { player = true, title = "Ganka Boy", class = "ROGUE" })
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(RC.marks.nameplate5.kind == "own", "yours as well: red, your crosshair wins")
+  RC.ToggleRival(rdb2, { player = true, title = "Ganka Boy" })
+  -- someone else saw one
+  lib2.handlers.RIVAL.SEEN("Tyrone", "Kill Er", "Tarren Mill")
+  ok(g["Kill Er"].where == "Tarren Mill" and g["Kill Er"].seenBy == "Tyrone", "a guildmate's sighting: where, and by whom")
+  rdb2.expanded = true RC.SetExpanded(rdb2, true)
+  local grow
+  for _, b in ipairs(w.drawer.rows) do if b.rival == "Kill Er" then grow = b end end
+  ok(grow and grow.guild and grow.info.text:find("guild", 1, true) and grow.info.text:find("Tarren Mill (Tyrone)", 1, true)
+     and grow.mark.color[2] > 0.5, "the drawer: amber, guild, where and who saw them", grow and grow.info.text)
+  fitsIn(w.drawer, "the drawer with guild rivals")
+  -- guild rows: click = yours, shift-click = off the guild's list (and the guild told)
+  grow.scripts.OnClick(grow, "LeftButton")
+  ok(rivals["Kill Er"] and rivals["Kill Er"].active, "clicking a guild row makes them your gold rival")
+  RC.ToggleRival(rdb2, { player = true, title = "Kill Er" })
+  for _, b in ipairs(w.drawer.rows) do if b.rival == "Kill Er" then grow = b end end
+  W.shift = true grow.scripts.OnClick(grow, "LeftButton") W.shift = false
+  ok(g["Kill Er"] == nil and sent[#sent].cmd == "DEL", "shift-click takes them off the guild's list, for everyone")
+  lib2.handlers.RIVAL.DEL("Tyrone", "Ganka Boy")
+  ok(g["Ganka Boy"] == nil and RC.marks.nameplate5 == nil, "a guildmate's DEL: gone, crosshair and all")
+  -- a newcomer asks; one answer is enough
+  lib2.handlers.RIVAL.ADD("Tyrone", "Third Guy", "PRIEST")
+  -- (other tools' timers send too: only RIVAL LISTs are counted)
+  local function lists() local n, last = 0, nil for _, s in ipairs(sent) do if s.mod == "RIVAL" and s.cmd == "LIST" then n, last = n + 1, s end end return n, last end
+  local before = lists()
+  lib2.handlers.RIVAL.ASK("Newbie")
+  W.runAfters(5)
+  local nL, lastL = lists()
+  ok(nL == before + 1 and lastL.args[1] == "Third Guy", "asked: the list is sent")
+  lib2.handlers.RIVAL.ASK("Newbie")
+  lib2.handlers.RIVAL.LIST("Someone", "Third Guy", "PRIEST")
+  W.runAfters(5)
+  ok(lists() == before + 1, "somebody else answered first: we stand down")
+  lib2.handlers.RIVAL.LIST("Someone", "Fourth One", "WARLOCK", "Fifth One", "HUNTER")
+  ok(g["Fourth One"] and g["Fifth One"].class == "HUNTER", "a LIST is merged in")
+  lib2.handlers.RIVAL.ADD("Tyrone", "bad|name", "X")
+  lib2.handlers.RIVAL.ADD("Tyrone", ("x"):rep(60), "X")
+  ok(g["bad|name"] == nil and g[("x"):rep(60)] == nil, "a name with a pipe, or absurdly long, is refused")
+  -- the switch: off hides them and stops listening
+  for _, o in ipairs(R:Get("recap").options) do
+    if o.label == "guild rivals (amber)" then o.set(rdb2, false) end
+  end
+  W.plates.nameplate5 = { name = "Third" }
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+  ok(RC.marks.nameplate5 == nil, "guild rivals off: no amber crosshair")
+  lib2.handlers.RIVAL.ADD("Tyrone", "Sixth Guy", "PRIEST")
+  ok(g["Sixth Guy"] == nil, "and the guild's additions are not taken in")
+  rdb2.guildShow = nil
+
+  -- GUILDMATES IN PASSING (Arn: "while not in a party and we see their name plate no noise just a
+  -- small little cross hair ... turn off during party and raid and battleground")
+  local keepMine = _G.UnitIsInMyGuild
+  local mates = { nameplate6 = true }
+  _G.UnitIsInMyGuild = function(u) return mates[u] == true end
+  plates.nameplate6 = CreateFrame("Frame", nil, nil)
+  W.plates.nameplate6 = { name = "Tyrone" }
+  RC.solo = true
+  W.notices, W.sounds = {}, {}
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  local mate = RC.mates.nameplate6
+  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal +")
+  ok(#W.notices == 0 and #W.sounds == 0, "with no noise at all")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil and not mate.shown, "their plate goes: so does the +")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  local keepGroup = _G.IsInGroup
+  _G.IsInGroup = function() return true end
+  RC.frame.scripts.OnEvent(RC.frame, "GROUP_ROSTER_UPDATE")
+  ok(RC.mates.nameplate6 == nil and RC.solo == false, "join a group: every + goes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "and none while grouped")
+  _G.IsInGroup = keepGroup
+  local keepInst = _G.IsInInstance
+  _G.IsInInstance = function() return true, "pvp" end
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ENTERING_WORLD")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "nor in a battleground")
+  _G.IsInInstance = keepInst
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_ENTERING_WORLD")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6, "alone again: back")
+  rdb2.mates = false RC.ClearMates()
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+  ok(RC.mates.nameplate6 == nil, "'guildmates' off: none")
+  rdb2.mates = nil
+  -- LEAN: a town of strangers' plates, alone, nobody gold and no guild rivals: a name and a guild question each
+  local Cost2 = dofile("../_bisdev/dev/cost.lua")
+  for k in pairs(g) do g[k] = nil end
+  RC.SetActive(rdb2, "Hunting Moms", false) RC.SetActive(rdb2, "Légolas Thiliaere", false)
+  W.plates.nameplate4 = { name = "Stranger" }
+  local nM = Cost2.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate4") end end)
+  ok(nM <= 500 * 3, "500 strangers' plates, guildmates on: at most 3 client calls each: " .. nM)
+  rdb2.mates = false
+  local nOff = Cost2.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate4") end end)
+  ok(nOff == 0, "and with everything off: none at all: " .. nOff)
+  print(("   cost: 500 plates alone = %d calls (guildmates on), %d (all off)"):format(nM, nOff))
+  rdb2.mates = nil
+  RC.SetActive(rdb2, "Hunting Moms", true)
+  _G.UnitIsInMyGuild, _G.C_NamePlate.GetNamePlateForUnit = keepMine, keepGet
+  lib2.SendTo = keepSendTo
+  _G.Menu, _G.IsInGuild = nil, nil
+  W.plates.nameplate4, W.plates.nameplate5, W.plates.nameplate6 = nil, nil, nil
+
+  -- /bist recap why (Arn, Hunting Moms on his target: "dont think i got a notification or sound"):
+  -- says who is gold, what it last saw and why it stayed quiet, and reads the target every way
+  local said3 = {}
+  local keepAdd3 = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said3[#said3 + 1] = m end
+  W.target = { name = "Somebody Else" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(pcall(S, "recap why"), "/bist recap why never throws")
+  local why = table.concat(said3, "\n")
+  ok(why:find("gold: ", 1, true) and why:find("Hunting Moms", 1, true) and why:find("not a rival", 1, true)
+     and why:find('"Somebody Else"', 1, true), "it names the gold rivals, the last look and its reason, and the target", why)
+  said3 = {}
+  W.target = { name = "Hunting" }                     -- MEASURED: the game gives "Hunting", the recap "Hunting Moms"
+  S("recap why")
+  ok(table.concat(said3, "\n"):find("that is your rival Hunting Moms (gold)", 1, true),
+     "the character name alone is the rival (Forever's surname is not part of it)", table.concat(said3, "\n"))
+  said3 = {}
+  W.target = { name = "Hunt" }                        -- a different, shorter name is not them
+  S("recap why")
+  ok(not table.concat(said3, "\n"):find("that is your rival", 1, true), "a name that only starts the same is not a rival")
+  -- and the tracker calls them out under the first name, by the name the recap knows
+  W.notices = {}
+  W.now = W.now + RC.ALERT_GAP + 1
+  W.target = { name = "Hunting" }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(W.notices[1] == "Rival nearby: Hunting Moms", "targeting \"Hunting\" calls out your rival Hunting Moms", tostring(W.notices[1]))
+  said3 = {}
+  said3 = {}
+  _G.UnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+  _G.issecretvalue = function(v) return type(v) == "table" end
+  ok(pcall(S, "recap why") and table.concat(said3, "\n"):find("HIDDEN by the game", 1, true), "a hidden target name is said to be hidden")
+  _G.UnitName, _G.issecretvalue = keepName, keepIs
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd3
+  W.target = nil
+
+  -- LEAN: hunting nobody costs nothing; hunting someone costs a name check a nameplate
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  -- (the guildmate + off here: it is measured with its own budget in the guild section)
+  rdb2.mates = false
+  local n = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9") end end)
+  ok(n <= 500 * 2, "500 strangers' nameplates with a gold rival: at most 2 client calls each: " .. n)
+  RC.SetActive(rdb2, "Hunting Moms", false)
+  local n0 = Cost.Count(function() for _ = 1, 500 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7") end end)
+  ok(n0 == 0, "500 nameplates with nobody gold: no client calls at all: " .. n0)
+  rdb2.mates = nil
+  print(("   cost: 500 nameplates = %d calls hunting someone, %d hunting nobody"):format(n, n0))
+  _G.GetZoneText = keepZone
+  W.plates.nameplate7, W.plates.nameplate8, W.plates.nameplate9, W.target = nil, nil, nil, nil
+
+  -- no death this session, but rivals: /bist recap opens on the drawer alone
+  RC.last = nil
+  _G.C_DeathRecap.GetRecapEvents = function() return nil end
+  w:Hide()
+  S("recap")
+  ok(w:IsShown() and d:IsShown() and not w.mid:IsShown() and w.caption.text == "nothing has killed you this session",
+     "no death yet: the window opens on your rivals")
+  fitsIn(w, "the recap with no death")
+  W.shift = true
+  d.rows[1].scripts.OnClick(d.rows[1], "LeftButton")
+  W.shift = false
+  ok(#(function() local t = {} for k in pairs(rivals) do t[#t + 1] = k end return t end)() == 1, "shift-click forgets a rival")
+  rdb2.rivals, rdb2.expanded = nil, nil
+  w:Hide()
+
+  _G.GetPlayerInfoByGUID, _G.RAID_CLASS_COLORS = keepInfo, keepColors
+
+  _G.C_DeathRecap, _G.UnitIsDeadOrGhost = keepDR, keepDead
+  RC.last = nil
+  w:Hide()
+end
+
+-- ---------------------------------------------------------------- the social tool: a thank-you emote
+-- (12 Oct 2026) Arn: "when i get a buff from a friendly player i hate having to say /thanks /kiss /hug etc.
+-- can we track who buffed us and it select a random friendly emote to auto emote them maybe with a 2-5 min
+-- cooldown". UNIT_AURA for "player" carries addedAuras with sourceUnit; in a fight it can be hidden.
+do
+  local Sc = NS.Social
+  local sdb = R:DBFor(R:Get("social"))
+  local emoted = {}
+  local keep = { DoEmote = _G.DoEmote, UnitIsPlayer = _G.UnitIsPlayer, UnitIsUnit = _G.UnitIsUnit,
+                 UnitName = _G.UnitName, UnitInParty = _G.UnitInParty }
+  _G.DoEmote = function(token, who) emoted[#emoted + 1] = { token = token, who = who } end
+  local units = { target = { name = "Kindpally", player = true }, nameplate9 = { name = "Wolfie", player = false },
+                  party1 = { name = "Groupy", player = true, party = true } }
+  _G.UnitName = function(u) if u == "player" then return "Me" end return units[u] and units[u].name end
+  _G.UnitIsPlayer = function(u) return u == "player" or (units[u] and units[u].player) or false end
+  _G.UnitIsUnit = function(a, b) return a == b end
+  _G.UnitInParty = function(u) return units[u] and units[u].party or false end
+  local function buff(src) return { addedAuras = { { isHelpful = true, sourceUnit = src, spellId = 1243 } } } end
+  local fire = function(info) Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "player", info) end
+
+  ok(sdb.thanks == false, "off until switched on: nobody gets hugged the day it is installed")
+  fire(buff("target"))
+  ok(#emoted == 0, "off: no emote")
+  S("social on")
+  ok(sdb.thanks == true, "/bist social on")
+  Sc.next, Sc.thanked = nil, {}
+  fire(buff("target"))
+  local e = emoted[1]
+  ok(e and e.who == "Kindpally", "a friendly player buffs you: an emote at them")
+  local isFriendly = false
+  for _, t in ipairs(Sc.EMOTES) do if e and e.token == t then isFriendly = true end end
+  ok(isFriendly, "a friendly one, from the list", e and e.token)
+  units.focus = { name = "Another", player = true }
+  fire(buff("focus"))
+  ok(#emoted == 1 and Sc.lastWhy:find("cooldown", 1, true), "within the 2-5 minute cooldown: no second emote")
+  ok(Sc.next - W.now >= Sc.MIN_GAP and Sc.next - W.now <= Sc.MAX_GAP, "the cooldown is 2 to 5 minutes")
+  W.now = W.now + Sc.MAX_GAP + 1
+  fire(buff("target"))
+  ok(#emoted == 1 and Sc.lastWhy:find("ten minutes", 1, true), "the same player again within ten minutes: no")
+  fire(buff("focus"))
+  ok(#emoted == 2 and emoted[2].who == "Another", "someone else after the cooldown: yes")
+  W.now = W.now + 999
+  -- who is never thanked
+  fire(buff("player")) ok(#emoted == 2 and Sc.lastWhy == "your own buff", "your own buff: no")
+  fire(buff("nameplate9")) ok(#emoted == 2 and Sc.lastWhy:find("not a player", 1, true), "a pet or creature: no")
+  fire(buff("party1")) ok(#emoted == 2 and Sc.lastWhy:find("groupmate", 1, true), "a groupmate: left alone")
+  fire({ addedAuras = { { isHelpful = true, sourceUnit = nil } } })
+  ok(#emoted == 2 and Sc.lastWhy:find("did not say who", 1, true), "a buff from someone the game will not name: no")
+  fire({ addedAuras = { { isHelpful = false, sourceUnit = "target" } } })
+  ok(#emoted == 2, "a debuff: no")
+  W.combat = true fire(buff("target")) W.combat = false
+  ok(#emoted == 2 and Sc.lastWhy:find("fight", 1, true), "in a fight: never")
+  local hiddenInfo = setmetatable({}, { __index = function() error("secret") end })
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function(v) return v == hiddenInfo end
+  ok(pcall(fire, hiddenInfo) and #emoted == 2, "a hidden payload: not read, no emote")
+  _G.issecretvalue = keepIs
+  S("social group")
+  fire(buff("party1"))
+  ok(#emoted == 3 and emoted[3].who == "Groupy", "/bist social group: groupmates thanked too")
+  S("social group")
+  -- AN EMOTE THE GAME PERFORMS AND THEN COMPLAINS ABOUT still starts the cooldown (Arn's paste: "You hug
+  -- Mediumroar Dacraina." then "You thank Mediumroar Dacraina." two seconds apart, "it did it by itself")
+  W.now = W.now + 999
+  Sc.next = nil
+  local performed = 0
+  _G.DoEmote = function(token, who) performed = performed + 1 error("usage: DoEmote(token[, unit])") end
+  units.mouseover = { name = "Mediumroar Dacraina", player = true }
+  fire(buff("mouseover"))
+  W.now = W.now + 2
+  fire(buff("mouseover"))
+  fire(buff("focus"))
+  ok(performed == 1, "the game emoted and complained: the cooldown still started, no second emote", performed)
+  ok(Sc.lastThanked and Sc.lastThanked.who == "Mediumroar Dacraina" and Sc.lastThanked.err, "and the complaint is kept for why")
+  _G.DoEmote = function(token, who) emoted[#emoted + 1] = { token = token, who = who } end
+  W.now = W.now + 999
+  -- why
+  local said = {}
+  local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
+  ok(pcall(S, "social why") and table.concat(said, "\n"):find("Mediumroar Dacraina", 1, true), "/bist social why: who and why")
+  -- a later piece of buff with no caster named must not hide who was thanked (Arn's paste: "last buff from:
+  -- nobody yet - the game did not say who", 48 s after it thanked Mediumroar)
+  fire({ addedAuras = { { isHelpful = true, sourceUnit = nil } } })
+  said = {}
+  S("social why")
+  local w2 = table.concat(said, "\n")
+  ok(w2:find("last thanked: ", 1, true) and w2:find("Mediumroar", 1, true) and w2:find("did not say who", 1, true),
+     "why keeps the last one thanked apart from the last buff seen", w2)
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  -- LEAN: everyone else's auras change constantly; that costs one string compare
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n = Cost.Count(function() for i = 1, 500 do Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "raid" .. (i % 25 + 1), buff("target")) end end)
+  ok(n == 0, "500 aura changes on other people: no client calls: " .. n)
+  S("social off")
+  -- every name put back, the ones that were not there before included (pairs skips a nil)
+  for _, k in ipairs({ "DoEmote", "UnitIsPlayer", "UnitIsUnit", "UnitName", "UnitInParty" }) do _G[k] = keep[k] end
+end
+
+-- ---------------------------------------------------------------- "none", and the nameplate hint
+do
+  local RC = NS.Recap
+  local rdb = R:DBFor(R:Get("recap"))
+  RC.SetStyle(rdb, "none")
+  local p = CreateFrame("Frame", nil, nil)
+  _G.C_NamePlate.GetNamePlateForUnit = function() return p end
+  ok(RC.MarkPlate("nameplate1", "Somebody", "own") == false and RC.marks.nameplate1 == nil,
+     "crosshair \"none\": no mark at all (Arn: \"they can select none\")")
+  RC.SetStyle(rdb, "rails")
+  ok(RC.MarkPlate("nameplate1", "Somebody", "own") == true, "and back to rails, marked")
+  RC.UnmarkUnit("nameplate1")
+  _G.C_NamePlate.GetNamePlateForUnit = nil
+  local hint
+  for _, o in ipairs(R:Get("recap").options) do if o.label == "needs nameplates on" then hint = o end end
+  local cvars = {}
+  local keepCV = _G.C_CVar
+  _G.C_CVar = { SetCVar = function(k, v) cvars[k] = v return true end }
+  ok(hint and hint.kind == "button" and hint.button == "turn on", "the options say the crosshair needs nameplates, with a button")
+  hint.action()
+  ok(cvars.nameplateShowEnemies == "1", "which turns enemy nameplates on")
+  cvars = {}
+  W.combat = true hint.action() W.combat = false
+  ok(cvars.nameplateShowEnemies == nil, "never in a fight")
+  _G.C_CVar = keepCV
 end
 
 -- leaked globals

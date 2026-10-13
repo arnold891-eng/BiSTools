@@ -28,6 +28,10 @@ local H = {}
 NS.Hub = H
 
 H.W, H.OPT_W = 170, 230
+-- 20% BIGGER (Arn, 12 Oct, the Tools list and Options side by side: "lets make this 20% bigger"). The
+-- whole window scales - rows, text, boxes together - so nothing moves out of place (BiS Healing's bind
+-- window grew the same way, 10 Oct).
+H.SCALE = 1.2
 H.ROW = 16
 H.SEG_W, H.STEP_W, H.BOX = 36, 18, 10   -- seg: "always" at 8 pt is ~29 px, keep 36
 
@@ -79,7 +83,9 @@ function H.BuildMinimap()
   b:SetFrameLevel(8)
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:RegisterForDrag("LeftButton")
-  local icon = b:CreateTexture(nil, "BACKGROUND")
+  -- ARTWORK, like LibDBIcon's icon: BACKGROUND is where a minimap button keeps its dark backing disc,
+  -- and minimap skinners dim or restyle that layer - an icon left there was taken for the backing
+  local icon = b:CreateTexture(nil, "ARTWORK")
   icon:SetSize(18, 18)
   icon:SetPoint("CENTER", b, "CENTER", 0, 1)
   icon:SetTexture("Interface\\Icons\\Spell_Shadow_Twilight")
@@ -93,8 +99,9 @@ function H.BuildMinimap()
   local hl = b:CreateTexture(nil, "HIGHLIGHT")
   hl:SetSize(31, 31) hl:SetPoint("CENTER")
   hl:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-  b:SetScript("OnClick", function(_, button)
+  b:SetScript("OnClick", function(self, button)
     if button == "RightButton" then H.ToggleOptions() else H.ToggleHub() end
+    H.UnburyIcon(self)
   end)
   b:SetScript("OnDragStart", function(self) self.dragging = true self:SetScript("OnUpdate", H.DragMinimap) end)
   b:SetScript("OnDragStop", function(self) self.dragging = nil self:SetScript("OnUpdate", nil) end)
@@ -109,6 +116,25 @@ function H.BuildMinimap()
   H.PlaceMinimap()
   H.ApplyMinimap()
   return b
+end
+
+-- THE ICON WENT DARK AFTER A CLICK (Arn, 12 Oct: "i click the minimap button it goes dark and stays
+-- dimmed"). Not ours: EllesmereUI's minimap collector puts a black box behind each button it gathers - a
+-- CHILD of the button, pinned one level below it - and its click hook (_RaiseLateFlyoutChildren) lifts
+-- EVERY child of the clicked button to DIALOG, so pop-ups show; its own box goes too, over the icon, and
+-- nothing puts it back. This button has no children of its own, so whatever is under it is somebody
+-- else's backing: a moment after the click (their hook runs after ours) it goes back below the button.
+function H.UnburyIcon(b)
+  if not (b and b.GetChildren and C_Timer and C_Timer.After) then return false end
+  C_Timer.After(0, function()
+    local level = (b.GetFrameLevel and b:GetFrameLevel()) or 1
+    local strata = b.GetFrameStrata and b:GetFrameStrata()
+    for _, child in ipairs({ b:GetChildren() }) do
+      if strata then pcall(child.SetFrameStrata, child, strata) end
+      pcall(child.SetFrameLevel, child, math.max(0, level - 1))
+    end
+  end)
+  return true
 end
 
 function H.ApplyMinimap()
@@ -129,6 +155,7 @@ function H.BuildHub()
   -- The list is not an options list, but it is the same chrome: the kit builds
   -- the frame, the prompt header and the 16 px rows, and the Hub decorates them.
   local f = BiSTheme.Options("BiSToolsHub", H.W, "Tools")
+  if f.SetScale then f:SetScale(H.SCALE) end
   H.hub = f
   f:Recenter(120)
   local i = 0
@@ -240,6 +267,7 @@ end
 function H.BuildOptions()
   if H.opt then return H.opt end
   local f = BiSTheme.Options("BiSToolsOptions", H.OPT_W, "Options")
+  if f.SetScale then f:SetScale(H.SCALE) end
   H.opt = f
   f:Recenter(60)
   -- the tools list shows on/off too, so it repaints whenever a section box does
