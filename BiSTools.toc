@@ -28,4 +28,5 @@ Tools\Summon.lua
 Tools\Recap.lua
 Tools\Box.lua
 Tools\Social.lua
+Tools\Threat.lua
 Tools\Hub.lua
