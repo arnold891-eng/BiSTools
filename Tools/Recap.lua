@@ -843,6 +843,137 @@ local function isMate(unit)
   return ok and not hidden(yes) and yes == true
 end
 
+-- ---------------------------------------------------------------- pals
+-- Arn, 14 Oct, right after rivals became enemies only: "i do want a friendly list too ... puts a
+-- tiny little heart green when you add a pal when you right click on and add a pal". db.pals[name] =
+-- { guid, added }. A tiny green heart over a pal's nameplate, OUT OF COMBAT ONLY ("only works out of
+-- combat for now"): a fight takes every heart down, its end puts them back. Friendly players only.
+RC.hearts, RC.heartPool, RC.plates = {}, {}, {}
+RC.PAL = { 0.30, 0.95, 0.45 }
+
+function RC.Pals(db)
+  db.pals = type(db.pals) == "table" and db.pals or {}
+  return db.pals
+end
+
+--- A heart of glowing strokes (the classic curve, 12 pieces), or a small green square without Lines.
+local function newHeart()
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f:SetSize(12, 11)
+  local c = RC.PAL
+  if not f.CreateLine then
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3]) t:SetPoint("CENTER") t:SetSize(6, 6)
+    return f
+  end
+  local pts = {}
+  for i = 0, 12 do
+    local t = i / 12 * 2 * math.pi
+    local x = 16 * math.sin(t) ^ 3
+    local y = 13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)
+    pts[#pts + 1] = { x / 17 * 6, y / 17 * 5.5 }
+  end
+  f.parts = {}
+  for i = 1, #pts - 1 do
+    for _, layer in ipairs({ { 3.5, 0.35 }, { 1.6, 1 } }) do
+      local l = f:CreateLine(nil, "ARTWORK")
+      l:SetTexture("Interface\\Buttons\\WHITE8X8")
+      l:SetVertexColor(c[1], c[2], c[3], layer[2])
+      l:SetThickness(layer[1])
+      l:SetStartPoint("CENTER", f, pts[i][1], pts[i][2])
+      l:SetEndPoint("CENTER", f, pts[i + 1][1], pts[i + 1][2])
+      f.parts[#f.parts + 1] = l
+    end
+  end
+  return f
+end
+
+--- The pal a nameplate (or the target) belongs to, or nil: whole names first, a one-word plate by
+--- its first word, never a readable GUID that is somebody else's - the rival lessons, kept.
+function RC.PalFor(db, unit)
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  local list = RC.Pals(db)
+  if next(list) == nil then return nil end
+  local whole = ask(GetUnitName, unit, false)
+  local name = (type(whole) == "string" and whole ~= "") and whole or (NS.Farm and NS.Farm.Name(unit))
+  if type(name) ~= "string" then return nil end
+  local p, key = list[name], name
+  if not p and not name:find(" ", 1, true) then
+    for k, e in pairs(list) do if k:match("^(%S+)") == name then p, key = e, k break end end
+  end
+  if p and type(p.guid) == "string" then
+    local guid = ask(UnitGUID, unit)
+    if type(guid) == "string" and guid ~= p.guid then return nil end
+  end
+  return p, key
+end
+
+function RC.UnmarkPal(unit)
+  local f = RC.hearts[unit]
+  if not f then return end
+  f:Hide() f:ClearAllPoints()
+  RC.hearts[unit] = nil
+  table.insert(RC.heartPool, f)
+end
+
+function RC.ClearPals() for unit in pairs(RC.hearts) do RC.UnmarkPal(unit) end end
+
+--- One plate: the heart over it when it is a friendly pal and no fight is on.
+function RC.SpotPal(db, unit)
+  if type(unit) ~= "string" or not unit:find("^nameplate") then return false end
+  if next(RC.Pals(db)) == nil then return false end                 -- nobody: one table lookup
+  if InCombatLockdown and InCombatLockdown() then return false end  -- out of combat only
+  if not RC.Friendly(unit) then RC.UnmarkPal(unit) return false end
+  if not RC.PalFor(db, unit) then RC.UnmarkPal(unit) return false end
+  if RC.hearts[unit] then return true end
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return false end
+  local okP, plate = pcall(get, unit)
+  if not okP or not plate then return false end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return false end
+  local f = table.remove(RC.heartPool) or newHeart()
+  if not pcall(function() f:ClearAllPoints() f:SetPoint("BOTTOM", plate, "TOP", 0, 2) end) then
+    table.insert(RC.heartPool, f)
+    return false
+  end
+  f:Show()
+  RC.hearts[unit] = f
+  return true
+end
+
+function RC.SpotPals(db) for unit in pairs(RC.plates) do RC.SpotPal(db, unit) end end
+
+--- Your target becomes a pal (a friendly player, not you), or - a pal already - stops being one.
+function RC.PalFromTarget(db)
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  if ask(UnitExists, "target") ~= true or ask(UnitIsPlayer, "target") ~= true then
+    return NS.Print("target a friendly player first")
+  end
+  if ask(UnitIsUnit, "player", "target") == true then return NS.Print("that is you") end
+  local p, key = RC.PalFor(db, "target")
+  if p then
+    RC.Pals(db)[key] = nil
+    RC.ClearPals() RC.SpotPals(db)
+    return NS.Print("%s is no longer a pal", key)
+  end
+  if not RC.Friendly("target") then return NS.Print("pals are friendly players - that one is an enemy") end
+  local name = ask(GetUnitName, "target", false)
+  if type(name) ~= "string" or name == "" then name = ask(UnitName, "target") end
+  if type(name) ~= "string" or name == "" then return NS.Print("the game is not giving your target's name right now") end
+  RC.Pals(db)[name] = { guid = ask(UnitGUID, "target"), added = time and time() or 0 }
+  RC.SpotPals(db)
+  return NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
+end
+
 -- ---------------------------------------------------------------- the rival target button
 -- Arn, 12 Oct: "i just did /tar Ford Knox and i was able to target an enemy player what about a small
 -- button that targets all our rivals". /target is a macro command, so a SECURE button may run it on a
@@ -1074,7 +1205,29 @@ function RC.MenuLines(db, root, ctx)
   local r, key = RC.Find(db, name)
   -- a friend is never ADDED (Arn, 14 Oct: "there should be a check if its friendly target not a
   -- rival but a pal - enemy hostile player rival"); one already on the list can still be taken off
-  if not r and type(unit) == "string" and RC.Friendly(unit) then return say(name .. " is friendly - rivals are enemies") end
+  if not r and type(unit) == "string" and RC.Friendly(unit) then
+    -- a friend gets the PAL line instead (Arn, 14 Oct: "right click on and add a pal")
+    local p, pkey = RC.PalFor(db, unit)
+    say((p and "remove pal" or "add pal") .. " for " .. name .. " - friendly, so a pal, not a rival")
+    if root.CreateDivider then root:CreateDivider() end
+    root:CreateButton(p and "BiS: remove pal" or "BiS: add pal", function()
+      if p then
+        RC.Pals(db)[pkey] = nil
+        RC.ClearPals() RC.SpotPals(db)
+        NS.Print("%s is no longer a pal", pkey)
+      else
+        local function ask(fn, ...)
+          if type(fn) ~= "function" then return nil end
+          local ok, v = pcall(fn, ...)
+          if ok and not hidden(v) then return v end
+        end
+        RC.Pals(db)[name] = { guid = ask(UnitGUID, unit), added = time and time() or 0 }
+        RC.SpotPals(db)
+        NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
+      end
+    end)
+    return
+  end
   say("added for " .. name)
   if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
@@ -1779,6 +1932,11 @@ function RC.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_REMOVED" then
     if RC.marks[unit] then RC.UnmarkUnit(unit) end
     if RC.mates[unit] then RC.UnmarkMate(unit) end
+    RC.plates[unit] = nil
+    if RC.hearts[unit] then RC.UnmarkPal(unit) end
+    return
+  elseif event == "PLAYER_REGEN_DISABLED" then
+    RC.ClearPals()                                   -- the hearts are for out of combat
     return
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
     -- the guildmate + is for passing each other alone: a group, a battleground or an arena ends it
@@ -1787,7 +1945,11 @@ function RC.OnEvent(_, event, unit)
     if event == "PLAYER_ENTERING_WORLD" then RC.DropMatchRivals(db) end
     return
   elseif event == "NAME_PLATE_UNIT_ADDED" then
-    if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
+    if type(unit) == "string" and not hidden(unit) then
+      RC.plates[unit] = true
+      RC.SpotPal(db, unit)
+      RC.Spot(db, unit)
+    end
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
     RC.PaintAdd()
@@ -1795,6 +1957,7 @@ function RC.OnEvent(_, event, unit)
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
     RC.Spot(db, "mouseover") return
   end
+  if event == "PLAYER_REGEN_ENABLED" then RC.SpotPals(db) end     -- the fight over: the hearts back
   if event == "PLAYER_DEAD" then
     RC.atDeath, RC.afterFight = RC.Read("at death"), nil
     RC.waitFight = true
@@ -1846,7 +2009,7 @@ end
 RC.frame = CreateFrame("Frame")
 for _, e in ipairs({ "PLAYER_DEAD", "PLAYER_REGEN_ENABLED", "PLAYER_UNGHOST", "PLAYER_ALIVE",
                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_TARGET_CHANGED", "UPDATE_MOUSEOVER_UNIT",
-                     "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD" }) do
+                     "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED" }) do
   RC.frame:RegisterEvent(e)
 end
 RC.frame:SetScript("OnEvent", RC.OnEvent)
@@ -1854,7 +2017,7 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rival | rivals | forget <name> | key <key> | style <name> | why | raw]",
+  usage = "/bist recap [rival | rivals | pal | pals | forget <name> | key <key> | style <name> | why | raw]  (/bist rival, /bist pal ... work too)",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
@@ -1899,6 +2062,7 @@ NS.Registry:Register({
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
     if args == "rival" then return RC.RivalFromTarget(db) end
+    if args == "pal" then return RC.PalFromTarget(db) end
     local style = args:match("^style%s*(%S*)$")
     if style then
       if RC.SetStyle(db, (style == "l" or style == "L") and "L" or style:lower()) then return NS.Print("crosshair: %s", db.style) end
@@ -1909,6 +2073,14 @@ NS.Registry:Register({
       db.key = (key:lower() ~= "off") and key:upper() or nil
       RC.ApplyButton(db)
       return NS.Print(db.key and ("%s targets your rivals"):format(db.key) or "rival key off")
+    end
+    if args == "pals" then
+      local names = {}
+      for name in pairs(RC.Pals(db)) do names[#names + 1] = name end
+      table.sort(names)
+      if #names == 0 then return NS.Print("no pals yet - target a friendly player and /bist pal, or right-click them") end
+      NS.Print("your pals (%d): %s", #names, table.concat(names, ", "))
+      return
     end
     if args == "rivals" then
       local names = {}

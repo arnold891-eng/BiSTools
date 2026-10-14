@@ -2832,6 +2832,13 @@ do
   S("recap rivals")
   local listed = table.concat(said2, "\n")
   ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
+  -- the short words (Arn: "dont need to write to command all the time"): /bist rivals is the same
+  said2 = {}
+  S("rivals")
+  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "/bist rivals lists them too")
+  said2 = {}
+  S("pals")
+  ok(table.concat(said2, "\n"):find("no pals yet", 1, true), "/bist pals: none yet, and how to add one")
   S("recap forget hunting moms")
   ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
@@ -2950,7 +2957,46 @@ do
     local root = { lines = {} }
     function root:CreateButton(t) self.lines[#self.lines + 1] = t end
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
-    ok(#root.lines == 0 and RC.menuDecision:find("friendly", 1, true), "and the right-click menu offers no 'add rival' on them", RC.menuDecision)
+    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
+       "the right-click menu offers 'add pal' on them, never 'add rival'", RC.menuDecision)
+    -- PALS (Arn: "a freindly list too ... puts a tiny little heart green ... only works out of combat")
+    local pals = RC.Pals(rdb2)
+    root.click = nil
+    function root:CreateButton(t, fn) self.lines[#self.lines + 1] = t self.click = fn end
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
+    root.click()
+    ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    plates.nameplate10 = CreateFrame("Frame", nil, nil)
+    W.plates.nameplate10 = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    local heart = RC.hearts.nameplate10
+    ok(heart and heart.shown and heart.point and heart.point[1] == "BOTTOM" and heart.point[3] == "TOP",
+       "a pal's nameplate: a little heart over it")
+    ok(heart.parts == nil or (heart.parts[2].color[2] > 0.9 and heart.parts[2].color[1] < 0.4), "green")
+    RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
+    ok(RC.hearts.nameplate10 == nil, "a fight starts: the hearts come down")
+    local keepLock = _G.InCombatLockdown
+    _G.InCombatLockdown = function() return true end
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(RC.hearts.nameplate10 == nil, "and none goes up mid-fight")
+    _G.InCombatLockdown = keepLock
+    RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+    ok(RC.hearts.nameplate10 ~= nil, "the fight over: back")
+    W.plates.nameplate11 = { name = "Pal", player = true, hostile = false, guid = "Player-1-OTHERPAL" }
+    plates.nameplate11 = CreateFrame("Frame", nil, nil)
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate11")
+    ok(RC.hearts.nameplate11 == nil, "another player sharing the first word: no heart")
+    -- /bist recap pal on the target: off again
+    RC.PalFromTarget(rdb2)
+    ok(pals["Pal Guy"] == nil and RC.hearts.nameplate10 == nil, "/bist recap pal on a pal: no longer one, the heart gone")
+    W.target = { name = "Enemy Guy", player = true, guid = "Player-1-ENEMY" }
+    RC.PalFromTarget(rdb2)
+    ok(pals["Enemy Guy"] == nil, "an enemy is never a pal")
+    for _, u in ipairs({ "nameplate10", "nameplate11" }) do
+      RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", u)
+      W.plates[u], plates[u] = nil, nil
+    end
     W.target = keepT
     _G.GetUnitName = keepGUN
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
