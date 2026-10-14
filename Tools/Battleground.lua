@@ -163,12 +163,12 @@ function B.Button()
   local K = NS.Farm
   local b = CreateFrame("Button", "BiSToolsBGMark", UIParent)
   b:SetSize(84, 20)
-  -- above the window, whatever layer it lives on (HIGH alone left it underneath, 14 Oct)
-  local okS, strata = pcall(board.GetFrameStrata, board)
-  b:SetFrameStrata(okS and plain(strata) or "DIALOG")
-  local okL, level = pcall(board.GetFrameLevel, board)
-  b:SetFrameLevel((okL and type(plain(level)) == "number" and plain(level) or 1) + 50)
-  if not pcall(b.SetPoint, b, "BOTTOMRIGHT", board, "BOTTOMRIGHT", -24, 14) then
+  -- 14 Oct, Arn's screenshot: "shown" on the window's own layer, yet not to be seen - under the
+  -- window's inner panels. The top layer, and just UNDER the window's bottom edge, where nothing of
+  -- Blizzard's sits; if its place cannot be taken (hidden rects in an instance), top of the screen.
+  b:SetFrameStrata("FULLSCREEN_DIALOG")
+  if b.SetToplevel then pcall(b.SetToplevel, b, true) end
+  if not pcall(b.SetPoint, b, "TOP", board, "BOTTOM", 0, -2) then
     b:SetPoint("TOP", UIParent, "TOP", 0, -120)
   end
   K.tex(b, "BACKGROUND", "frame", 0.85)
@@ -195,7 +195,13 @@ function B.BoardWhy()
       f and ((okS and plain(shown) and ", shown" or ", hidden") .. ", " .. tostring(okT and plain(strata) or "?")) or "")
   end
   local b = B.button
-  NS.Print("bg board: button %s", b and ((b:IsShown() and "shown" or "hidden") .. ", " .. tostring(b:GetFrameStrata())) or "not made yet")
+  local where = "?"
+  if b then
+    local okR, l, bt, w, h = pcall(b.GetRect, b)
+    if okR then where = ("%s,%s %sx%s"):format(tostring(plain(l)), tostring(plain(bt)), tostring(plain(w)), tostring(plain(h))) end
+  end
+  NS.Print("bg board: button %s", b and ((b:IsShown() and "shown" or "hidden") .. ", " .. tostring(b:GetFrameStrata())
+    .. ", at " .. where .. (b.IsVisible and (b:IsVisible() and ", visible" or ", NOT visible") or "")) or "not made yet")
   local foci = {}
   local okM, list = pcall(function() return GetMouseFoci and GetMouseFoci() end)
   for _, f in ipairs(okM and type(list) == "table" and list or {}) do
