@@ -971,7 +971,7 @@ lib.sendGap = 0
 do local listed = false for _, f in ipairs(files) do if f == "Libs/BiSTheme/Options.lua" then listed = true end end
   ok(listed, "the TOC lists Libs/BiSTheme/Options.lua (the client loads it from here, not from the BiSTheme addon)") end
 ok(type(BiSTheme.Options) == "function", "BiSTheme.Options is defined after the TOC load")
-ok(BiSTheme.OPTIONS_MINOR == 2, "options kit minor 2 (Escape closes): " .. tostring(BiSTheme.OPTIONS_MINOR))
+ok(BiSTheme.OPTIONS_MINOR == 3, "options kit minor 3 (windows dodge each other): " .. tostring(BiSTheme.OPTIONS_MINOR))
 ok(_G.SLASH_BISCOMM1 == "/biscomm", "minor 4 gave /bis back to LoonBestInSlot; the lib is /biscomm")
 for k, v in pairs(_G) do if type(k) == "string" and k:match("^SLASH_") then ok(v ~= "/bis", k .. " must not take /bis (LoonBestInSlot owns it)") end end
 -- version: the TOC's, never a literal (RegisterAddon announces it to the whole raid)
