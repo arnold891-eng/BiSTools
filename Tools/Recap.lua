@@ -2196,31 +2196,31 @@ NS.Registry:Register({
   usage = "/bist recap [rival | rivals | pal | pals | surname <word> | forget <name> | key <key> | style <name> | why | raw]  (/bist rival, /bist pal ... work too)",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
-    { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
+    { kind = "toggle", label = "open when you die", help = "The death recap opens by itself when you die: who hit you, with what, and the killing blow.", get = function(db) return db.popup ~= false end,
       set = function(db, on) db.popup = on and true or false end },
-    { kind = "toggle", label = "sound when a rival is near", get = function(db) return db.sound ~= false end,
+    { kind = "toggle", label = "sound when a rival is near", help = "A ping with the warning when a gold rival - or a kept surname - comes into sight.", get = function(db) return db.sound ~= false end,
       set = function(db, on) db.sound = on and true or false end },
     -- eight shapes do not fit one row of buttons: a stepper, the name shown, each step redrawn live
-    { kind = "step", label = "crosshair", min = 1, max = #RC.STYLES, step = 1,
+    { kind = "step", label = "crosshair", help = "The crosshair's look on rivals and farm mobs: rails, L, aim, box, scope, drop, chevron, tee, or none.", min = 1, max = #RC.STYLES, step = 1,
       get = function(db) for i, s in ipairs(RC.STYLES) do if s == (db.style or "rails") then return i end end return 1 end,
       set = function(db, v) RC.SetStyle(db, RC.STYLES[v] or "rails") end,
       show = function(db) return db.style or "rails" end },
     -- THE HINT (Arn: "a hint that says need nameplates on"): the crosshair hangs under a nameplate, and the
     -- game shows none for enemies until it is told to. The button tells it.
-    { kind = "button", label = "needs nameplates on", button = "turn on", action = function()
+    { kind = "button", label = "needs nameplates on", help = "Crosshairs, crests and hearts sit on nameplates, so the game must show enemy (and friendly) plates. This turns them on.", button = "turn on", action = function()
         if InCombatLockdown and InCombatLockdown() then return NS.Print("not in a fight - try again after") end
         local set = (C_CVar and C_CVar.SetCVar) or SetCVar
         if set and pcall(set, "nameplateShowEnemies", "1") then NS.Print("enemy nameplates on") end
       end },
-    { kind = "toggle", label = "guild rivals (amber)", get = function(db) return db.guildShow ~= false end,
+    { kind = "toggle", label = "guild rivals (amber)", help = "Rivals your guild shares wear an amber crosshair, and the guild hears when you see one.", get = function(db) return db.guildShow ~= false end,
       set = function(db, on)
         db.guildShow = on and true or false
         if not on then for unit, f in pairs(RC.marks) do if f.kind == "guild" then RC.UnmarkUnit(unit) end end end
         RC.PaintRivals()
       end },
-    { kind = "toggle", label = "guildmates (crest, alone)", get = function(db) return db.mates ~= false end,
+    { kind = "toggle", label = "guildmates (crest, alone)", help = "A small teal guild crest under guildmates you pass - only while you are solo, never in a group or battleground.", get = function(db) return db.mates ~= false end,
       set = function(db, on) db.mates = on and true or false if not on then RC.ClearMates() end end },
-    { kind = "toggle", label = "rival target button", get = function(db) return db.button ~= false end,
+    { kind = "toggle", label = "rival target button", help = "A button in the BiS> tools box that targets your gold rivals, even across the map.", get = function(db) return db.button ~= false end,
       set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
   },
   OnOpen = function(_, db, recenter)

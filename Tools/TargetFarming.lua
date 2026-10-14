@@ -787,22 +787,22 @@ NS.Registry:Register({
   options = {
     -- the crosshair on the mob you farm (green) and on RestedXP's targets (blue) - drawn by the recap
     -- tool's nameplate marks, in the style picked there (Arn, 12 Oct)
-    { kind = "toggle", label = "crosshair on the mob", get = function(db) return db.cross ~= false end,
+    { kind = "toggle", label = "crosshair on the mob", help = "A green crosshair on fresh copies of the mob you farm, and blue on RestedXP's targets, in the crosshair style picked under recap.", get = function(db) return db.cross ~= false end,
       set = function(db, on)
         db.cross = on and true or false
         if not on and NS.Recap then NS.Recap.ClearKind("farm") NS.Recap.ClearKind("guide") end
       end },
-    { kind = "seg", label = "find sound", values = F.SOUND_MODES,
+    { kind = "seg", label = "find sound", help = "The sound when a fresh copy of your mob turns up: first - only the first after a quiet spell; always - every time; off - silent.", values = F.SOUND_MODES,
       get = function(db) return db.sound or "first" end, set = function(db, v) F.SetSound(db, v) end },
-    { kind = "step", label = "spot radius", min = 5, max = 60, step = 5, unit = "yd",
+    { kind = "step", label = "spot radius", help = "How close two kills must be to count as the same spawn spot. Bigger joins nearby spawns into one timer; smaller splits them.", min = 5, max = 60, step = 5, unit = "yd",
       get = function(db) return F.Spots and F.Spots.Radius(db) or 20 end,
       set = function(db, v) if F.Spots then F.Spots.SetRadius(db, v) end end,
       show = function(db) return (F.Spots and F.Spots.Radius(db) or 20) .. " yd" end },
-    { kind = "step", label = "burst window", min = 5, max = 300, step = 5,
+    { kind = "step", label = "burst window", help = "A kill this soon after a spot's last kill is ANOTHER mob standing there (a multi-pull), so it gets its own spot and timer.", min = 5, max = 300, step = 5,
       get = function(db) return F.Spots and F.Spots.Burst(db) or 60 end,
       set = function(db, v) if F.Spots then F.Spots.SetBurst(db, v) end end,
       show = function(db) return (F.Spots and F.Spots.Burst(db) or 60) .. " s" end },
-    { kind = "step", label = "prune after", min = 0, max = 3600, step = 60,
+    { kind = "step", label = "prune after", help = "A spot that has sat 'up' this long with no kill folds into its nearest neighbour - usually a duplicate spawn point. Off keeps them all.", min = 0, max = 3600, step = 60,
       get = function(db) return F.Spots and F.Spots.Prune(db) or 600 end,
       set = function(db, v) if F.Spots then F.Spots.SetPrune(db, v) end end,
       show = function(db) local p = F.Spots and F.Spots.Prune(db) or 600 return p == 0 and "off" or (p .. " s") end },

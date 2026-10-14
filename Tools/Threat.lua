@@ -517,10 +517,10 @@ R:Register({
   usage = "/bist threat [auto | tank | dps | from <30-90> | why]  (no word: the window)",
   defaults = { role = "auto", from = T.FROM, flashAt = T.FLASH_AT, look = "marker" },
   options = {
-    { kind = "seg", label = "watch as", values = T.ROLES,
+    { kind = "seg", label = "watch as", help = "Which threat warnings you see: auto - from your role; tank - mobs you are losing; dps - mobs you are pulling.", values = T.ROLES,
       get = function(db) return db.role or "auto" end,
       set = function(db, v) db.role = v T.Refresh() end },
-    { kind = "step", label = "show from", min = 30, max = 90, step = 10,
+    { kind = "step", label = "show from", help = "A mob's threat mark appears once you are this far toward pulling it. Lower shows it earlier.", min = 30, max = 90, step = 10,
       get = function(db) return T.From(db) end,
       set = function(db, v) db.from = v T.Refresh() end,
       show = function(db) return T.From(db) .. "%" end },

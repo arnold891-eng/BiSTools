@@ -169,9 +169,9 @@ R:Register({
   usage = "/bist social [on | off | group | why]",
   defaults = { thanks = false },
   options = {
-    { kind = "toggle", label = "emote when buffed", get = function(db) return db.thanks == true end,
+    { kind = "toggle", label = "emote when buffed", help = "When another player buffs you, out of combat, a random friendly emote at them (/thank, /hug...). At most one every 2-5 minutes.", get = function(db) return db.thanks == true end,
       set = function(db, on) db.thanks = on and true or false end },
-    { kind = "toggle", label = "groupmates too", get = function(db) return db.groupToo == true end,
+    { kind = "toggle", label = "groupmates too", help = "Thank groupmates as well. Off by default: in a dungeon a buff is routine.", get = function(db) return db.groupToo == true end,
       set = function(db, on) db.groupToo = on and true or false end },
   },
   OnInit = function(_, db) S.db = db end,

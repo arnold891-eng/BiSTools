@@ -1822,6 +1822,21 @@ do
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
+  -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): hover a setting, the bottom says what it does
+  local hb = opt.helpBox
+  ok(hb and hb.shown ~= false and hb.h and hb.h >= BiSTheme.OPTIONS.HELP_MIN, "the window carries a help strip at the bottom")
+  local spot = find("spot radius")
+  spot.scripts.OnEnter(spot)
+  ok(hb.text.text:find("spawn spot", 1, true) and hb.title.text:find("spot radius", 1, true), "hovering a setting says what it does", hb.text.text)
+  local kids = spot.GetChildren and { spot:GetChildren() } or {}
+  if kids[1] and kids[1].scripts.OnEnter then
+    find("burst window").scripts.OnEnter(find("burst window"))
+    kids[1].scripts.OnEnter(kids[1])
+    ok(hb.text.text:find("spawn spot", 1, true), "and so does hovering its own buttons")
+  end
+  local undocumented = {}
+  for _, r in ipairs(opt.rows) do if r.opt and not r.opt.help then undocumented[#undocumented + 1] = r.opt.label end end
+  ok(#undocumented == 0, "every BiS Tools setting has its help written", table.concat(undocumented, ", "))
   -- every option label fits its lane (controls take the right 110 px)
   for _, r in ipairs(opt.rows) do if r.name then ok(r.name:GetStringWidth() <= H.OPT_W - 12 - 110, "option label fits: " .. tostring(r.name.text)) end end
   -- a section header's box toggles the tool

@@ -936,15 +936,15 @@ R:Register({
   -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
   options = {
     -- a stepper through names (Arn: "not all want x")
-    { kind = "step", label = "mark look", min = 1, max = #B.LOOKS, step = 1,
+    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond or corners.", min = 1, max = #B.LOOKS, step = 1,
       get = function(db) return B.LookIndex(db) end,
       set = function(db, v) db.look = v B.Redraw() end,
       show = function(db) return B.LOOKS[B.LookIndex(db)].word end },
-    { kind = "step", label = "mark size", min = 50, max = 200, step = 10,
+    { kind = "step", label = "mark size", help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
       get = function(db) return B.Size(db) end,
       set = function(db, v) db.size = v B.Redraw() end,
       show = function(db) return B.Size(db) .. "%" end },
-    { kind = "step", label = "mark height", min = -40, max = 40, step = 5,
+    { kind = "step", label = "mark height", help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
       get = function(db) return B.Lift(db) end,
       set = function(db, v) db.lift = v B.Redraw() end,
       show = function(db)
