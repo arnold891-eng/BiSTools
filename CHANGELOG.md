@@ -1,5 +1,6 @@
 ## Unreleased
 
+- **A sixth battleground mark: the tag.** A white box with **>Healer<** over their top healers and **>Killer<** over their top killer - white arrows, a red word, nothing behind it. "mark look" in the options, under bg.
 - **Rivals & pals are their own tool.** A row of their own in the tools list, their own settings section in the options (sound, crosshair, guild rivals, guildmates, the target button) and their own commands: `/bist rivals`, `/bist rival`, `/bist pal`, `/bist pals`, `/bist surname`. Switching the death recap off no longer turns them off; switching rivals & pals off takes every crosshair, heart, crown and crest down but keeps your lists. Clicking a killer on the recap still makes them a rival, and the old `/bist recap rival` commands still work. Your rivals and pals are where they always were - nothing to set up again.
 
 ## 0.7.0

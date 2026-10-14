@@ -411,7 +411,18 @@ B.LOOKS = {
   { key = "corners", word = "corners", strokes = {
     { -1, 1, -0.45, 1 }, { -1, 1, -1, 0.45 }, { 1, 1, 0.45, 1 }, { 1, 1, 1, 0.45 },
     { -1, -1, -0.45, -1 }, { -1, -1, -1, -0.45 }, { 1, -1, 0.45, -1 }, { 1, -1, 1, -0.45 } } },
+  -- THE TAG (Arn, 14 Oct, with his own picture: ">Healer<" in red in a white box - "remove the black",
+  -- "do white arrows instead of red"): drawn by the game, no background, white arrows, red word. The
+  -- killer's reads >Killer<. BiS Tools only (BiS Healing's tank mark keeps its five).
+  { key = "tag", word = "tag", tag = true, strokes = {} },
 }
+B.TAG = { 66, 18 }                  -- the tag's box at 100%; the size stepper scales it
+B.TAG_WORD = { healer = "Healer", killer = "Killer" }
+
+--- ">Healer<": white arrows, a red word.
+function B.TagText(kind)
+  return "|cffffffff>|r|cffff1a1a" .. (B.TAG_WORD[kind] or "Healer") .. "|r|cffffffff<|r"
+end
 
 --- The chosen look's place in B.LOOKS (the stepper's number), 1 = X.
 function B.LookIndex(db)
@@ -475,6 +486,31 @@ function B.NewSaber(kind, look)
   f.kind, f.look = kind, look
   f.parts, f.hilts = {}, {}
   f.blades = {}
+  if B.LOOKS[look] and B.LOOKS[look].tag then
+    -- the white box: four thin edges, nothing behind (no black)
+    f.tag = true
+    f.edges = {}
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+      local t = tex(f, "BORDER", B.WHITE, 1)
+      f.edges[side] = t
+      f.parts[#f.parts + 1] = t
+    end
+    f.text = f:CreateFontString(nil, "OVERLAY")
+    f.text:SetPoint("CENTER", f, "CENTER", 0, 0)
+    function f.Fit(_, w, h)
+      local e, t = f.edges, 1.5
+      e.top:ClearAllPoints() e.top:SetPoint("TOPLEFT", f, "TOPLEFT") e.top:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.top:SetHeight(t)
+      e.bottom:ClearAllPoints() e.bottom:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.bottom:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.bottom:SetHeight(t)
+      e.left:ClearAllPoints() e.left:SetPoint("TOPLEFT", f, "TOPLEFT") e.left:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.left:SetWidth(t)
+      e.right:ClearAllPoints() e.right:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.right:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.right:SetWidth(t)
+      pcall(f.text.SetFont, f.text, STANDARD_TEXT_FONT, math.max(7, math.floor(h * 0.62 + 0.5)), "")
+      f.text:SetText(B.TagText(f.kind))
+    end
+    f:Fit(B.TAG[1], B.TAG[2])
+    local T = NS.Threat
+    pulse(f, T and T.PULSE_LOW or 0.3, T and T.PULSE_DUR or 0.5)
+    return f
+  end
   if f.CreateLine and pcall(function()
     local L = B.LOOKS[look]
     for _, st in ipairs(L.strokes) do blade(f, c, st, L.hilts) end
@@ -528,7 +564,14 @@ function B.Draw(u, kind)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
-  if f.x then
+  if f.tag then
+    local RC = NS.Recap
+    local k = B.Size() / 100
+    local w, h = math.floor(B.TAG[1] * k + 0.5), math.floor(B.TAG[2] * k + 0.5)
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+    f:SetSize(w, h)
+    pcall(f.Fit, f, w, h)
+  elseif f.x then
     -- centred in the rival crosshair's box (Arn, 14 Oct, seeing it fill the box: "perfect now 50%
     -- smaller"), and since the same night THE SIZE OF BiS HEALING'S TANK X (Arn: "lets make bis
     -- tools bg the same size as these") - fixed, not a share of the plate, so the two read as one
@@ -925,7 +968,7 @@ R:Register({
   -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
   options = {
     -- a stepper through names (Arn: "not all want x")
-    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond or corners.", min = 1, max = #B.LOOKS, step = 1,
+    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond, corners, or tag - a white box reading >Healer< or >Killer<.", min = 1, max = #B.LOOKS, step = 1,
       get = function(db) return B.LookIndex(db) end,
       set = function(db, v) db.look = v B.Redraw() end,
       show = function(db) return B.LOOKS[B.LookIndex(db)].word end },

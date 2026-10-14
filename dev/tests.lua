@@ -4668,8 +4668,25 @@ do
         bdb.look = i
         BG.Redraw()
         local m = mark("A")
-        ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
-           "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        if look.tag then
+          -- THE TAG (Arn: ">Healer<" - "remove the black", "do white arrows instead of red", "still want
+          -- the white rectangle lines"): a white box of four edges, nothing behind, the words inside
+          local white = true
+          for _, e in pairs(m.edges or {}) do
+            local c = e.color
+            if not (c and c[1] > 0.9 and c[2] > 0.9 and c[3] > 0.9) then white = false end
+          end
+          local txt = m.text and m.text.text or ""
+          ok(m.tag and m.edges and m.edges.top and m.edges.left and white and #m.parts == 4,
+             "mark look tag: a white rectangle of four lines, no background")
+          ok(txt == "|cffffffff>|r|cffff1a1aHealer|r|cffffffff<|r", "white arrows, a red Healer", txt)
+          local killer = BG.NewSaber("killer", i)
+          ok(killer.text.text:find("Killer", 1, true), "the killer's tag reads >Killer<")
+          ok(m.w == math.floor(BG.TAG[1] + 0.5) and m.h == math.floor(BG.TAG[2] + 0.5), "the tag at its own size")
+        else
+          ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
+             "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        end
       end
       bdb.look = 99
       ok(BG.LookIndex(bdb) == 1, "an unknown look falls back to the X")
