@@ -962,9 +962,11 @@ function RC.ClearPals() for unit in pairs(RC.hearts) do RC.UnmarkPal(unit) end e
 --- One plate: the heart over it when it is a friendly pal and no fight is on.
 function RC.SpotPal(db, unit)
   if type(unit) ~= "string" or not unit:find("^nameplate") then return false end
-  if next(RC.Pals(db)) == nil then return false end                 -- nobody: one table lookup
+  if next(RC.Pals(db)) == nil and next(RC.Surnames(db)) == nil then return false end   -- nobody: two lookups
   if InCombatLockdown and InCombatLockdown() then return false end  -- out of combat only
   if not RC.Friendly(unit) then RC.UnmarkPal(unit) return false end
+  -- a friend wearing a kept surname: the crown, not the heart
+  if RC.SurnameOf(db, unit) then RC.UnmarkPal(unit) return RC.MarkCrown(unit, true) end
   if not RC.PalFor(db, unit) then RC.UnmarkPal(unit) return false end
   if RC.hearts[unit] then return true end
   local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
@@ -984,6 +986,127 @@ function RC.SpotPal(db, unit)
 end
 
 function RC.SpotPals(db) for unit in pairs(RC.plates) do RC.SpotPal(db, unit) end end
+
+-- ---------------------------------------------------------------- a whole surname
+-- Arn, 14 Oct: "a special command for pals and rivals, that adds everyone with the Foreverpvp
+-- surname". Nobody can be listed in advance, so the SURNAME is kept: db.surnames[lower] = the word as
+-- typed. A plate whose whole name (GetUnitName - a plate's UnitName may be the first word only) ends
+-- in it is a gold rival if an enemy, a pal if a friend. The call-out is once a minute per SURNAME,
+-- not per player: a battleground can hold a dozen of them.
+RC.surnameAlertAt = {}
+
+function RC.Surnames(db)
+  db.surnames = type(db.surnames) == "table" and db.surnames or {}
+  return db.surnames
+end
+
+--- The kept surname this plate wears, and its whole name - or nil.
+function RC.SurnameOf(db, unit)
+  local list = RC.Surnames(db)
+  if next(list) == nil then return nil end
+  if type(GetUnitName) ~= "function" then return nil end
+  local ok, whole = pcall(GetUnitName, unit, false)
+  if not ok or hidden(whole) or type(whole) ~= "string" then return nil end
+  local last = whole:match("%s(%S+)$")
+  local kept = last and list[last:lower()]
+  if kept then return kept, whole end
+  return nil
+end
+
+--- THE CROWN (Arn, 14 Oct: "a special icon not a heart or a x a new one champion competition
+--- looking thing"): a small gold crown over the plate of anyone wearing a kept surname - an enemy any
+--- time, a friend out of combat (the pals' rule). Glowing strokes, like every other mark.
+RC.crowns, RC.crownPool = {}, {}
+RC.CROWN = { 1.00, 0.80, 0.20 }
+RC.CROWN_W, RC.CROWN_H = 8, 6   -- half the heart (Arn: "i dont mind doing it on everyone if its half the size of the heart")
+RC.CROWN_STROKES = {
+  { -1, -0.75, 1, -0.75 }, { -1, -0.4, 1, -0.4 },                                -- the band
+  { -1, -0.75, -1, 0.55 }, { -1, 0.55, -0.5, -0.05 }, { -0.5, -0.05, 0, 0.95 },   -- the points
+  { 0, 0.95, 0.5, -0.05 }, { 0.5, -0.05, 1, 0.55 }, { 1, 0.55, 1, -0.75 },
+}
+
+local function newCrown()
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f:SetSize(RC.CROWN_W, RC.CROWN_H)
+  local c = RC.CROWN
+  if not f.CreateLine then
+    local t = bar(f, "ARTWORK", c[1], c[2], c[3]) t:SetPoint("CENTER") t:SetSize(4, 3)
+    return f
+  end
+  f.parts = {}
+  local x, y = RC.CROWN_W / 2 - 0.5, RC.CROWN_H / 2 - 0.5
+  for _, s in ipairs(RC.CROWN_STROKES) do
+    for _, layer in ipairs({ { 2.2, 0.35 }, { 1, 1 } }) do
+      local l = f:CreateLine(nil, "ARTWORK")
+      l:SetTexture("Interface\\Buttons\\WHITE8X8")
+      l:SetVertexColor(c[1], c[2], c[3], layer[2])
+      l:SetThickness(layer[1])
+      l:SetStartPoint("CENTER", f, s[1] * x, s[2] * y)
+      l:SetEndPoint("CENTER", f, s[3] * x, s[4] * y)
+      f.parts[#f.parts + 1] = l
+    end
+  end
+  return f
+end
+
+function RC.UnmarkCrown(unit)
+  local f = RC.crowns[unit]
+  if not f then return end
+  f:Hide() f:ClearAllPoints()
+  RC.crowns[unit] = nil
+  table.insert(RC.crownPool, f)
+end
+
+function RC.ClearCrowns(friendsOnly)
+  for unit, f in pairs(RC.crowns) do
+    if not friendsOnly or f.friend then RC.UnmarkCrown(unit) end
+  end
+end
+
+function RC.MarkCrown(unit, friend)
+  if RC.crowns[unit] then RC.crowns[unit].friend = friend return true end
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return false end
+  local okP, plate = pcall(get, unit)
+  if not okP or not plate then return false end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return false end
+  local f = table.remove(RC.crownPool) or newCrown()
+  if not pcall(function() f:ClearAllPoints() f:SetPoint("BOTTOM", plate, "TOP", 0, 2) end) then
+    table.insert(RC.crownPool, f)
+    return false
+  end
+  f.friend = friend
+  f:Show()
+  RC.crowns[unit] = f
+  return true
+end
+
+--- /bist surname <word>: kept, or - kept already - let go. No word: the list.
+function RC.Surname(db, word)
+  local list = RC.Surnames(db)
+  word = type(word) == "string" and word:match("^%s*(%S+)%s*$") or nil
+  if not word then
+    local names = {}
+    for _, w in pairs(list) do names[#names + 1] = w end
+    table.sort(names)
+    if #names == 0 then return NS.Print("no surnames kept - /bist surname Foreverpvp: enemies with it are rivals, friends pals") end
+    return NS.Print("surnames kept: %s - enemies wearing one are rivals, friends pals", table.concat(names, ", "))
+  end
+  local key = word:lower()
+  if list[key] then
+    list[key] = nil
+    RC.ClearCrowns()
+    for unit in pairs(RC.plates) do RC.Spot(db, unit) RC.SpotPal(db, unit) end   -- the rest keep theirs
+    return NS.Print("surname %s let go", word)
+  end
+  list[key] = word
+  for unit in pairs(RC.plates) do RC.Spot(db, unit) end
+  RC.SpotPals(db)
+  return NS.Print("everyone named %s wears a gold crown - enemies called out, friends out of combat",
+    T.text("accent", "* " .. word))
+end
 
 --- Your target becomes a pal (a friendly player, not you), or - a pal already - stops being one.
 function RC.PalFromTarget(db)
@@ -1431,7 +1554,8 @@ function RC.Spot(db, unit)
   local mates = db.mates ~= false and RC.solo ~= false and type(unit) == "string" and unit:find("^nameplate") ~= nil
   -- nothing to look for: no client call at all (a city of nameplates costs nothing)
   local guide = type(unit) == "string" and unit:find("^nameplate") ~= nil and guideWants(nil)
-  if not (gold or guild or mates or farm or guide) then return looked(unit, nil, "nobody is gold") end
+  local clan = next(RC.Surnames(db)) ~= nil
+  if not (gold or guild or mates or farm or guide or clan) then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
   if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
   -- the farmed mob: a clean copy (alive, untapped, attackable - the farm tool's own test) goes green
@@ -1445,6 +1569,19 @@ function RC.Spot(db, unit)
   end
   local r, full = RC.FindPlate(db, unit, name)
   if r and RC.Friendly(unit) then r = nil end     -- a pal who shares a rival's name: never their crosshair
+  if not (r and r.active) and clan and not RC.Friendly(unit) then
+    local kept, whole = RC.SurnameOf(db, unit)
+    if kept then
+      RC.MarkCrown(unit, false)
+      local now = GetTime and GetTime() or 0
+      local at = RC.surnameAlertAt[kept:lower()]
+      if at and now - at < RC.ALERT_GAP then return looked(unit, whole, "a " .. kept .. " - called out less than a minute ago") end
+      RC.surnameAlertAt[kept:lower()] = now
+      NS.Print("%s nearby%s", T.text("warn", whole), (place() ~= "" and (" - " .. place())) or "")
+      if db.sound ~= false and PlaySound then PlaySound(NS.Farm.PING, "Master") end
+      return looked(unit, whole, "wears the surname " .. kept)
+    end
+  end
   if not (r and r.active) then
     local e, gfull = nil, nil
     if guild then e, gfull = RC.FindGuild(db, name) end
@@ -1971,9 +2108,11 @@ function RC.OnEvent(_, event, unit)
     if RC.mates[unit] then RC.UnmarkMate(unit) end
     RC.plates[unit] = nil
     if RC.hearts[unit] then RC.UnmarkPal(unit) end
+    if RC.crowns[unit] then RC.UnmarkCrown(unit) end
     return
   elseif event == "PLAYER_REGEN_DISABLED" then
     RC.ClearPals()                                   -- the hearts are for out of combat
+    RC.ClearCrowns(true)                             -- and so are a friend's crowns
     return
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
     -- the guildmate + is for passing each other alone: a group, a battleground or an arena ends it
@@ -2054,7 +2193,7 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rival | rivals | pal | pals | forget <name> | key <key> | style <name> | why | raw]  (/bist rival, /bist pal ... work too)",
+  usage = "/bist recap [rival | rivals | pal | pals | surname <word> | forget <name> | key <key> | style <name> | why | raw]  (/bist rival, /bist pal ... work too)",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
@@ -2100,6 +2239,8 @@ NS.Registry:Register({
     if args == "why" then return RC.Why(db) end
     if args == "rival" then return RC.RivalFromTarget(db) end
     if args == "pal" then return RC.PalFromTarget(db) end
+    local sur = args:match("^surname%s*(.*)$")
+    if sur then return RC.Surname(db, sur) end
     local style = args:match("^style%s*(%S*)$")
     if style then
       if RC.SetStyle(db, (style == "l" or style == "L") and "L" or style:lower()) then return NS.Print("crosshair: %s", db.style) end

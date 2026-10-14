@@ -2997,6 +2997,47 @@ do
       RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", u)
       W.plates[u], plates[u] = nil, nil
     end
+    -- A WHOLE SURNAME (Arn: "a special command for pals and rivals, that adds everyone with the
+    -- Foreverpvp surname"): enemies wearing it are rivals, friends pals
+    do
+      local keepG = _G.GetUnitName
+      local whole = { nameplate12 = "Kutsu Foreverpvp", nameplate13 = "Darof Foreverpvp",
+                      nameplate14 = "Abba Foreverpvp", nameplate15 = "Kutsu Otherguy" }
+      _G.GetUnitName = function(u) return whole[u] end
+      W.plates.nameplate12 = { name = "Kutsu", player = true, guid = "Player-1-K" }
+      W.plates.nameplate13 = { name = "Darof", player = true, guid = "Player-1-D" }
+      W.plates.nameplate14 = { name = "Abba", player = true, hostile = false, guid = "Player-1-A" }
+      W.plates.nameplate15 = { name = "Kutsu", player = true, guid = "Player-1-O" }
+      for u in pairs(whole) do plates[u] = CreateFrame("Frame", nil, nil) end
+      S("surname Foreverpvp")
+      ok(RC.Surnames(rdb2).foreverpvp == "Foreverpvp", "/bist surname Foreverpvp keeps it")
+      local sounds0 = #W.sounds
+      W.now = W.now + RC.ALERT_GAP + 1
+      for _, u in ipairs({ "nameplate12", "nameplate13", "nameplate14", "nameplate15" }) do
+        RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", u)
+      end
+      ok(RC.crowns.nameplate12 and RC.crowns.nameplate13 and RC.marks.nameplate12 == nil,
+         "every enemy wearing it: the gold crown (Arn: \"a champion competition looking thing\"), not a crosshair")
+      local cr = RC.crowns.nameplate12
+      ok(cr.point and cr.point[1] == "BOTTOM" and cr.point[3] == "TOP" and cr.parts and cr.parts[2].color[1] == 1
+         and cr.parts[2].color[3] < 0.4, "over the plate, gold")
+      ok(#W.sounds == sounds0 + 1, "but one call-out a minute for the whole surname, not one per player", #W.sounds - sounds0)
+      ok(RC.crowns.nameplate14 and RC.crowns.nameplate14.friend and RC.hearts.nameplate14 == nil and RC.marks.nameplate14 == nil,
+         "a friend wearing it: the crown too, never a heart or a crosshair")
+      ok(RC.crowns.nameplate15 == nil and RC.marks.nameplate15 == nil, "a different surname: nothing")
+      RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
+      ok(RC.crowns.nameplate14 == nil and RC.crowns.nameplate12 ~= nil, "a fight: a friend's crown comes down, an enemy's stays")
+      RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+      ok(RC.crowns.nameplate14 ~= nil, "and comes back after")
+      S("surname foreverpvp")
+      ok(RC.Surnames(rdb2).foreverpvp == nil and RC.crowns.nameplate12 == nil and RC.crowns.nameplate14 == nil,
+         "the same again lets it go - crosshairs and hearts down")
+      for u in pairs(whole) do
+        RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", u)
+        W.plates[u], plates[u] = nil, nil
+      end
+      _G.GetUnitName = keepG
+    end
     W.target = keepT
     _G.GetUnitName = keepGUN
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
