@@ -168,6 +168,7 @@ function RC.Hits(events)
         crit = field(row, "critical") == true, blocked = num(field(row, "blocked")),
         absorbed = num(field(row, "absorbed")), resisted = num(field(row, "resisted")),
         hp = num(field(row, "currentHP")), t = num(field(row, "timestamp")),
+        school = num(field(row, "school")),          -- 1 physical; else magic (the recap's "what kind")
         name = type(field(row, "sourceName")) == "string" and field(row, "sourceName") or nil,
         guid = type(field(row, "sourceGUID")) == "string" and field(row, "sourceGUID") or nil,
         spell = type(spell) == "string" and spell
@@ -276,9 +277,13 @@ end
 -- ---------------------------------------------------------------- the window
 -- Built on the farm window's kit (NS.Farm: F.tex, F.fs, F.border, F.HeaderButton) and the family
 -- prompt. Plain frames only - nothing secure - so it may open in a fight.
-RC.W, RC.HEADER, RC.PAD = 360, 16, 6
-RC.CARD_H, RC.STRIP_H, RC.ROW_H, RC.ROWS = 66, 28, 12, 6
-RC.RIVAL_ROWS = 10
+-- 1.43:1, the BiSTheme standard (Arn, 14 Oct: "make it the best way it'll fit in the imax 70mm aspect")
+RC.W, RC.H, RC.HEADER, RC.PAD = 460, 322, 16, 6
+RC.CARD_H, RC.STRIP_H, RC.ROW_H, RC.ROWS = 66, 28, 12, 10
+RC.WHO_ROWS = 4
+-- the rivals & pals window, also 1.43:1
+RC.RW, RC.RH = 500, 350             -- 1.43:1, room for a rival's whole line
+RC.RIVAL_ROWS, RC.PAL_ROWS, RC.SUR_ROWS = 16, 10, 3
 
 local function K() return NS.Farm end
 
@@ -967,8 +972,10 @@ function RC.SpotPal(db, unit)
   if not RC.Friendly(unit) then RC.UnmarkPal(unit) return false end
   -- a friend wearing a kept surname: the crown, not the heart
   if RC.SurnameOf(db, unit) then RC.UnmarkPal(unit) return RC.MarkCrown(unit, true) end
-  if not RC.PalFor(db, unit) then RC.UnmarkPal(unit) return false end
+  local pal, palKey = RC.PalFor(db, unit)
+  if not pal then RC.UnmarkPal(unit) return false end
   if RC.hearts[unit] then return true end
+  RC.PalNear(db, palKey)
   local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
   if not get then return false end
   local okP, plate = pcall(get, unit)
@@ -986,6 +993,22 @@ function RC.SpotPal(db, unit)
 end
 
 function RC.SpotPals(db) for unit in pairs(RC.plates) do RC.SpotPal(db, unit) end end
+
+--- A PAL NEARBY, a small note (Arn, 14 Oct: "also a small notification when a pal is nearby"): one
+--- green chat line, no sound, no raid warning - once per pal per RC.PAL_GAP. Out of combat only, like
+--- the heart it comes with. "pal nearby note" in the options switches it off (db.palNote).
+RC.PAL_GAP = 600
+RC.palSeenAt = {}
+function RC.PalNear(db, name)
+  if db.palNote == false or type(name) ~= "string" then return false end
+  local now = GetTime and GetTime() or 0
+  local last = RC.palSeenAt[name]
+  if last and now - last < RC.PAL_GAP then return false end
+  RC.palSeenAt[name] = now
+  local where = place()
+  NS.Print("%s %s is nearby%s", T.text("good", "<3"), T.text("good", name), (where and where ~= "") and (" - " .. where) or "")
+  return true
+end
 
 -- ---------------------------------------------------------------- a whole surname
 -- Arn, 14 Oct: "a special command for pals and rivals, that adds everyone with the Foreverpvp
@@ -1081,6 +1104,48 @@ function RC.MarkCrown(unit, friend)
   f:Show()
   RC.crowns[unit] = f
   return true
+end
+
+--- THE PREVIEW, rivals & pals (Arn, 14 Oct: "its looking good need the preview for pals and rivals").
+--- The bg tool's roll-out panel (Battleground.lua B.AttachPreview: you, twice, as 3D models) wears
+--- this tool's marks instead: left a RIVAL - the crosshair in the style picked, a crown over the name
+--- (a kept surname); right a PAL - the heart over the name, the guild crest under the plate. Each
+--- built by the same builder as the real one; placed as the real one is (the preview's name sits
+--- above its plate, so over-the-name marks go above that).
+function RC.PaintPreview(pv)
+  pv.rmade, pv.rmarks = pv.rmade or {}, pv.rmarks or {}
+  for _, m in pairs(pv.rmarks) do m:Hide() end
+  pv.rmarks = {}
+  local okS, strata = pcall(pv.GetFrameStrata, pv)
+  local okL, level = pcall(pv.GetFrameLevel, pv)
+  local function get(key, make, cell)
+    local f = pv.rmade[key]
+    if not f then f = make() pv.rmade[key] = f end
+    f:SetParent(cell)
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    f:ClearAllPoints()
+    f:Show()
+    if f.pulse then f.pulse:Play() end
+    pv.rmarks[#pv.rmarks + 1] = f
+    return f
+  end
+  local L, Rt = pv.cellH, pv.cellK
+  local style = RC.style or "rails"
+  if style ~= "none" then
+    local cross = get("cross" .. style, function() return newMark("own") end, L)
+    -- the preview plate's width (the real plates' size, Battleground.lua B.SizePreviewPlates) x MARK_WIDE,
+    -- as RC.MarkPlate sizes a real one
+    local okW, pw = pcall(L.plate.GetWidth, L.plate)
+    pw = (okW and type(pw) == "number" and pw > 0) and pw or 64
+    cross:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
+    cross:SetPoint("TOP", L.plate, "BOTTOM", 0, -2)
+  end
+  get("crown", newCrown, L):SetPoint("BOTTOM", L.plate, "TOP", 0, 12)
+  get("heart", newHeart, Rt):SetPoint("BOTTOM", Rt.plate, "TOP", 0, 12)
+  get("crest", newMate, Rt):SetPoint("TOP", Rt.plate, "BOTTOM", 0, -2)
+  L.word:SetText("a rival  (crown: a kept surname)")
+  Rt.word:SetText("a pal  (crest: a guildmate)")
 end
 
 --- /bist surname <word>: kept, or - kept already - let go. No word: the list.
@@ -1692,10 +1757,22 @@ local function paintCard(c, a, role, s, isKiller)
   fitText(c.what, line, w)
 end
 
+--- THE DEATH RECAP, REMADE (Arn, 14 Oct: "redo this window - we can get rid of the rival pane and make
+--- its own thing that can be pulled up - make it the best way it'll fit in the imax 70mm aspect ratio
+--- ... you are free to remake it"). 1.43:1, the BiSTheme standard. Top to bottom:
+---   the three cards        assist | KILLER | assist (a player card is a click into your rivals)
+---   who hit you            a bar per attacker: damage and share      | what kind: physical / magic
+---   your health            a column per hit, oldest left, gold on a crit
+---   the hits               all ten, newest first, in two columns
+---   the total              "672 damage in 2.3 seconds"  ·  stop showing this  ·  rivals
+--- The rivals have their own window now (RC.BuildRivals) - the header R and the footer button open it.
+RC.SCHOOLS = { [1] = "physical", [2] = "holy", [4] = "fire", [8] = "nature", [16] = "frost", [32] = "shadow", [64] = "arcane" }
+
 function RC.Build(db)
   RC.db = db                            -- the cards' clicks write rivals here
   if RC.win then return RC.win end
   local F = K()
+  local W, H, P = RC.W, RC.H, RC.PAD
   local f = CreateFrame("Frame", "BiSToolsRecap", UIParent)
   RC.win = f
   f:SetFrameStrata("DIALOG")
@@ -1718,7 +1795,7 @@ function RC.Build(db)
   F.tex(head, "BACKGROUND", "header", 1)
   f.title = F.fs(head, "", 8, "ink")
   f.title:SetPoint("LEFT", head, "LEFT", 4, 0)
-  f.con = BiSTheme.Console(f.title, { width = RC.W - 20 - 8 })
+  f.con = BiSTheme.Console(f.title, { width = W - 34 - 8 })
   f.con:Set("name", "death recap", "accent")
   local acc = 0
   f:SetScript("OnUpdate", function(_, dt)
@@ -1727,22 +1804,43 @@ function RC.Build(db)
   end)
   f.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist recap opens your last death again.",
     function() RC.Toggle(db, false) end, "warn")
-  -- SMALL OR BIG (Arn, 12 Oct: "the recap window is minimized right now if i click a button it
-  -- maximize and shows more info all rivals"): the drawer underneath holds every rival
-  f.moreBtn = F.HeaderButton(head, -17, "+", "Rivals", "Every rival: gold you are hunting, silver you are not.",
-    function() RC.SetExpanded(db, not db.expanded) end)
+  -- the rivals: their own window now (Arn: "get rid of the rival pane and make its own thing")
+  f.moreBtn = F.HeaderButton(head, -17, "R", "Rivals & pals", "Their own window: rivals, pals, surname crowns.",
+    function() RC.SetExpanded(db, not (RC.rwin and RC.rwin:IsShown())) end)
 
-  local P = RC.PAD
-  local cw = math.floor((RC.W - P * 4) / 3)
+  -- 1. THE THREE CARDS
+  local top = RC.HEADER + P
+  local cw = math.floor((W - P * 4) / 3)
   f.left, f.mid, f.right = card(f, cw), card(f, cw), card(f, cw)
-  f.left:SetPoint("TOPLEFT", f, "TOPLEFT", P, -(RC.HEADER + P))
+  f.left:SetPoint("TOPLEFT", f, "TOPLEFT", P, -top)
   f.mid:SetPoint("TOPLEFT", f.left, "TOPRIGHT", P, 0)
   f.right:SetPoint("TOPLEFT", f.mid, "TOPRIGHT", P, 0)
 
-  -- your health before each hit, oldest to newest: a column each, gold where it was a crit
-  local stripTop = RC.HEADER + P + RC.CARD_H + P
+  -- 2. WHO HIT YOU (left half) and WHAT KIND (right half)
+  local half = math.floor((W - P * 3) / 2)
+  local y2 = top + RC.CARD_H + 8
+  f.whoCap = F.fs(f, "who hit you", 8, "muted")  f.whoCap:SetPoint("TOPLEFT", f, "TOPLEFT", P, -y2)
+  f.kindCap = F.fs(f, "what kind", 8, "muted")   f.kindCap:SetPoint("TOPLEFT", f, "TOPLEFT", P * 2 + half, -y2)
+  local function barRow(x, y, w)
+    local r = {}
+    r.name = F.fs(f, "", 9, "ink")   r.name:SetPoint("TOPLEFT", f, "TOPLEFT", x, -y)
+    r.amt = F.fs(f, "", 8, "ink2")   r.amt:SetPoint("TOPRIGHT", f, "TOPLEFT", x + w, -y)
+    r.bg = f:CreateTexture(nil, "ARTWORK")
+    r.bg:SetPoint("TOPLEFT", f, "TOPLEFT", x, -(y + 11)) r.bg:SetSize(w, 2)
+    do local cr, cg, cb = F.color("hair") r.bg:SetColorTexture(cr, cg, cb, 1) end
+    r.bar = f:CreateTexture(nil, "OVERLAY")
+    r.bar:SetPoint("TOPLEFT", r.bg, "TOPLEFT") r.bar:SetHeight(2)
+    r.w = w
+    return r
+  end
+  f.who, f.kind = {}, {}
+  for i = 1, RC.WHO_ROWS do f.who[i] = barRow(P, y2 + 12 + (i - 1) * 15, half) end
+  for i = 1, 3 do f.kind[i] = barRow(P * 2 + half, y2 + 12 + (i - 1) * 15, half) end
+
+  -- 3. YOUR HEALTH, a column per hit, oldest left
+  local stripTop = y2 + 12 + RC.WHO_ROWS * 15 + 4
   f.cols = {}
-  local colW = math.floor((RC.W - P * 2) / 10)
+  local colW = math.floor((W - P * 2) / 10)
   for i = 1, 10 do
     local col = f:CreateTexture(nil, "ARTWORK")
     col:SetPoint("BOTTOMLEFT", f, "TOPLEFT", P + (i - 1) * colW, -(stripTop + RC.STRIP_H))
@@ -1754,28 +1852,32 @@ function RC.Build(db)
   f.stripRight = F.fs(f, "dead", 8, "warn")
   f.stripRight:SetPoint("TOPRIGHT", f, "TOPRIGHT", -P, -(stripTop + RC.STRIP_H + 2))
 
-  -- the hits, newest first
+  -- 4. THE HITS, all ten, newest first, two columns of five
   local listTop = stripTop + RC.STRIP_H + 14
   f.caption = F.fs(f, "", 8, "muted")
   f.caption:SetPoint("TOPLEFT", f, "TOPLEFT", P, -listTop)
   f.rows = {}
   for i = 1, RC.ROWS do
-    local y = -(listTop + 11 + (i - 1) * RC.ROW_H)
+    local colI = (i - 1) >= RC.ROWS / 2 and 1 or 0
+    local x = P + colI * (half + P)
+    local y = -(listTop + 11 + ((i - 1) % (RC.ROWS / 2)) * RC.ROW_H)
     local r = {}
-    r.ago = F.fs(f, "", 9, "muted")   r.ago:SetPoint("TOPLEFT", f, "TOPLEFT", P, y)
-    r.who = F.fs(f, "", 9, "ink")     r.who:SetPoint("TOPLEFT", f, "TOPLEFT", P + 30, y)
-    r.what = F.fs(f, "", 9, "muted")  r.what:SetPoint("TOPLEFT", f, "TOPLEFT", P + 172, y)
-    r.amt = F.fs(f, "", 9, "ink2")    r.amt:SetPoint("TOPRIGHT", f, "TOPRIGHT", -P, y)
+    r.ago = F.fs(f, "", 9, "muted")   r.ago:SetPoint("TOPLEFT", f, "TOPLEFT", x, y)
+    r.who = F.fs(f, "", 9, "ink")     r.who:SetPoint("TOPLEFT", f, "TOPLEFT", x + 30, y)
+    r.what = F.fs(f, "", 9, "muted")  r.what:SetPoint("TOPLEFT", f, "TOPLEFT", x + 100, y)
+    r.amt = F.fs(f, "", 9, "ink2")    r.amt:SetPoint("TOPRIGHT", f, "TOPLEFT", x + half, y)
     f.rows[i] = r
   end
-  local footTop = listTop + 11 + RC.ROWS * RC.ROW_H + 4
+
+  -- 5. THE TOTAL, and the two buttons
+  local footTop = listTop + 11 + (RC.ROWS / 2) * RC.ROW_H + 6
   f.foot = F.fs(f, "", 9, "ink2")
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", P, -footTop)
-  -- "STOP SHOWING THIS" (Arn, 12 Oct): on a line of its own, right - the total line above can be long.
-  -- It turns "open when you die" off and closes; with that already off it reads "show when I die".
+  -- "STOP SHOWING THIS" (Arn, 12 Oct): turns "open when you die" off and closes; with that already
+  -- off it reads "show when I die"
   local stop = CreateFrame("Button", nil, f)
   stop:SetSize(110, 12)
-  stop:SetPoint("TOPRIGHT", f, "TOPRIGHT", -P, -(footTop + 13))
+  stop:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(P + 60), P)
   stop.label = F.fs(stop, "", 8, "muted")
   stop.label:SetPoint("RIGHT", stop, "RIGHT", 0, 0)
   stop:SetScript("OnClick", function()
@@ -1792,28 +1894,212 @@ function RC.Build(db)
   stop:SetScript("OnEnter", function(self) local r, g, b = F.color("ink") self.label:SetTextColor(r, g, b, 1) end)
   stop:SetScript("OnLeave", function(self) local r, g, b = F.color("muted") self.label:SetTextColor(r, g, b, 1) end)
   f.stop = stop
-  f:SetSize(RC.W, footTop + 28)
+  local rv = CreateFrame("Button", nil, f)
+  rv:SetSize(52, 12)
+  rv:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -P, P)
+  rv.label = F.fs(rv, "rivals >", 8, "accent")
+  rv.label:SetPoint("RIGHT", rv, "RIGHT", 0, 0)
+  -- opens AND closes it (Arn: "this opens it, it should also close it"); the arrow says which
+  rv:SetScript("OnClick", function() RC.SetExpanded(db, not (RC.rwin and RC.rwin:IsShown())) end)
+  f.rivalsBtn = rv
+  f:SetSize(W, H)
 
-  -- THE DRAWER: every rival, gold first. A row is a button: click = gold/silver, shift-click = forget.
-  local d = CreateFrame("Frame", nil, f)
-  f.drawer = d
-  d:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
-  d:SetWidth(RC.W)
+  local pos = db.pos
+  f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
+  f:Hide()
+  if UISpecialFrames then table.insert(UISpecialFrames, "BiSToolsRecap") end   -- Escape closes it too
+  RC.BuildRivals(db)
+  f.drawer = RC.rwin                    -- the old drawer's name, for whoever still asks for it
+  return f
+end
+
+--- One bar row: a name (class colour for a player), its amount and share, the bar.
+local function paintBar(r, name, class, amount, total, colour)
+  local F = K()
+  if not name then
+    r.name:SetText("") r.amt:SetText("") r.bar:Hide() r.bg:Hide()
+    return
+  end
+  fitText(r.name, name, r.w - 70)
+  local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+  if cc then r.name:SetTextColor(cc.r, cc.g, cc.b, 1)
+  else local cr, cg, cb = F.color("ink") r.name:SetTextColor(cr, cg, cb, 1) end
+  local share = (total and total > 0 and amount) and (amount / total) or 0
+  r.amt:SetText(amount and (tostring(amount) .. pct(amount, total)) or "?")
+  r.bg:Show()
+  r.bar:SetWidth(math.max(1, r.w * share))
+  local br, bg, bb = F.color(colour or "warn")
+  r.bar:SetColorTexture(br, bg, bb, 1)
+  r.bar:Show()
+end
+
+function RC.Paint(s)
+  local f = RC.win
+  if not f then return end
+  local F = K()
+  if not s then                                  -- no death this session
+    f.mid:Hide() f.left:Hide() f.right:Hide()
+    for _, col in ipairs(f.cols) do col:Hide() end
+    for _, r in ipairs(f.who) do paintBar(r) end
+    for _, r in ipairs(f.kind) do paintBar(r) end
+    f.stripLeft:SetText("") f.stripRight:SetText("")
+    f.caption:SetText("nothing has killed you this session")
+    for _, r in ipairs(f.rows) do r.ago:SetText("") r.who:SetText("") r.what:SetText("") r.amt:SetText("") end
+    f.foot:SetText("")
+    return
+  end
+  f.stripRight:SetText("dead")
+  paintCard(f.mid, s.killer, "killer", s, true)
+  paintCard(f.left, s.assists[1], "assist", s, false)
+  paintCard(f.right, s.assists[2], "assist", s, false)
+
+  -- WHO HIT YOU: every attacker, the most damage first; the killer's bar red, the rest muted
+  local list = {}
+  for _, a in ipairs(s.attackers or {}) do list[#list + 1] = a end
+  table.sort(list, function(x, y) return (x.total or 0) > (y.total or 0) end)
+  for i, r in ipairs(f.who) do
+    local a = list[i]
+    if a then paintBar(r, a.title, a.class, a.whole and a.total or nil, s.total, a == s.killer and "warn" or "muted")
+    else paintBar(r) end
+  end
+  -- WHAT KIND: physical and magic, the magic named by its biggest school; hidden amounts skipped
+  local phys, magic, bySchool = 0, 0, {}
+  for _, h in ipairs(s.hits) do
+    if h.amount then
+      if h.school == 1 or (h.school == nil and h.spell == "melee") then phys = phys + h.amount
+      elseif h.school then
+        magic = magic + h.amount
+        local nm = RC.SCHOOLS[h.school] or "magic"
+        bySchool[nm] = (bySchool[nm] or 0) + h.amount
+      end
+    end
+  end
+  local topSchool, topAmt = nil, 0
+  for nm, v in pairs(bySchool) do if v > topAmt then topSchool, topAmt = nm, v end end
+  local sum = phys + magic
+  paintBar(f.kind[1], phys > 0 and "physical" or nil, nil, phys, sum, "ink2")
+  paintBar(f.kind[2], magic > 0 and ("magic" .. (topSchool and topSchool ~= "magic" and (" - mostly " .. topSchool) or "")) or nil,
+    nil, magic, sum, "accent")
+  paintBar(f.kind[3])
+
+  -- the strip: oldest hit on the left
+  local hits = s.hits
+  local maxHP = s.maxHP or s.startHP or 1
+  for i = 1, 10 do
+    local col = f.cols[i]
+    local h = hits[#hits - i + 1]
+    if h and h.hp and maxHP > 0 then
+      col:SetHeight(math.max(1, RC.STRIP_H * math.min(1, h.hp / maxHP)))
+      local r, g, b = F.color(h.crit and "gold" or "good")
+      col:SetColorTexture(r, g, b, 1)
+      col:Show()
+    else
+      col:Hide()
+    end
+  end
+  f.stripLeft:SetText(s.startHP and ("%d of %d health when these began"):format(s.startHP, s.maxHP or s.startHP)
+    or "health: the game did not say")
+
+  f.caption:SetText(("last %d hits, newest first"):format(#hits))
+  local newestT = hits[1] and hits[1].t
+  for i = 1, RC.ROWS do
+    local r, h = f.rows[i], hits[i]
+    if h then
+      local ago = (newestT and h.t) and (newestT - h.t) or nil
+      r.ago:SetText(ago and ("-%.1fs"):format(ago) or "")
+      fitText(r.who, h.name or "?", 66)
+      local tag = h.spell
+      if h.crit then tag = tag .. " crit" end
+      if h.blocked and h.blocked > 0 then tag = tag .. (" %d blk"):format(h.blocked) end
+      fitText(r.what, tag, 84)
+      local amt = h.amount and tostring(h.amount) or "?"
+      if h.overkill and h.overkill > 0 then amt = amt .. (" +%d"):format(h.overkill) end
+      r.amt:SetText(amt)
+      local c = (i == 1) and "warn" or (h.crit and "gold" or "ink2")
+      local cr, cg, cb = F.color(c) r.amt:SetTextColor(cr, cg, cb, 1)
+    else
+      r.ago:SetText("") r.who:SetText("") r.what:SetText("") r.amt:SetText("")
+    end
+  end
+  if s.whole and s.seconds then
+    -- MORE DAMAGE THAN HEALTH is not a bug: the record keeps the hits, not your heals (Arn, killed
+    -- by three hunters from 361 health while 1047 landed). Said, so it does not read as one.
+    -- the overkill landed on nobody: 306 with 14 over, from 292, is not a heal (Ragefire, 12 Oct)
+    local over = (s.blow and s.blow.overkill and s.blow.overkill > 0) and s.blow.overkill or 0
+    local healed = s.startHP and (s.total - over) > s.startHP
+    f.foot:SetText(("%d damage in %.1f seconds%s"):format(s.total, s.seconds,
+      healed and " - you healed through some of it" or ""))
+  elseif s.seconds then
+    f.foot:SetText(("damage in %.1f seconds (some amounts hidden)"):format(s.seconds))
+  else
+    f.foot:SetText("")
+  end
+end
+
+-- ---------------------------------------------------------------- the rivals & pals window
+-- Their own window (Arn, 14 Oct: "get rid of the rival pane and make its own thing that can be pulled
+-- up"), 1.43:1. Left: your rivals - gold (hunting), the guild's (amber), silver (not). Right: your
+-- pals, and the surnames you crown. Click a rival: gold / silver; shift-click anything: forget it.
+-- /bist rivals, the rivals tool's row in the hub, the recap's R and "rivals >" all open it.
+function RC.BuildRivals(db)
+  if RC.rwin then return RC.rwin end
+  local F = K()
+  local W, H, P = RC.RW, RC.RH, RC.PAD
+  local d = CreateFrame("Frame", "BiSToolsRivals", UIParent)
+  RC.rwin = d
+  d:SetFrameStrata("DIALOG")
+  d:SetMovable(true)
+  d:EnableMouse(true)
+  d:SetClampedToScreen(true)
+  d:RegisterForDrag("LeftButton")
+  d:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  d:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, rel, x, y = self:GetPoint(1)
+    db.rpos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+  end)
   F.tex(d, "BACKGROUND", "frame", 0.96)
   F.border(d, "edge", 0.6)
-  d.caption = F.fs(d, "rivals - gold: hunting, silver: not. click to switch", 8, "muted")
-  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P, -5)
-  d.rows = {}
-  for i = 1, RC.RIVAL_ROWS do
+  local head = CreateFrame("Frame", nil, d)
+  head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
+  head:SetHeight(RC.HEADER)
+  F.tex(head, "BACKGROUND", "header", 1)
+  d.title = F.fs(head, "", 8, "ink")
+  d.title:SetPoint("LEFT", head, "LEFT", 4, 0)
+  d.con = BiSTheme.Console(d.title, { width = W - 20 - 8 })
+  d.con:Set("name", "rivals & pals", "accent")
+  local acc = 0
+  d:SetScript("OnUpdate", function(_, dt)
+    acc = acc + (dt or 0)
+    if acc >= 0.1 then acc = 0 if d.con then d.con:Paint() end end
+  end)
+  d.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist rivals opens it again.",
+    function() RC.SetExpanded(db, false) end, "warn")
+
+  -- the rivals carry the most words (killed you, seen when and where, who saw them): 65 / 35
+  local lw = math.floor((W - P * 3) * 0.65)
+  local rw = W - P * 3 - lw
+  local function row(x, y, w)
     local b = CreateFrame("Button", nil, d)
-    b:SetSize(RC.W - P * 2, RC.ROW_H + 2)
-    b:SetPoint("TOPLEFT", d, "TOPLEFT", P, -(16 + (i - 1) * (RC.ROW_H + 2)))
+    b:SetSize(w, RC.ROW_H + 2)
+    b.w = w
+    b:SetPoint("TOPLEFT", d, "TOPLEFT", x, -y)
     b:RegisterForClicks("LeftButtonUp")
     b.mark = b:CreateTexture(nil, "ARTWORK")
     b.mark:SetPoint("LEFT", b, "LEFT", 0, 0)
     b.mark:SetSize(7, 7)
     b.name = F.fs(b, "", 9, "ink")      b.name:SetPoint("LEFT", b, "LEFT", 12, 0)
     b.info = F.fs(b, "", 8, "muted")    b.info:SetPoint("RIGHT", b, "RIGHT", 0, 0)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    return b
+  end
+
+  -- LEFT: the rivals
+  d.caption = F.fs(d, "rivals - gold: hunting, silver: not", 8, "muted")
+  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P, -(RC.HEADER + 5))
+  d.rows = {}
+  for i = 1, RC.RIVAL_ROWS do
+    local b = row(P, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), lw)
     b:SetScript("OnClick", function(self)
       if not self.rival then return end
       -- a GUILD row: click = make them yours (gold), shift-click = off the guild's list
@@ -1841,89 +2127,67 @@ function RC.Build(db)
         or "Click: gold (hunting) or silver. Shift-click: forget.", 1, 1, 1, true)
       GameTooltip:Show()
     end)
-    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     d.rows[i] = b
   end
   d.more = F.fs(d, "", 8, "muted")
+
+  -- RIGHT: pals, then the surnames crowned
+  local xR = P * 2 + lw
+  d.palCap = F.fs(d, "pals - a heart over them", 8, "muted")
+  d.palCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -(RC.HEADER + 5))
+  d.pals = {}
+  for i = 1, RC.PAL_ROWS do
+    local b = row(xR, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), rw)
+    b:SetScript("OnClick", function(self)
+      if not (self.pal and IsShiftKeyDown and IsShiftKeyDown()) then return end
+      RC.Pals(db)[self.pal] = nil
+      RC.ClearPals() RC.SpotPals(db)
+      NS.Print("%s is no longer a pal", self.pal)
+      RC.PaintRivals()
+    end)
+    b:SetScript("OnEnter", function(self)
+      if not (self.pal and GameTooltip) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.pal)
+      GameTooltip:AddLine("A pal. Shift-click: forget.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    d.pals[i] = b
+  end
+  local yS = RC.HEADER + 18 + RC.PAL_ROWS * (RC.ROW_H + 2) + 8
+  d.surCap = F.fs(d, "surname crowns", 8, "muted")
+  d.surCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -yS)
+  d.surs = {}
+  for i = 1, RC.SUR_ROWS do
+    local b = row(xR, yS + 13 + (i - 1) * (RC.ROW_H + 2), rw)
+    b:SetScript("OnClick", function(self)
+      if self.sur and IsShiftKeyDown and IsShiftKeyDown() then RC.Surname(db, self.sur) RC.PaintRivals() end
+    end)
+    b:SetScript("OnEnter", function(self)
+      if not (self.sur and GameTooltip) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine("everyone named * " .. self.sur)
+      GameTooltip:AddLine("A small gold crown over them. Shift-click: let the surname go.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    d.surs[i] = b
+  end
+  d.hint = F.fs(d, "/bist rival - your target   ·   /bist pal - a friend   ·   /bist surname <word>", 8, "muted")
+  d.hint:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", P, P)
+  d:SetSize(W, H)
+  local pos = db.rpos or { "CENTER", 0, -40, "CENTER" }
+  d:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
   d:Hide()
-
-  local pos = db.pos
-  f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
-  f:Hide()
-  return f
-end
-
-function RC.Paint(s)
-  local f = RC.win
-  if not f then return end
-  local F = K()
-  if not s then                                  -- no death this session: an empty top, the drawer below
-    f.mid:Hide() f.left:Hide() f.right:Hide()
-    for _, col in ipairs(f.cols) do col:Hide() end
-    f.stripLeft:SetText("") f.stripRight:SetText("")
-    f.caption:SetText("nothing has killed you this session")
-    for _, r in ipairs(f.rows) do r.ago:SetText("") r.who:SetText("") r.what:SetText("") r.amt:SetText("") end
-    f.foot:SetText("")
-    return
-  end
-  f.stripRight:SetText("dead")
-  paintCard(f.mid, s.killer, "killer", s, true)
-  paintCard(f.left, s.assists[1], "assist", s, false)
-  paintCard(f.right, s.assists[2], "assist", s, false)
-
-  -- the strip: oldest hit on the left
-  local hits = s.hits
-  local maxHP = s.maxHP or s.startHP or 1
-  for i = 1, 10 do
-    local col = f.cols[i]
-    local h = hits[#hits - i + 1]
-    if h and h.hp and maxHP > 0 then
-      col:SetHeight(math.max(1, RC.STRIP_H * math.min(1, h.hp / maxHP)))
-      local r, g, b = F.color(h.crit and "gold" or "good")
-      col:SetColorTexture(r, g, b, 1)
-      col:Show()
-    else
-      col:Hide()
-    end
-  end
-  f.stripLeft:SetText(s.startHP and ("%d of %d health when these began"):format(s.startHP, s.maxHP or s.startHP)
-    or "health: the game did not say")
-
-  f.caption:SetText(("last %d hits, newest first"):format(#hits))
-  local newestT = hits[1] and hits[1].t
-  for i = 1, RC.ROWS do
-    local r, h = f.rows[i], hits[i]
-    if h then
-      local ago = (newestT and h.t) and (newestT - h.t) or nil
-      r.ago:SetText(ago and ("-%.1fs"):format(ago) or "")
-      local a = h.name or "?"
-      fitText(r.who, a, 138)
-      local tag = h.spell
-      if h.crit then tag = tag .. " crit" end
-      if h.blocked and h.blocked > 0 then tag = tag .. (" %d blk"):format(h.blocked) end
-      fitText(r.what, tag, 100)
-      local amt = h.amount and tostring(h.amount) or "?"
-      if h.overkill and h.overkill > 0 then amt = amt .. (" +%d"):format(h.overkill) end
-      r.amt:SetText(amt)
-      local c = (i == 1) and "warn" or (h.crit and "gold" or "ink2")
-      local cr, cg, cb = F.color(c) r.amt:SetTextColor(cr, cg, cb, 1)
-    else
-      r.ago:SetText("") r.who:SetText("") r.what:SetText("") r.amt:SetText("")
-    end
-  end
-  if s.whole and s.seconds then
-    -- MORE DAMAGE THAN HEALTH is not a bug: the record keeps the hits, not your heals (Arn, killed
-    -- by three hunters from 361 health while 1047 landed). Said, so it does not read as one.
-    -- the overkill landed on nobody: 306 with 14 over, from 292, is not a heal (Ragefire, 12 Oct)
-    local over = (s.blow and s.blow.overkill and s.blow.overkill > 0) and s.blow.overkill or 0
-    local healed = s.startHP and (s.total - over) > s.startHP
-    f.foot:SetText(("%d damage in %.1f seconds%s"):format(s.total, s.seconds,
-      healed and " - you healed through some of it" or ""))
-  elseif s.seconds then
-    f.foot:SetText(("damage in %.1f seconds (some amounts hidden)"):format(s.seconds))
-  else
-    f.foot:SetText("")
-  end
+  -- ESCAPE CLOSES IT (Arn, 14 Oct: "esc not closing the bis rival and pal page"), like every
+  -- Blizzard panel; however it closes, the recap's arrow and the saved state follow
+  if UISpecialFrames then table.insert(UISpecialFrames, "BiSToolsRivals") end
+  d:HookScript("OnHide", function()
+    db.expanded = false
+    local f = RC.win
+    if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText("R") end
+    if f and f.rivalsBtn and f.rivalsBtn.label then f.rivalsBtn.label:SetText("rivals >") end
+  end)
+  return d
 end
 
 --- /bist recap why: the tracker's own account of itself, for "it did not call them out".
@@ -1985,12 +2249,12 @@ local function ago(stamp)
   return ("%dd ago"):format(math.floor(s / 86400))
 end
 
---- The drawer: gold first, then the most recently seen. Silver rows are dimmed.
+--- The rivals & pals window: left, the rivals - gold first, then the guild's, then silver, the most
+--- recently seen first in each; right, the pals and the surnames crowned.
 function RC.PaintRivals()
-  local f, db = RC.win, RC.db
-  if not (f and f.drawer and db) then return end
-  local d, F = f.drawer, K()
-  -- yours gold, then the guild's (amber), then yours silver; the most recently seen first in each
+  local d, db = RC.rwin, RC.db
+  if not (d and db) then return end
+  local F = K()
   local list = {}
   for name, r in pairs(RC.Rivals(db)) do list[#list + 1] = { name = name, r = r, rank = r.active and 1 or 3 } end
   if db.guildShow ~= false then
@@ -2002,6 +2266,7 @@ function RC.PaintRivals()
     if x.rank ~= y.rank then return x.rank < y.rank end
     return (x.r.seen or x.r.added or 0) > (y.r.seen or y.r.added or 0)
   end)
+  local half = d.rows[1] and d.rows[1].w or 200
   for i, b in ipairs(d.rows) do
     local e = list[i]
     if e then
@@ -2010,7 +2275,7 @@ function RC.PaintRivals()
       local mr, mg, mb
       if e.guild then mr, mg, mb = unpack(RC.MARK_COLOUR.guild) else mr, mg, mb = F.color(gold and "gold" or "dim") end
       b.mark:SetColorTexture(mr, mg, mb, 1)
-      b.name:SetText(e.name)
+      fitText(b.name, e.name, 90)
       local cc = e.r.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.r.class]
       if cc then b.name:SetTextColor(cc.r, cc.g, cc.b, gold and 1 or 0.55)
       else local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, gold and 1 or 0.55) end
@@ -2024,7 +2289,7 @@ function RC.PaintRivals()
       elseif e.guild and e.r.by then
         bits[#bits + 1] = "from " .. e.r.by
       end
-      fitText(b.info, table.concat(bits, " · "), RC.W - 160)
+      fitText(b.info, table.concat(bits, " · "), half - 96)
       b:Show()
     else
       b.rival = nil
@@ -2034,28 +2299,113 @@ function RC.PaintRivals()
   local shown = math.min(#list, #d.rows)
   if #list == 0 then
     d.more:SetText("no rivals yet - click a player on a death recap")
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -18)
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20))
     d.more:Show()
   elseif #list > shown then
-    d.more:SetText(("%d more - /bist recap rivals lists them all"):format(#list - shown))
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(18 + shown * (RC.ROW_H + 2)))
+    d.more:SetText(("%d more - /bist rivals list"):format(#list - shown))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20 + shown * (RC.ROW_H + 2)))
     d.more:Show()
   else
     d.more:SetText("")
     d.more:Hide()
   end
-  local rows = math.max(shown, 1) + ((#list > shown or #list == 0) and 1 or 0)
-  d:SetHeight(20 + rows * (RC.ROW_H + 2))
+  -- the pals, the most recently added first
+  local pals = {}
+  for name, p in pairs(RC.Pals(db)) do pals[#pals + 1] = { name = name, p = p } end
+  table.sort(pals, function(x, y) return (x.p.added or 0) > (y.p.added or 0) end)
+  for i, b in ipairs(d.pals) do
+    local e = pals[i]
+    if e then
+      b.pal = e.name
+      do local r, g, bl = unpack(RC.PAL) b.mark:SetColorTexture(r, g, bl, 1) end
+      fitText(b.name, e.name, 100)
+      do local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, 1) end
+      local added = ago(e.p.added)
+      fitText(b.info, added and ("added " .. added) or "", 80)
+      b:Show()
+    else
+      b.pal = nil
+      b:Hide()
+    end
+  end
+  if #pals == 0 then d.palCap:SetText("pals - none yet (/bist pal)")
+  else d.palCap:SetText("pals - a heart over them") end
+  -- the surnames crowned
+  local surs = {}
+  for _, word in pairs(RC.Surnames(db)) do surs[#surs + 1] = word end
+  table.sort(surs)
+  for i, b in ipairs(d.surs) do
+    local w = surs[i]
+    if w then
+      b.sur = w
+      do local r, g, bl = unpack(RC.CROWN) b.mark:SetColorTexture(r, g, bl, 1) end
+      fitText(b.name, "* " .. w, 140)
+      do local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, 1) end
+      b.info:SetText("")
+      b:Show()
+    else
+      b.sur = nil
+      b:Hide()
+    end
+  end
+  if #surs == 0 then d.surCap:SetText("crowns - none yet")
+  else d.surCap:SetText("surname crowns") end
 end
 
---- Small or big: the drawer of rivals under the recap.
+--- NOT ON TOP OF ANOTHER WINDOW (Arn, 14 Oct, the rivals window opened over the recap: "needs the same
+--- brains to not overlap windows"). The BiSTheme kit's own placement (T.DodgeRect) and its list of open
+--- windows (T.OPEN): these two join that list, so they dodge the options windows and each other, and
+--- the options windows dodge them. A hidden or refused rect: left where it is.
+function RC.Dodge(f)
+  local T = BiSTheme
+  if not (f and T and T.DodgeRect) then return false end
+  T.OPEN = T.OPEN or {}
+  T.OPEN[f] = true
+  local function rect(fr)
+    local ok, l, b, w, h = pcall(fr.GetRect, fr)
+    local okS, s = pcall(fr.GetEffectiveScale, fr)
+    if not (ok and okS) then return nil end
+    for _, v in ipairs({ l, b, w, h, s }) do
+      if type(v) ~= "number" or hidden(v) then return nil end
+    end
+    if not (l and b and w and h and s) then return nil end
+    return { l * s, b * s, (l + w) * s, (b + h) * s }
+  end
+  local mine = rect(f)
+  if not mine then return false end
+  local others = {}
+  for o in pairs(T.OPEN) do
+    if o ~= f and o.IsShown and o:IsShown() then
+      local r = rect(o)
+      if r then others[#others + 1] = r end
+    end
+  end
+  if #others == 0 then return false end
+  local okU, sw, sh = pcall(function() return UIParent:GetWidth() * UIParent:GetEffectiveScale(),
+    UIParent:GetHeight() * UIParent:GetEffectiveScale() end)
+  if not okU then return false end
+  local left, top = T.DodgeRect(mine, others, sw, sh)
+  if not left then return false end
+  local s = f:GetEffectiveScale()
+  f:ClearAllPoints()
+  f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / s, top / s)
+  return true
+end
+
+--- The rivals & pals window, open or shut (the name kept from when it was a drawer).
 function RC.SetExpanded(db, on)
   db.expanded = on and true or false
+  RC.db = RC.db or db
+  local d = RC.BuildRivals(db)
+  if db.expanded then RC.PaintRivals() RC.Dodge(d) d:Show() else d:Hide() end
   local f = RC.win
-  if not f then return db.expanded end
-  if db.expanded then RC.PaintRivals() f.drawer:Show() else f.drawer:Hide() end
-  if f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText(db.expanded and "-" or "+") end
+  if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText(db.expanded and "-" or "R") end
+  if f and f.rivalsBtn and f.rivalsBtn.label then f.rivalsBtn.label:SetText(db.expanded and "rivals <" or "rivals >") end
   return db.expanded
+end
+RC.ToggleRivals = function(db, want)
+  if want == nil then want = not (RC.rwin and RC.rwin:IsShown()) end
+  return RC.SetExpanded(db, want)
 end
 
 function RC.PaintStop(db)
@@ -2071,15 +2421,19 @@ function RC.Toggle(db, want)
       local events = RC.Fetch()
       if events and #events > 0 then RC.last = RC.Summary(RC.Hits(events), RC.MaxHP()) end
     end
-    -- no death yet, but rivals: the window opens for the drawer alone
-    if not RC.last and next(RC.Rivals(db)) == nil then
-      NS.Print("nothing has killed you yet this session")
+    -- no death yet: the rivals & pals window instead, if there is anyone in it
+    if not RC.last then
       RC.win:Hide()
+      if next(RC.Rivals(db)) ~= nil or next(RC.Pals(db)) ~= nil then
+        RC.SetExpanded(db, true)
+        return true
+      end
+      NS.Print("nothing has killed you yet this session")
       return false
     end
     RC.Paint(RC.last)
     RC.PaintStop(db)
-    RC.SetExpanded(db, db.expanded or not RC.last)
+    if not RC.win:IsShown() then RC.Dodge(RC.win) end
     RC.win:Show()
   else
     RC.win:Hide()

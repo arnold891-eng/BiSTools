@@ -1,5 +1,15 @@
-## Unreleased
+## 0.8.0
 
+- **The death recap, remade** (the BiS shape, 1.43:1): the three cards, then **who hit you** - a bar per attacker with their damage and share - and **what kind** (physical or magic, and which school), your health across the hits, all ten hits in two columns, and the total. The rivals list is no longer tucked under it.
+- **Rivals & pals have their own window**: rivals on the left (gold, the guild's, silver), your pals and the surnames you crown on the right. `/bist rivals`, the rivals & pals row in the tools list, or "rivals >" on the recap opens it; `/bist rivals list` still prints them in chat.
+- **Your own side's MVPs**: in a battleground, your team's best healer and best killer wear a **>MVP<** tag - the same white box, the word in gold - read off the same scoreboard as theirs.
+- **Marks above the nameplate, if you like them there**: "mark spot" under bg - on (on the body, under the nameplate) or above (on top of the nameplate, over the name). "mark height" nudges from either.
+- **The minimap button sits on the minimap's edge, whatever its size.** It was placed for the default map, so on a bigger one (a minimap addon, or a scaled-up map) it landed inside; it now measures the map, and moves again when an addon resizes it after login.
+- **The saber button in the tools box: left-click targets, right-click marks.** A left-click now only targets one of their marked players (nearest first); a right-click reads the scoreboard and marks them.
+- **A pal nearby, a small note**: when one of your pals comes into view, out of combat, a green "<3 *Name* is nearby" in chat - once every ten minutes each, no sound. "pal nearby note" in the options switches it off.
+- **Rivals & pals get the same preview**: hover the crosshair, sound, pal note, guild rivals or guildmates settings and your two characters wear a rival's crosshair (in the style you pick) with a surname crown, and a pal's heart with the guild crest.
+- **See the marks on yourself before a battleground.** Hover "mark look", "mark size" or "mark height" in the options and a panel rolls out beside the window: two 3D models of your own character, a nameplate over each, wearing the healer mark and the killer mark - redrawn as you click through.
+- **A sixth battleground mark: the tag.** A white box with **>Healer<** over their top healers and **>Killer<** over their top killer - white arrows, a red word, nothing behind it. "mark look" in the options, under bg.
 - **Rivals & pals are their own tool.** A row of their own in the tools list, their own settings section in the options (sound, crosshair, guild rivals, guildmates, the target button) and their own commands: `/bist rivals`, `/bist rival`, `/bist pal`, `/bist pals`, `/bist surname`. Switching the death recap off no longer turns them off; switching rivals & pals off takes every crosshair, heart, crown and crest down but keeps your lists. Clicking a killer on the recap still makes them a rival, and the old `/bist recap rival` commands still work. Your rivals and pals are where they always were - nothing to set up again.
 
 ## 0.7.0

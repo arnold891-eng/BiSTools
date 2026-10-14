@@ -68,6 +68,7 @@ _G.UnitIsVisible = function(u)
 end
 _G.UnitIsConnected = function() return true end
 _G.GetRealZoneText = function() return W.me.zone end
+_G.UISpecialFrames = {}   -- the client always has it: the frames Escape closes (14 Oct: the rivals window was missing)
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return W.shift or false end
@@ -501,7 +502,7 @@ local function kill(name, guid, src, mark)
   if mark then W.target = nil W.marks.target = nil end
 end
 local pass = 0
-local function ok(cond, msg) if not cond then error("FAIL: " .. msg, 2) end pass = pass + 1 end
+local function ok(cond, msg, got) if not cond then error("FAIL: " .. msg .. (got ~= nil and ("  [" .. tostring(got) .. "]") or ""), 2) end pass = pass + 1 end
 
 -- ------------------------------------------------------------ checks
 ok(BiSToolsFarm and BiSToolsFarm:IsShown(), "window shown on login (db.shown default)")
@@ -1755,6 +1756,13 @@ do
   ok(mm and mm == BiSToolsMinimap and mm.parent == Minimap, "minimap button, parented to the Minimap")
   local x, y = H.MinimapPos(225)
   ok(mm.point[1] == "CENTER" and mm.point[2] == Minimap and math.abs(mm.point[4] - x) < 1e-6 and math.abs(mm.point[5] - y) < 1e-6, "sits on the rim at the saved angle (225 = lower left)")
+  -- THE RING IS MEASURED (Arn's cousin: "the minimap buttons are appearing on the inside of the minimap")
+  local keepW = Minimap.GetWidth
+  Minimap.GetWidth = function() return 192 end            -- Forever's minimap is wider than 140
+  ok(math.abs(H.MinimapRadius() - (96 + H.MM_OVER)) < 1e-6, "a 192 px minimap: the ring at 106, on its edge - not 80, inside it")
+  Minimap.GetWidth = function() return nil end
+  ok(H.MinimapRadius() == H.MM_RADIUS, "a minimap that will not say: the old 80")
+  Minimap.GetWidth = keepW
   ok(mm.icon.file == "Interface\\Icons\\Spell_Shadow_Twilight" and mm.ring.file == "Interface\\Minimap\\MiniMap-TrackingBorder", "BiS icon in the standard tracking ring")
   -- drag: the angle follows the cursor around the minimap centre
   W.cursor = { 1000 + 100, 500 }   -- due east of the centre
@@ -1820,9 +1828,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (6), social (2), threat (2), bg (3) -> 8 headers + 29 rows
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (3) -> 8 headers + 30 rows
   -- (the rival settings moved out of recap into their own tool, 14 Oct)
-  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 6 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1838,6 +1846,50 @@ do
     kids[1].scripts.OnEnter(kids[1])
     ok(hb.text.text:find("spawn spot", 1, true), "and so does hovering its own buttons")
   end
+  -- THE MARK PREVIEW (Arn: "a window to the helper thing to preview the look")
+  local BGt = NS.BG
+  local lookRow = find("mark look")
+  lookRow.scripts.OnEnter(lookRow)
+  local pv = BGt.preview
+  ok(pv and pv:IsShown() and pv.marks and pv.marks.healer and pv.marks.killer, "hovering a mark setting: the preview rolls out with both marks")
+  -- Arn: "a full on rollout 3d model of self with the marks on them, like how we did for bisgamba"
+  ok(pv.cellH.model and pv.cellK.model, "two 3D models of you, one per mark")
+  ok(math.abs(pv.w / pv.h - 1.43) < 0.01, "the roll-out is 1.43:1, the BiSTheme standard", pv.w .. "x" .. pv.h)
+  -- Arn: "make the preview same aspect as our windows" / "in the preview its cut off"
+  ok(pv.h == math.floor(opt.h + 0.5) or (opt.h < BGt.PREVIEW_H and pv.h == BGt.PREVIEW_H), "as tall as the options window", pv.h .. " vs " .. opt.h)
+  ok(BGt.PREVIEW_HEADROOM >= 2 + 40 + BGt.TAG[2] * 1.5, "room over each nameplate for a tag set above it, nudged all the way up")
+  ok(pv.point and pv.point[1] == "TOPLEFT" and pv.point[2] == opt and pv.point[3] == "TOPRIGHT", "hung off the options window's right edge")
+  ok(pv.marks.healer.point and pv.marks.healer.point[2] == pv.cellH.plate, "the mark placed on the preview's own nameplate, by the same code as a real one")
+  ok(pv.marks.healer.look == BGt.LookIndex() and pv.marks.healer.shown ~= false, "in the look picked now")
+  local bdbP = R:DBFor(R:Get("bg"))
+  for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 6) end end
+  ok(pv.marks.healer.tag and pv.marks.killer.tag, "a step in the options redraws the preview at once (the tag)")
+  for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 1) end end
+  -- THE REAL NAMEPLATE'S WIDTH (Arn: the preview's crosshair "look squished cause name plates are smaller
+  -- than in game ... the width is what's important")
+  local keepPx = BGt.platePx
+  BGt.platePx = { 180, 12 }               -- as measured off a real plate, in screen pixels
+  BGt.SizePreviewPlates()
+  ok(pv.cellH.plate.w == 180 and pv.cellK.plate.w == 180, "the preview's nameplates take the real ones' width", tostring(pv.cellH.plate.w))
+  BGt.platePx = { 180, 60 }               -- a plate FRAME is its whole clickable area: far taller than its bar
+  BGt.SizePreviewPlates()
+  ok(pv.cellH.plate.h == BGt.PREVIEW_BAR_H, "but the bar stays a bar's height - never the frame's (Arn's red slab)", tostring(pv.cellH.plate.h))
+  -- THE RIVALS & PALS PREVIEW (Arn: "need the preview for pals and rivals")
+  local crossRow = find("crosshair")
+  crossRow.scripts.OnEnter(crossRow)
+  ok(pv:IsShown() and pv.mode == "rivals" and #pv.rmarks == 4, "hovering a rival setting: the rival and the pal, wearing their marks", #(pv.rmarks or {}))
+  ok(pv.marks and next(pv.marks) == nil, "and the battleground marks are put away")
+  ok(pv.cellH.word.text:find("rival", 1, true) and pv.cellK.word.text:find("pal", 1, true), "captions say which is which")
+  ok(pv.rmarks[1].w == math.floor(180 * NS.Recap.MARK_WIDE + 0.5), "the rival's crosshair as wide as on a real plate - not squished", tostring(pv.rmarks[1].w))
+  local styleBefore = pv.rmarks[1].style
+  for _, o in ipairs(R:Get("rivals").options) do if o.label == "crosshair" then o.set(nil, 4) end end
+  ok(pv.rmarks[1].style ~= styleBefore and pv.rmarks[1].style == NS.Recap.STYLES[4], "a new crosshair style: the preview redraws in it", tostring(pv.rmarks[1].style))
+  for _, o in ipairs(R:Get("rivals").options) do if o.label == "crosshair" then o.set(nil, 1) end end
+  lookRow.scripts.OnEnter(lookRow)
+  ok(pv.mode == "bg" and pv.marks.healer and not pv.rmarks[1]:IsShown(), "back on a bg setting: the battleground marks again")
+  BGt.platePx = keepPx
+  find("spot radius").scripts.OnEnter(find("spot radius"))
+  ok(not pv:IsShown(), "any other setting: the preview goes")
   local undocumented = {}
   for _, r in ipairs(opt.rows) do if r.opt and not r.opt.help then undocumented[#undocumented + 1] = r.opt.label end end
   ok(#undocumented == 0, "every BiS Tools setting has its help written", table.concat(undocumented, ", "))
@@ -2759,8 +2811,48 @@ do
   ok(w.mid.what.text == "killing blow 27 +14", "the killing blow and its overkill", w.mid.what.text)
   ok(w.foot.text == "306 damage in 6.0 seconds", "the total line", w.foot.text)
   ok(w.rows[1].amt.text == "27 +14" and w.rows[2].what.text == "melee crit" and w.rows[5].what.text == "melee 22 blk",
-     "the hits, newest first, crits and blocks marked")
+     "the hits, newest first, crits and blocks marked", tostring(w.rows[1].amt.text) .. " | " .. tostring(w.rows[2].what.text) .. " | " .. tostring(w.rows[5].what.text))
   ok(w.stripLeft.text == "292 of 1192 health when these began", "the strip says where the hits began", w.stripLeft.text)
+  -- THE REMADE RECAP (Arn, 14 Oct: "redo this window ... the imax 70mm aspect ratio")
+  ok(math.abs(w.w / w.h - 1.43) < 0.01, "the death recap is 1.43:1", w.w .. "x" .. w.h)
+  ok(w.who[1].name.text == "Molten Elemental" and w.who[1].amt.text == "128 (42%)" and w.who[2].name.text ~= "",
+     "who hit you: a bar per attacker, the most damage first", w.who[1].name.text .. " " .. w.who[1].amt.text)
+  ok(w.who[1].bar.shown ~= false and w.who[1].bar.w > w.who[2].bar.w, "the bars as long as their share")
+  ok(w.kind[1].name.text == "physical" or w.kind[2].name.text:find("magic", 1, true),
+     "what kind: physical, magic", w.kind[1].name.text .. " / " .. w.kind[2].name.text)
+  ok(#w.rows == 10 and w.rows[6].amt.text ~= "" and w.rows[10].amt.text ~= "", "all ten hits, in two columns")
+  ok(w.drawer == RC.rwin and math.abs(RC.rwin.w / RC.rwin.h - 1.43) < 0.01, "the rivals: their own window, also 1.43:1")
+  -- "rivals >" opens it, and closes it again (Arn: "this opens it, it should also close it")
+  RC.SetExpanded(rdb, false)
+  w.rivalsBtn.scripts.OnClick(w.rivalsBtn)
+  ok(RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals <", "rivals >: opens the window, the arrow turns")
+  w.rivalsBtn.scripts.OnClick(w.rivalsBtn)
+  ok(not RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals >", "and again: closes it")
+  -- ESCAPE CLOSES BOTH (Arn: "esc not closing the bis rival and pal page")
+  local inEsc = {}
+  for _, n in ipairs(UISpecialFrames or {}) do inEsc[n] = true end
+  ok(inEsc.BiSToolsRivals and inEsc.BiSToolsRecap, "Escape closes the rivals & pals window and the recap")
+  RC.SetExpanded(rdb, true)
+  RC.rwin:Hide() if RC.rwin.scripts.OnHide then RC.rwin.scripts.OnHide(RC.rwin) end   -- what Escape does
+  ok(rdb.expanded == false and w.rivalsBtn.label.text == "rivals >", "closed by Escape: the arrow turns back")
+  -- NOT ON TOP OF THE RECAP (Arn: "needs the same brains to not overlap windows")
+  do
+    local keepR, keepRS, keepWR, keepWS = RC.rwin.GetRect, RC.rwin.GetEffectiveScale, w.GetRect, w.GetEffectiveScale
+    w.GetRect = function() return 400, 300, 460, 322 end
+    w.GetEffectiveScale = function() return 1 end
+    RC.rwin.GetRect = function() return 450, 250, 500, 350 end      -- right over the recap
+    RC.rwin.GetEffectiveScale = function() return 1 end
+    local keepUP = _G.UIParent
+    _G.UIParent = { GetWidth = function() return 1920 end, GetHeight = function() return 1080 end,
+                    GetEffectiveScale = function() return 1 end }
+    RC.SetExpanded(rdb, true)
+    local p = RC.rwin.point
+    ok(p and p[1] == "TOPLEFT" and p[2] == _G.UIParent and p[4] == 400 + 460 + 8, "the rivals window opens beside the recap, not on it",
+       p and (tostring(p[4]) .. "," .. tostring(p[5])))
+    RC.SetExpanded(rdb, false)
+    RC.rwin.GetRect, RC.rwin.GetEffectiveScale, w.GetRect, w.GetEffectiveScale = keepR, keepRS, keepWR, keepWS
+    _G.UIParent = keepUP
+  end
   ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
   fitsIn(w, "the death recap")
 
@@ -2854,13 +2946,22 @@ do
   ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
   -- the short words (Arn: "dont need to write to command all the time"): /bist rivals is the same
   said2 = {}
+  S("rivals list")
+  ok(table.concat(said2, " | "):find("Hunting Moms", 1, true), "/bist rivals list lists them in chat")
+  -- /bist rivals: THEIR OWN WINDOW (Arn: "make its own thing that can be pulled up")
+  RC.SetExpanded(rdb2, false)   -- start from closed: an earlier step left it open
   S("rivals")
-  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "/bist rivals lists them too")
+  ok(RC.rwin and RC.rwin:IsShown(), "/bist rivals opens the rivals & pals window", tostring(RC.rwin) .. " on=" .. tostring(R:Enabled("rivals")) .. " said=" .. table.concat(said2, " | "))
+  local found
+  for _, b in ipairs(RC.rwin.rows) do if b.rival == "Hunting Moms" and b:IsShown() then found = b end end
+  ok(found, "listing them")
+  S("rivals")
+  ok(not RC.rwin:IsShown(), "and again closes it")
   -- their own tool: with the recap switched off, the rivals' commands still answer
   R:SetEnabled("recap", false)
   said2 = {}
-  S("rivals")
-  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "recap off: /bist rivals still lists them - their own tool now")
+  S("rivals list")
+  ok(table.concat(said2, " | "):find("Hunting Moms", 1, true), "recap off: /bist rivals list still lists them - their own tool now")
   R:SetEnabled("recap", true)
   said2 = {}
   S("pals")
@@ -2993,6 +3094,11 @@ do
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
     root.click()
     ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    -- and in the rivals & pals window's right column
+    RC.BuildRivals(rdb2)
+    RC.db = RC.db or rdb2
+    RC.PaintRivals()
+    ok(RC.rwin.pals[1].pal == "Pal Guy" and RC.rwin.pals[1]:IsShown(), "the rivals & pals window lists the pal")
     plates.nameplate10 = CreateFrame("Frame", nil, nil)
     W.plates.nameplate10 = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
@@ -3000,6 +3106,26 @@ do
     ok(heart and heart.shown and heart.point and heart.point[1] == "BOTTOM" and heart.point[3] == "TOP",
        "a pal's nameplate: a little heart over it")
     ok(heart.parts == nil or (heart.parts[2].color[2] > 0.9 and heart.parts[2].color[1] < 0.4), "green")
+    -- A PAL NEARBY, a small note (Arn: "also a small notification when a pal is nearby")
+    local saidP = {}
+    local keepAddP = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, m) saidP[#saidP + 1] = tostring(m) end
+    RC.palSeenAt = {}
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    local noted = table.concat(saidP, " | ")
+    ok(noted:find("Pal Guy", 1, true) and noted:find("is nearby", 1, true), "a pal in view: a small green line in chat", noted)
+    local n1 = #saidP
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(#saidP == n1, "the same pal again within ten minutes: quiet")
+    rdb2.palNote = false
+    RC.palSeenAt = {}
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(#saidP == n1, "the note switched off: quiet")
+    rdb2.palNote = nil
+    DEFAULT_CHAT_FRAME.AddMessage = keepAddP
     RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
     ok(RC.hearts.nameplate10 == nil, "a fight starts: the hearts come down")
     local keepLock = _G.InCombatLockdown
@@ -3772,14 +3898,15 @@ do
   _G.GetZoneText = keepZone
   W.plates.nameplate7, W.plates.nameplate8, W.plates.nameplate9, W.target = nil, nil, nil, nil
 
-  -- no death this session, but rivals: /bist recap opens on the drawer alone
+  -- no death this session, but rivals: /bist recap opens the rivals & pals window instead (their own
+  -- window since 14 Oct - an empty death recap is not shown)
   RC.last = nil
   _G.C_DeathRecap.GetRecapEvents = function() return nil end
   w:Hide()
+  RC.SetExpanded(rdb2, false)
   S("recap")
-  ok(w:IsShown() and d:IsShown() and not w.mid:IsShown() and w.caption.text == "nothing has killed you this session",
-     "no death yet: the window opens on your rivals")
-  fitsIn(w, "the recap with no death")
+  ok(not w:IsShown() and d:IsShown(), "no death yet: the rivals & pals window opens, not an empty recap")
+  fitsIn(d, "the rivals & pals window")
   W.shift = true
   d.rows[1].scripts.OnClick(d.rows[1], "LeftButton")
   W.shift = false
@@ -4614,6 +4741,12 @@ do
        "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
     ok(BG.killer and BG.killer.name == "Shocka", "the red crosshair: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    -- OUR MVPs (Arn: "do 2 for friendly players and just mark them MVP with the same box style" - "best
+    -- healer and best killer"): Ourhealer is our best healer AND our best killer - one >MVP<
+    ok(BG.mvps.Ourhealer, "our side's best healer and best killer, read off the same sorts", tostring(BG.mvps.Ourhealer))
+    local mvp = mark("E")
+    ok(mvp and mvp.kind == "mvp" and mvp.tag and mvp.text.text:find("MVP", 1, true) and mvp.text.text:find("ffd100", 1, true),
+       "a friend on top wears >MVP< - the tag box, the word in gold", mvp and mvp.text and mvp.text.text)
     -- the same "mark" in the BiS> tools box (Arn: "add that scoreboard button to the bis tools")
     do
       local function boxShows()
@@ -4626,28 +4759,32 @@ do
       local n1 = #sorts
       local keepChat = DEFAULT_CHAT_FRAME.AddMessage
       DEFAULT_CHAT_FRAME.AddMessage = function() end
-      BG.bbtn.scripts.OnClick(BG.bbtn)
+      -- LEFT targets only, RIGHT marks (Arn: "right click marks left click targets")
+      local n0 = #sorts
+      BG.bbtn.scripts.OnClick(BG.bbtn, "LeftButton")
+      ok(#sorts == n0, "a left-click only targets - it reads nothing")
+      BG.bbtn.scripts.OnClick(BG.bbtn, "RightButton")
       DEFAULT_CHAT_FRAME.AddMessage = keepChat
       ok(#sorts > n1 and BG.healers.Heala == 1, "pressed: reads the board now and marks")
       -- and TARGETS one of them (Arn: "target the nearest on the list"): a secure macro, near last
-      local m = BG.bbtn:GetAttribute("macrotext") or ""
-      ok(BG.bbtn:GetAttribute("type") == "macro" and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
+      local m = BG.bbtn:GetAttribute("macrotext1") or ""
+      ok(BG.bbtn:GetAttribute("type1") == "macro" and BG.bbtn:GetAttribute("type2") == nil and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
          "the box button targets the marked players by macro", m)
       BG.Undraw(unitOf("C"))           -- Mendy: no plate on screen now - far away
       BG.ApplyMacro()
-      m = BG.bbtn:GetAttribute("macrotext")
+      m = BG.bbtn:GetAttribute("macrotext1")
       local lastLine = m:match("([^\n]+)$")
       ok(m:find("^/target Mendy") and lastLine == "/target Heala",
          "far ones first, near ones last - the last /target that finds someone wins; the top healer last of all", m)
       BG.Paint(unitOf("C"))
       local keepLock = _G.InCombatLockdown
       _G.InCombatLockdown = function() return true end
-      BG.bbtn:SetAttribute("macrotext", "untouched")
-      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext") == "untouched" and BG.macroDirty,
+      BG.bbtn:SetAttribute("macrotext1", "untouched")
+      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext1") == "untouched" and BG.macroDirty,
          "in a fight the macro is not touched - written when it ends")
       _G.InCombatLockdown = keepLock
       ev("PLAYER_REGEN_ENABLED")
-      ok(BG.bbtn:GetAttribute("macrotext") ~= "untouched" and not BG.macroDirty, "the fight over: written")
+      ok(BG.bbtn:GetAttribute("macrotext1") ~= "untouched" and not BG.macroDirty, "the fight over: written")
       -- the X fills the rival crosshair's box: tips in its corners
       local x = mark("A")
       local tip = x.parts[3].to
@@ -4660,6 +4797,12 @@ do
       x = mark("A")
       ok(x.w == BG.X_SIZE[1] * 2 and x.h == BG.X_SIZE[2] * 2 and x.point[5] == -2 - NS.Recap.MARK_H / 2 + 10,
          "mark size 200%, height 10 up: redrawn at once", x.w .. "x" .. x.h)
+      -- ABOVE THE NAMEPLATE (Arn: "some people also like them at the top of the name plate - lets let them")
+      bdb.spot = "above"
+      BG.Redraw()
+      x = mark("A")
+      ok(x.point[1] == "BOTTOM" and x.point[3] == "TOP" and x.point[5] == 2 + 10, "mark spot above: on top of the nameplate, the height still nudging it")
+      bdb.spot = nil
       bdb.size, bdb.lift = 999, -999
       ok(BG.Size(bdb) == 200 and BG.Lift(bdb) == -40, "out-of-range settings are held to the stepper's ends")
       bdb.size, bdb.lift = nil, nil
@@ -4668,8 +4811,29 @@ do
         bdb.look = i
         BG.Redraw()
         local m = mark("A")
-        ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
-           "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        if look.tag then
+          -- THE TAG (Arn: ">Healer<" - "remove the black", "do white arrows instead of red", "still want
+          -- the white rectangle lines"): a white box of four edges, nothing behind, the words inside
+          local white = true
+          for _, e in pairs(m.edges or {}) do
+            local c = e.color
+            if not (c and c[1] > 0.9 and c[2] > 0.9 and c[3] > 0.9) then white = false end
+          end
+          local txt = m.text and m.text.text or ""
+          ok(m.tag and m.edges and m.edges.top and m.edges.left and white and #m.parts == 4,
+             "mark look tag: a white rectangle of four lines, no background")
+          ok(txt == "|cffffffff>|r|cffff1a1aHealer|r|cffffffff<|r", "white arrows, a red Healer", txt)
+          -- easier to read (Arn: "very small and kinda hard to see" - "maybe thicker letters too")
+          ok(m.text2 and m.text2.text == txt and BG.TAG[1] >= 100 and BG.TAG[2] >= 26,
+             "bigger, and the word drawn twice a pixel apart - thicker letters")
+          ok(BG.TAG_PULSE_LOW >= 0.7, "a gentler pulse: a tag must stay readable")
+          local killer = BG.NewSaber("killer", i)
+          ok(killer.text.text:find("Killer", 1, true), "the killer's tag reads >Killer<")
+          ok(m.w == math.floor(BG.TAG[1] + 0.5) and m.h == math.floor(BG.TAG[2] + 0.5), "the tag at its own size")
+        else
+          ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
+             "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        end
       end
       bdb.look = 99
       ok(BG.LookIndex(bdb) == 1, "an unknown look falls back to the X")

@@ -125,17 +125,18 @@ B.ORDER_GAP = 5     -- s: a sort can itself fire UPDATE_BATTLEFIELD_SCORE - neve
 local function sortRead(col, myFaction)
   if not pcall(SortBattlefieldScoreData, col) then return nil end
   local n = yes(GetNumBattlefieldScores) or 0
-  local out = {}
+  local out, ours = {}, {}
   for i = 1, type(n) == "number" and n or 0 do
     local ok, info = pcall(C_PvP.GetScoreInfo, i)
     if ok and type(info) == "table" then
       local faction = field(info, "faction")
-      if type(faction) == "number" and myFaction ~= nil and faction ~= myFaction then
-        out[#out + 1] = { name = bare(field(info, "name")), class = field(info, "classToken") }
+      if type(faction) == "number" and myFaction ~= nil then
+        local row = { name = bare(field(info, "name")), class = field(info, "classToken") }
+        if faction ~= myFaction then out[#out + 1] = row else ours[#ours + 1] = row end
       end
     end
   end
-  return out
+  return out, ours
 end
 
 --- The scoreboard window, if Blizzard's is open: we never re-sort what Arn is looking at.
@@ -256,7 +257,7 @@ function B.ApplyMacro()
   if InCombatLockdown and InCombatLockdown() then B.macroDirty = true return false end
   B.macroDirty = nil
   local macro = B.TargetMacro()
-  b:SetAttribute("macrotext", macro)
+  b:SetAttribute("macrotext1", macro)
   b.macro = macro
   return true
 end
@@ -279,8 +280,10 @@ function B.BoxButton()
   b:SetSize(26, 26)
   b:SetFrameStrata("MEDIUM")
   b:RegisterForClicks("AnyDown")
-  b:SetAttribute("type", "macro")
-  b:SetAttribute("macrotext", "")
+  -- LEFT targets, RIGHT marks (Arn, 14 Oct: "right click marks left click targets"): the macro is
+  -- the left button's alone; the right button is ours (B.Mark), nothing secure
+  b:SetAttribute("type1", "macro")
+  b:SetAttribute("macrotext1", "")
   K.tex(b, "BACKGROUND", "field", 0.95)
   b.edge = K.border(b, "accent", 1)
   local function tex(f, layer, c, a, add)
@@ -298,12 +301,13 @@ function B.BoxButton()
   local hilt = tex(b, "OVERLAY", { 0.55, 0.57, 0.6 }, 1)
   hilt:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
   hilt:SetSize(4, 5)
-  b:HookScript("OnClick", function() B.Mark() end)
+  b:HookScript("OnClick", function(_, button) if button == "RightButton" then B.Mark() end end)
   b:SetScript("OnEnter", function(self)
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Target and mark their healers and killer")
-    GameTooltip:AddLine("Targets one of them - those near you first - then reads the scoreboard: white crossed sabers on their top three healers, red on their top killer. Who it targets is set out of combat. Same marks as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:AddLine("Their healers and killer")
+    GameTooltip:AddLine("Left-click: target one of them - those near you first (who it targets is set out of combat).", 1, 1, 1, true)
+    GameTooltip:AddLine("Right-click: mark them - reads the scoreboard now: white on their top three healers, red on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -346,8 +350,15 @@ function B.ReadOrder(force)
   local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
   -- a different column first: sorting the same column twice flips it, and Arn may have clicked one
   pcall(SortBattlefieldScoreData, "name")
-  local byHeal = sortRead("healing", myFaction) or {}
-  local byKill = sortRead("kills", myFaction) or {}
+  local byHeal, ourHeal = sortRead("healing", myFaction)
+  local byKill, ourKill = sortRead("kills", myFaction)
+  byHeal, byKill, ourHeal, ourKill = byHeal or {}, byKill or {}, ourHeal or {}, ourKill or {}
+  -- OUR side's best healer (a healing class, as theirs) and best killer: >MVP<
+  B.mvps = {}
+  for _, s in ipairs(ourHeal) do
+    if s.name and B.HEAL_CLASSES[s.class or ""] then B.mvps[s.name] = "healer" break end
+  end
+  if ourKill[1] and ourKill[1].name then B.mvps[ourKill[1].name] = B.mvps[ourKill[1].name] or "killer" end
   local heals, healers = {}, {}
   for _, s in ipairs(byHeal) do
     if s.name and B.HEAL_CLASSES[s.class or ""] and #heals < B.TOP_HEALERS then
@@ -411,7 +422,25 @@ B.LOOKS = {
   { key = "corners", word = "corners", strokes = {
     { -1, 1, -0.45, 1 }, { -1, 1, -1, 0.45 }, { 1, 1, 0.45, 1 }, { 1, 1, 1, 0.45 },
     { -1, -1, -0.45, -1 }, { -1, -1, -1, -0.45 }, { 1, -1, 0.45, -1 }, { 1, -1, 1, -0.45 } } },
+  -- THE TAG (Arn, 14 Oct, with his own picture: ">Healer<" in red in a white box - "remove the black",
+  -- "do white arrows instead of red"): drawn by the game, no background, white arrows, red word. The
+  -- killer's reads >Killer<. BiS Tools only (BiS Healing's tank mark keeps its five).
+  { key = "tag", word = "tag", tag = true, strokes = {} },
 }
+-- the tag's box at 100%; the size stepper scales it. 66x18 at first - Arn, 14 Oct, in the open world:
+-- "very small and kinda hard to see". Bigger, outlined letters, a thicker box, a gentler pulse.
+B.TAG = { 110, 28 }
+B.TAG_EDGE = 2
+B.TAG_PULSE_LOW = 0.7               -- dims to 70% only: a tag must be read, not just noticed
+B.TAG_WORD = { healer = "Healer", killer = "Killer" }
+
+--- ">Healer<": white arrows, a red word.
+B.TAG_WORD.mvp = "MVP"
+B.TAG_INK = { healer = "ff1a1a", killer = "ff1a1a", mvp = "ffd100" }   -- their marks red; our MVP gold
+
+function B.TagText(kind)
+  return "|cffffffff>|r|cff" .. (B.TAG_INK[kind] or "ff1a1a") .. (B.TAG_WORD[kind] or "Healer") .. "|r|cffffffff<|r"
+end
 
 --- The chosen look's place in B.LOOKS (the stepper's number), 1 = X.
 function B.LookIndex(db)
@@ -475,6 +504,41 @@ function B.NewSaber(kind, look)
   f.kind, f.look = kind, look
   f.parts, f.hilts = {}, {}
   f.blades = {}
+  -- our MVP always wears the tag (Arn: "mark them MVP with the same box style"), whatever the look
+  if kind == "mvp" or (B.LOOKS[look] and B.LOOKS[look].tag) then
+    -- the white box: four thin edges, nothing behind (no black)
+    f.tag = true
+    f.edges = {}
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+      local t = tex(f, "BORDER", B.WHITE, 1)
+      f.edges[side] = t
+      f.parts[#f.parts + 1] = t
+    end
+    f.text = f:CreateFontString(nil, "OVERLAY")
+    f.text:SetPoint("CENTER", f, "CENTER", 0, 0)
+    -- THICKER LETTERS (Arn: "maybe thicker letters too"): the game's fonts have no bold, so the word
+    -- is drawn twice, a pixel apart - every stroke a pixel heavier
+    f.text2 = f:CreateFontString(nil, "OVERLAY")
+    f.text2:SetPoint("CENTER", f, "CENTER", 1, 0)
+    function f.Fit(_, w, h)
+      local e, t = f.edges, B.TAG_EDGE
+      e.top:ClearAllPoints() e.top:SetPoint("TOPLEFT", f, "TOPLEFT") e.top:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.top:SetHeight(t)
+      e.bottom:ClearAllPoints() e.bottom:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.bottom:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.bottom:SetHeight(t)
+      e.left:ClearAllPoints() e.left:SetPoint("TOPLEFT", f, "TOPLEFT") e.left:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.left:SetWidth(t)
+      e.right:ClearAllPoints() e.right:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.right:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.right:SetWidth(t)
+      -- OUTLINED letters: no background (Arn: "remove the black"), but red on sand and grass needs an
+      -- edge on each letter to be read
+      local size = math.max(8, math.floor(h * 0.6 + 0.5))
+      for _, fs in ipairs({ f.text, f.text2 }) do
+        pcall(fs.SetFont, fs, STANDARD_TEXT_FONT, size, "THICKOUTLINE")
+        fs:SetText(B.TagText(f.kind))
+      end
+    end
+    f:Fit(B.TAG[1], B.TAG[2])
+    local T = NS.Threat
+    pulse(f, B.TAG_PULSE_LOW, T and T.PULSE_DUR or 0.5)
+    return f
+  end
   if f.CreateLine and pcall(function()
     local L = B.LOOKS[look]
     for _, st in ipairs(L.strokes) do blade(f, c, st, L.hilts) end
@@ -525,28 +589,227 @@ function B.Draw(u, kind)
   local pk = kind .. look
   B.pool[pk] = B.pool[pk] or {}
   f = table.remove(B.pool[pk]) or B.NewSaber(kind, look)
+  B.Place(f, plate)
+  f:SetAlpha(1)
+  f:Show()
+  if f.pulse then f.pulse:Play() end
+  B.marks[u] = f
+  return f
+end
+
+--- Where a mark sits on a plate - the real one, or the options' preview plate (the same code, so the
+--- preview cannot lie about where it lands).
+--- Pin a sized mark to its plate: ON THEM (under the plate, centred on the body) or ABOVE the plate
+--- (Arn, 14 Oct: "some people also like them at the top of the name plate - lets let them"). The
+--- height setting nudges it from whichever spot is picked.
+local function pin(f, plate, h)
+  local RC = NS.Recap
+  if B.Spot() == "above" then
+    f:SetPoint("BOTTOM", plate, "TOP", 0, 2 + B.Lift())
+  else
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+  end
+end
+
+function B.Place(f, plate)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
-  -- centred on the body
-  if f.x then
+  -- centred on the body - or above the plate, by choice
+  if f.tag then
+    local k = B.Size() / 100
+    local w, h = math.floor(B.TAG[1] * k + 0.5), math.floor(B.TAG[2] * k + 0.5)
+    pin(f, plate, h)
+    f:SetSize(w, h)
+    pcall(f.Fit, f, w, h)
+  elseif f.x then
     -- centred in the rival crosshair's box (Arn, 14 Oct, seeing it fill the box: "perfect now 50%
     -- smaller"), and since the same night THE SIZE OF BiS HEALING'S TANK X (Arn: "lets make bis
     -- tools bg the same size as these") - fixed, not a share of the plate, so the two read as one
-    local RC = NS.Recap
     local k = B.Size() / 100
     local w, h = math.floor(B.X_SIZE[1] * k + 0.5), math.floor(B.X_SIZE[2] * k + 0.5)
-    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+    pin(f, plate, h)
     f:SetSize(w, h)
     pcall(f.Fit, f, w, h)
   else
     f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
     f:SetSize(B.SABER_W + 10, B.SABER_H)
   end
-  f:SetAlpha(1)
-  f:Show()
-  if f.pulse then f.pulse:Play() end
-  B.marks[u] = f
-  return f
+end
+
+-- ---------------------------------------------------------------- the preview
+-- Arn, 14 Oct: "can we add a window to the helper thing to preview the look" - then "maybe a full on
+-- rollout 3d model of self with the marks on them, like how we did for bisgamba". Hover "mark look",
+-- "mark size" or "mark height" and a panel rolls out beside the options window: YOU, twice, as 3D
+-- models (BiSGamba's DressUpModel + SetUnit), a nameplate over each head, wearing the healer mark and
+-- the killer mark exactly as B.Place puts them - redrawn on every step. 1.43:1, the BiSTheme standard.
+B.PREVIEW_H = 230                   -- before the options window says how tall it is
+B.PREVIEW_W = math.floor(B.PREVIEW_H * 1.43 + 0.5)
+-- room over each fake nameplate for a mark set ABOVE it (Arn, 14 Oct: "in game this looks perfect
+-- right over their name plate - in the preview its cut off"): a full tag at 200%, nudged 40 up
+B.PREVIEW_HEADROOM = 100
+
+--- One half of the panel: a model of you, a nameplate over its head, a word under it.
+local function previewCell(pv, x, w, kind, h)
+  local cell = CreateFrame("Frame", nil, pv)
+  cell:SetPoint("TOPLEFT", pv, "TOPLEFT", x, -18)
+  cell:SetSize(w, h - 22)
+  local ok, m = pcall(CreateFrame, "DressUpModel", nil, cell)
+  if ok and m then
+    m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -(B.PREVIEW_HEADROOM + 4))
+    m:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 14)
+    cell.model = m
+  end
+  -- the plate stands where a nameplate stands: over the head, with the headroom above it
+  local p = CreateFrame("Frame", nil, cell)
+  p:SetSize(64, 7)
+  p:SetPoint("TOP", cell, "TOP", 0, -B.PREVIEW_HEADROOM)
+  tex(p, "BACKGROUND", { 0.10, 0.10, 0.12 }, 0.9):SetAllPoints(p)
+  local fill = tex(p, "ARTWORK", { 0.75, 0.18, 0.18 }, 1)
+  fill:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1) fill:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -12, 1)
+  p.name = p:CreateFontString(nil, "OVERLAY")
+  pcall(p.name.SetFont, p.name, STANDARD_TEXT_FONT, 8, "")
+  p.name:SetPoint("BOTTOM", p, "TOP", 0, 1)
+  cell.plate = p
+  cell.word = cell:CreateFontString(nil, "OVERLAY")
+  pcall(cell.word.SetFont, cell.word, STANDARD_TEXT_FONT, 9, "")
+  cell.word:SetPoint("BOTTOM", cell, "BOTTOM", 0, 2)
+  cell.word:SetText(kind == "killer" and "their top killer" or "their healers")
+  cell.kind = kind
+  return cell
+end
+
+--- You, in the models: the live player; facing a little to the side, the way BiSGamba poses a seat.
+--- THE REAL NAMEPLATE'S SIZE, on screen (Arn, 14 Oct: the preview's rival crosshair "look squished
+--- cause name plates are smaller than in game ... the width is what's important" - and no drawing an
+--- EllesmereUI plate: "some people dont have that installed"). Whatever nameplates the player runs,
+--- the first plate seen is measured once, in screen pixels; the preview's fake plate takes that size.
+--- Until one is seen, B.PLATE_PX - a typical plate.
+B.PLATE_PX = { 150, 12 }
+B.PREVIEW_BAR_H = 8
+function B.NotePlate(unit)
+  if B.platePx then return end
+  local plate = plateOf(unit)
+  if not plate then return end
+  local ok, w, h, s = pcall(function() return plate:GetWidth(), plate:GetHeight(), plate:GetEffectiveScale() end)
+  if not ok then return end
+  w = plain(w)
+  h = plain(h)
+  s = plain(s)
+  if type(w) == "number" and type(h) == "number" and type(s) == "number" and w > 20 then
+    B.platePx = { w * s, math.max(6, math.min(30, h * s)) }
+  end
+end
+
+--- The fake plate at the real one's size, in the preview's own units (it hangs off a scaled window).
+function B.SizePreviewPlates()
+  local pv = B.preview
+  if not pv then return end
+  local px = B.platePx or B.PLATE_PX
+  local okS, s = pcall(pv.GetEffectiveScale, pv)
+  s = (okS and type(s) == "number" and s > 0) and s or 1
+  local okU, us = pcall(function() return UIParent:GetEffectiveScale() end)
+  local base = B.platePx and 1 or ((okU and type(us) == "number" and us > 0) and us or 1)   -- the default is in UI units
+  -- the WIDTH only: a plate frame is its whole clickable area, far taller than the bar you see (Arn's
+  -- screenshot: a red slab). The real crosshair is sized off that same frame width, so the width is
+  -- the one that must match; the bar is drawn the thin height a health bar is.
+  local w, h = px[1] * base / s, B.PREVIEW_BAR_H
+  for _, cell in ipairs({ pv.cellH, pv.cellK }) do
+    local cw = cell.GetWidth and cell:GetWidth() or w
+    cell.plate:SetSize(math.min(w, (type(cw) == "number" and cw > 0) and cw - 8 or w), h)
+  end
+end
+
+function B.DressPreview()
+  B.SizePreviewPlates()
+  local pv = B.preview
+  if not pv then return end
+  local me = yes(UnitName, "player")
+  for _, cell in ipairs({ pv.cellH, pv.cellK }) do
+    cell.plate.name:SetText(type(me) == "string" and me or "you")
+    local m = cell.model
+    if m then
+      pcall(m.SetUnit, m, "player")
+      pcall(m.SetFacing, m, cell.kind == "killer" and -0.35 or 0.35)
+      if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 0) end
+    end
+  end
+end
+
+--- (Re)draw the two marks in the current look, size and height.
+function B.PaintPreview()
+  local pv = B.preview
+  if not (pv and pv:IsShown()) then return end
+  for _, m in pairs(pv.marks or {}) do m:Hide() end
+  pv.marks = {}
+  for _, m in pairs(pv.rmarks or {}) do m:Hide() end
+  -- TWO MODES (Arn: "need the preview for pals and rivals"): the rivals & pals tool's marks
+  if pv.mode == "rivals" then
+    if NS.Recap and NS.Recap.PaintPreview then NS.Recap.PaintPreview(pv) end
+    return
+  end
+  pv.cellH.word:SetText("their healers")
+  pv.cellK.word:SetText("their top killer")
+  pv.made = pv.made or {}
+  local look = B.LookIndex()
+  local okS, strata = pcall(pv.GetFrameStrata, pv)
+  local okL, level = pcall(pv.GetFrameLevel, pv)
+  for kind, cell in pairs({ healer = pv.cellH, killer = pv.cellK }) do
+    local key = kind .. look
+    local f = pv.made[key]
+    if not f then
+      f = B.NewSaber(kind, look)
+      f:SetParent(cell)
+      pv.made[key] = f
+    end
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    B.Place(f, cell.plate)
+    f:Show()
+    if f.pulse then f.pulse:Play() end
+    pv.marks[kind] = f
+  end
+end
+
+--- The roll-out, hung off the options window's right edge; shown while a mark setting is hovered.
+function B.AttachPreview(opt)
+  if not opt or B.preview then return B.preview end
+  local pv = CreateFrame("Frame", "BiSToolsMarkPreview", opt)
+  -- THE OPTIONS WINDOW'S OWN SIZE (Arn: "make the preview same aspect as our windows"): as tall as it,
+  -- 1.43:1 - side by side they read as a pair. Never smaller than the room the headroom needs.
+  local okH, oh = pcall(opt.GetHeight, opt)
+  local H = (okH and type(oh) == "number" and oh >= B.PREVIEW_H) and math.floor(oh + 0.5) or B.PREVIEW_H
+  local W = math.floor(H * 1.43 + 0.5)
+  pv:SetSize(W, H)
+  pv:SetPoint("TOPLEFT", opt, "TOPRIGHT", 4, 0)
+  tex(pv, "BACKGROUND", { 0.05, 0.05, 0.08 }, 0.92):SetAllPoints(pv)
+  local title = pv:CreateFontString(nil, "OVERLAY")
+  pcall(title.SetFont, title, STANDARD_TEXT_FONT, 9, "")
+  title:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -5)
+  title:SetText(NS.T and NS.T.text and NS.T.text("accent", "BiS>") .. " the marks, on you" or "the marks, on you")
+  local half = math.floor((W - 12) / 2)
+  pv.cellH = previewCell(pv, 6, half, "healer", H)
+  pv.cellK = previewCell(pv, 6 + half, half, "killer", H)
+  pv:Hide()
+  B.preview = pv
+  local function hover(r)
+    local mode = r.opt and ((r.opt.markPreview and "bg") or (r.opt.rivalPreview and "rivals"))
+    if mode then
+      pv.mode = mode
+      if not pv:IsShown() then pv:Show() B.DressPreview() end
+      B.PaintPreview()
+    elseif pv:IsShown() then
+      pv:Hide()
+    end
+  end
+  for _, r in ipairs(opt.rows) do
+    if r.HookScript then pcall(r.HookScript, r, "OnEnter", function() hover(r) end) end
+    if r.GetChildren then
+      for _, c in ipairs({ r:GetChildren() }) do
+        if c.HookScript then pcall(c.HookScript, c, "OnEnter", function() hover(r) end) end
+      end
+    end
+  end
+  return pv
 end
 
 ------------------------------------------------------------------- memory --
@@ -562,6 +825,7 @@ B.FORGET_DAYS = 30
 B.KEEP = 300
 B.counted = {}                     -- "name:h" / "name:k" already counted this battleground
 B.onBoard = {}                     -- guid/name of every enemy this battleground's scoreboard has read
+B.mvps = {}                        -- our side's best healer and best killer, by name -> "healer" / "killer"
 
 function B.Known()
   local db = R:DBFor(R:Get("bg"))
@@ -645,6 +909,9 @@ end
 function B.Which(u)
   local guid = yes(UnitGUID, u)
   local name = B.PlateName(u)
+  -- OUR MVPs (Arn, 14 Oct: "can we do 2 for friendly players and just mark them MVP" - "best healer
+  -- and best killer"): a friend the board puts first in healing or in kills
+  if name and next(B.mvps) and B.Look(B.mvps, name) and yes(UnitCanAttack, "player", u) ~= true then return "mvp" end
   local k = B.killer
   if k and ((guid and k.guid == guid) or sameName(k.name, name)) then return "killer" end
   if (guid and B.healers[guid]) or B.Look(B.healers, name) then return "healer" end
@@ -692,6 +959,12 @@ function B.Size(db)
   local v = tonumber(db.size)
   return v and math.max(50, math.min(200, v)) or 100
 end
+--- Where the marks sit: "on" them (the default) or "above" the nameplate.
+function B.Spot(db)
+  db = db or R:DBFor(R:Get("bg"))
+  return db.spot == "above" and "above" or "on"
+end
+
 function B.Lift(db)
   db = db or R:DBFor(R:Get("bg"))
   local v = tonumber(db.lift)
@@ -706,7 +979,7 @@ end
 
 function B.ClearAll()
   for u in pairs(B.marks) do B.Undraw(u) end
-  B.healers, B.killer = {}, nil
+  B.healers, B.killer, B.mvps = {}, nil, {}
 end
 
 ------------------------------------------------------------------ the loop --
@@ -738,6 +1011,7 @@ function B.Watch()
   if B.inBG and not was then
     B.counted = B.SameMatch()         -- a new battleground: everyone may be counted once again
     B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
+    B.mvps = {}
     B.onBoard = {}
     B.ended = nil
     B.Prune()
@@ -788,7 +1062,11 @@ end
 
 function B.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_ADDED" then
-    if type(unit) == "string" and plain(unit) then B.plates[unit] = true B.Paint(unit) end
+    if type(unit) == "string" and plain(unit) then
+      B.plates[unit] = true
+      B.Paint(unit)
+      B.NotePlate(unit)
+    end
   elseif event == "NAME_PLATE_UNIT_REMOVED" then
     if type(unit) == "string" and plain(unit) then B.Undraw(unit) B.plates[unit] = nil end
   elseif event == "UPDATE_BATTLEFIELD_SCORE" then
@@ -925,20 +1203,26 @@ R:Register({
   -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
   options = {
     -- a stepper through names (Arn: "not all want x")
-    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond or corners.", min = 1, max = #B.LOOKS, step = 1,
+    { kind = "step", label = "mark look", markPreview = true, help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond, corners, or tag - a white box reading >Healer< or >Killer<.", min = 1, max = #B.LOOKS, step = 1,
       get = function(db) return B.LookIndex(db) end,
-      set = function(db, v) db.look = v B.Redraw() end,
+      set = function(db, v) db.look = v B.Redraw() B.PaintPreview() end,
       show = function(db) return B.LOOKS[B.LookIndex(db)].word end },
-    { kind = "step", label = "mark size", help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
+    { kind = "step", label = "mark size", markPreview = true, help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
       get = function(db) return B.Size(db) end,
-      set = function(db, v) db.size = v B.Redraw() end,
+      set = function(db, v) db.size = v B.Redraw() B.PaintPreview() end,
       show = function(db) return B.Size(db) .. "%" end },
-    { kind = "step", label = "mark height", help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
+    -- (Arn, 14 Oct: "some people also like them at the top of the name plate - lets let them"; at 40 up
+    -- the tag sat ON the plate, over the name)
+    { kind = "seg", label = "mark spot", markPreview = true, values = { "on", "above" },
+      help = "Where the marks sit: on - on them, on the body under the nameplate; above - on top of the nameplate, over the name.",
+      get = function(db) return B.Spot(db) == "above" and "above" or "on" end,
+      set = function(db, v) db.spot = (v == "above") and "above" or nil B.Redraw() B.PaintPreview() end },
+    { kind = "step", label = "mark height", markPreview = true, help = "Nudges the marks up or down from their spot.", min = -40, max = 40, step = 5,
       get = function(db) return B.Lift(db) end,
-      set = function(db, v) db.lift = v B.Redraw() end,
+      set = function(db, v) db.lift = v B.Redraw() B.PaintPreview() end,
       show = function(db)
         local v = B.Lift(db)
-        return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+        return v == 0 and (B.Spot(db) == "above" and "on top" or "on them") or (v > 0 and (v .. " up") or (-v .. " down"))
       end },
   },
   OnInit = function() end,
