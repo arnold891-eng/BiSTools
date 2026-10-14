@@ -1273,9 +1273,9 @@ function RC.ApplyButton(db)
   b.count = n
   -- shown, placed and hidden by the box; without one (it loads later), shown here
   if NS.Box and NS.Box.Refresh then NS.Box.Refresh()
-  elseif n > 0 and db.button ~= false and R:Enabled("recap") then b:Show() else b:Hide() end
+  elseif n > 0 and db.button ~= false and R:Enabled("rivals") then b:Show() else b:Hide() end
   ClearOverrideBindings(b)
-  if db.key and n > 0 and R:Enabled("recap") then SetOverrideBindingClick(b, true, db.key, "BiSToolsRivalTarget") end
+  if db.key and n > 0 and R:Enabled("rivals") then SetOverrideBindingClick(b, true, db.key, "BiSToolsRivalTarget") end
   return true
 end
 
@@ -1343,7 +1343,7 @@ function RC.MenuLines(db, root, ctx)
   -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
   -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
   local function say(why) RC.menuDecision = why end
-  if not R:Enabled("recap") then return say("the recap tool is off") end
+  if not R:Enabled("rivals") then return say("the rivals tool is off") end
   if not RC.MenuSafe() then
     return say("inside an instance (a battleground): the game's menu breaks with an addon line there - /bist recap rival adds your target")
   end
@@ -2095,14 +2095,21 @@ function RC.MaxHP()
   return num(hp)
 end
 
+--- Recap's saved table: the death window's settings AND every list (rivals, pals, surnames, guild
+--- rivals). The rivals tool (Rivals.lua) reads and writes through this, so nothing ever moved.
+function RC.DB() return R:DBFor(R:Get("recap")) end
+
 -- ---------------------------------------------------------------- events
 -- DIED: read the record, open the window (unless switched off), and keep a measuring snapshot for
 -- /bist recap raw - a player killer on a PvP server is the case nobody has measured yet.
 -- BACK ON YOUR FEET (unghosted at your corpse, or resurrected where you fell): it closes.
 function RC.OnEvent(_, event, unit)
-  if not R:Enabled("recap") then return end
-  local db = R:DBFor(R:Get("recap"))
-  -- THE TRACKER: a nameplate appearing, a new target, the mouse on someone
+  -- TWO SWITCHES since 0.7.x (Arn, 14 Oct: rivals and pals "decouple from recap ... be its own
+  -- thing"): the tracker - crosshairs, hearts, crowns, the crest - answers to the "rivals" tool, the
+  -- death window to "recap". The data stays in recap's saved table (RC.DB), so nothing moves.
+  local recapOn, rivalsOn = R:Enabled("recap"), R:Enabled("rivals")
+  local db = RC.DB()
+  -- a plate gone: its marks go, whichever switch is on
   if event == "NAME_PLATE_UNIT_REMOVED" then
     if RC.marks[unit] then RC.UnmarkUnit(unit) end
     if RC.mates[unit] then RC.UnmarkMate(unit) end
@@ -2110,7 +2117,25 @@ function RC.OnEvent(_, event, unit)
     if RC.hearts[unit] then RC.UnmarkPal(unit) end
     if RC.crowns[unit] then RC.UnmarkCrown(unit) end
     return
-  elseif event == "PLAYER_REGEN_DISABLED" then
+  end
+  if event == "PLAYER_REGEN_ENABLED" then
+    if rivalsOn then
+      RC.SpotPals(db)                                -- the fight over: the hearts back
+      if RC.btnDirty then RC.ApplyButton(db) end
+    end
+    if RC.waitFight then
+      RC.waitFight = nil
+      if recapOn then RC.afterFight = RC.Read("after the fight") end
+    end
+    return
+  end
+  if event == "PLAYER_DEAD" or event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+    if not recapOn then return end
+  elseif not rivalsOn then
+    return
+  end
+  -- THE TRACKER: a nameplate appearing, a new target, the mouse on someone
+  if event == "PLAYER_REGEN_DISABLED" then
     RC.ClearPals()                                   -- the hearts are for out of combat
     RC.ClearCrowns(true)                             -- and so are a friend's crowns
     return
@@ -2133,7 +2158,6 @@ function RC.OnEvent(_, event, unit)
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
     RC.Spot(db, "mouseover") return
   end
-  if event == "PLAYER_REGEN_ENABLED" then RC.SpotPals(db) end     -- the fight over: the hearts back
   if event == "PLAYER_DEAD" then
     RC.atDeath, RC.afterFight = RC.Read("at death"), nil
     RC.waitFight = true
@@ -2144,12 +2168,6 @@ function RC.OnEvent(_, event, unit)
     local rival = k and k.player and RC.Rivals(db)[k.title]
     if rival then RC.KilledBy(db, rival, k.title) end
     if RC.last and db.popup ~= false then RC.Toggle(db, true) end
-  elseif event == "PLAYER_REGEN_ENABLED" and RC.btnDirty and not RC.waitFight then
-    RC.ApplyButton(db)
-  elseif event == "PLAYER_REGEN_ENABLED" and RC.waitFight then
-    if RC.btnDirty then RC.ApplyButton(db) end
-    RC.waitFight = nil
-    RC.afterFight = RC.Read("after the fight")
   elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
     if RC.win and RC.win:IsShown() then
       local ok, dead = pcall(function() return UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") end)
@@ -2192,49 +2210,19 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 
 NS.Registry:Register({
   name = "recap",
-  desc = "what killed you, and how",
+  desc = "what killed you, and how - rivals and pals are their own tool now",
   usage = "/bist recap [rival | rivals | pal | pals | surname <word> | forget <name> | key <key> | style <name> | why | raw]  (/bist rival, /bist pal ... work too)",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", help = "The death recap opens by itself when you die: who hit you, with what, and the killing blow.", get = function(db) return db.popup ~= false end,
       set = function(db, on) db.popup = on and true or false end },
-    { kind = "toggle", label = "sound when a rival is near", help = "A ping with the warning when a gold rival - or a kept surname - comes into sight.", get = function(db) return db.sound ~= false end,
-      set = function(db, on) db.sound = on and true or false end },
-    -- eight shapes do not fit one row of buttons: a stepper, the name shown, each step redrawn live
-    { kind = "step", label = "crosshair", help = "The crosshair's look on rivals and farm mobs: rails, L, aim, box, scope, drop, chevron, tee, or none.", min = 1, max = #RC.STYLES, step = 1,
-      get = function(db) for i, s in ipairs(RC.STYLES) do if s == (db.style or "rails") then return i end end return 1 end,
-      set = function(db, v) RC.SetStyle(db, RC.STYLES[v] or "rails") end,
-      show = function(db) return db.style or "rails" end },
-    -- THE HINT (Arn: "a hint that says need nameplates on"): the crosshair hangs under a nameplate, and the
-    -- game shows none for enemies until it is told to. The button tells it.
-    { kind = "button", label = "needs nameplates on", help = "Crosshairs, crests and hearts sit on nameplates, so the game must show enemy (and friendly) plates. This turns them on.", button = "turn on", action = function()
-        if InCombatLockdown and InCombatLockdown() then return NS.Print("not in a fight - try again after") end
-        local set = (C_CVar and C_CVar.SetCVar) or SetCVar
-        if set and pcall(set, "nameplateShowEnemies", "1") then NS.Print("enemy nameplates on") end
-      end },
-    { kind = "toggle", label = "guild rivals (amber)", help = "Rivals your guild shares wear an amber crosshair, and the guild hears when you see one.", get = function(db) return db.guildShow ~= false end,
-      set = function(db, on)
-        db.guildShow = on and true or false
-        if not on then for unit, f in pairs(RC.marks) do if f.kind == "guild" then RC.UnmarkUnit(unit) end end end
-        RC.PaintRivals()
-      end },
-    { kind = "toggle", label = "guildmates (crest, alone)", help = "A small teal guild crest under guildmates you pass - only while you are solo, never in a group or battleground.", get = function(db) return db.mates ~= false end,
-      set = function(db, on) db.mates = on and true or false if not on then RC.ClearMates() end end },
-    { kind = "toggle", label = "rival target button", help = "A button in the BiS> tools box that targets your gold rivals, even across the map.", get = function(db) return db.button ~= false end,
-      set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
   },
   OnOpen = function(_, db, recenter)
     if recenter then db.pos = { "CENTER", 0, 140, "CENTER" } if RC.win then RC.win:ClearAllPoints() RC.win:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end end
     RC.Toggle(db, true)
   end,
-  OnDisable = function(_, db)
-    if RC.win then RC.win:Hide() end
-    for unit in pairs(RC.marks) do RC.UnmarkUnit(unit) end
-    RC.ClearMates()
-    RC.ApplyButton(db)
-  end,
-  OnEnable = function(_, db) RC.ApplyButton(db) end,
-  OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) RC.HookGuild(db) end,
+  -- the death window only: the marks and the target button are the rivals tool's (Rivals.lua)
+  OnDisable = function() if RC.win then RC.win:Hide() end end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
     if args == "rival" then return RC.RivalFromTarget(db) end
