@@ -1767,16 +1767,19 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 6, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 7, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social" and hub.rows[5].key == "threat" and hub.rows[6].key == "bg", "rows in TOC order: farm, summon, recap, social, threat, bg")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg")
+  -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
+  ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "5 of 6 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
-  ok(not R:Enabled("threat") and hub.rows[5].name.text == "threat (beta)" and hub.rows[5].state.text:find("off", 1, true),
+  ok(hub.con.slots.count and hub.con.slots.count.text == "6 of 7 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 6 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 7 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1794,7 +1797,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "4 of 6 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "5 of 7 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1817,8 +1820,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (3) -> 7 headers + 29 rows
-  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (6), social (2), threat (2), bg (3) -> 8 headers + 29 rows
+  -- (the rival settings moved out of recap into their own tool, 14 Oct)
+  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 6 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1843,7 +1847,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "4 of 6 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "5 of 7 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -2852,6 +2856,12 @@ do
   said2 = {}
   S("rivals")
   ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "/bist rivals lists them too")
+  -- their own tool: with the recap switched off, the rivals' commands still answer
+  R:SetEnabled("recap", false)
+  said2 = {}
+  S("rivals")
+  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "recap off: /bist rivals still lists them - their own tool now")
+  R:SetEnabled("recap", true)
   said2 = {}
   S("pals")
   ok(table.concat(said2, "\n"):find("no pals yet", 1, true), "/bist pals: none yet, and how to add one")
@@ -3117,7 +3127,7 @@ do
   ok(RC.marks.nameplate7.style == "tee" and #RC.marks.nameplate7.parts == 2, "tee: a bar and a stem")
   -- eight do not fit one row of buttons: the options stepper walks them, the name shown
   local stepper
-  for _, o in ipairs(R:Get("recap").options) do if o.label == "crosshair" then stepper = o end end
+  for _, o in ipairs(R:Get("rivals").options) do if o.label == "crosshair" then stepper = o end end   -- moved to the rivals tool, 14 Oct
   ok(stepper and stepper.kind == "step" and stepper.max == 9 and stepper.get(rdb2) == 8 and stepper.show(rdb2) == "tee",
      "the options stepper: eight styles, at tee")
   stepper.set(rdb2, 5)
@@ -3143,9 +3153,15 @@ do
   ok(RC.marks.target == nil, "only nameplates carry it - a target has no plate event to take it down")
   W.target = nil
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  -- TWO SWITCHES (14 Oct: rivals & pals are their own tool): recap off keeps the marks; rivals off takes them
   R:SetEnabled("recap", false)
-  ok(next(RC.marks) == nil, "switching the tool off takes every crosshair down")
+  ok(next(RC.marks) ~= nil, "recap off: the death window's switch - the crosshairs stay")
   R:SetEnabled("recap", true)
+  R:SetEnabled("rivals", false)
+  ok(next(RC.marks) == nil, "rivals off takes every crosshair down")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(next(RC.marks) == nil, "and while off, a new plate gets none")
+  R:SetEnabled("rivals", true)
   _G.C_NamePlate.GetNamePlateForUnit = keepGet
   W.plates.nameplate7, W.plates.nameplate8 = { name = "Hunting Moms" }, nil
 
@@ -3367,10 +3383,10 @@ do
   ok(#m.lines == 0, "no line on your own menu")
   m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = setmetatable({}, { __index = function() error("secret") end }) })
   ok(#m.lines == 0, "no line for a name the game hides")
-  R:SetEnabled("recap", false)
+  R:SetEnabled("rivals", false)
   m = root() hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu" })
-  ok(#m.lines == 0, "and none while the tool is off")
-  R:SetEnabled("recap", true)
+  ok(#m.lines == 0, "and none while the rivals tool is off")
+  R:SetEnabled("rivals", true)
   -- TARGET / FOCUS (Arn, 13 Oct: "i cant see the add rival when i right click them"): a unit frame
   -- that opens its menu through the secure togglemenu (EllesmereUI's do) can file a player's menu
   -- as TARGET - the line must be there too, and only for players
@@ -3641,7 +3657,7 @@ do
   lib2.handlers.RIVAL.ADD("Tyrone", ("x"):rep(60), "X")
   ok(g["bad|name"] == nil and g[("x"):rep(60)] == nil, "a name with a pipe, or absurdly long, is refused")
   -- the switch: off hides them and stops listening
-  for _, o in ipairs(R:Get("recap").options) do
+  for _, o in ipairs(R:Get("rivals").options) do
     if o.label == "guild rivals (amber)" then o.set(rdb2, false) end
   end
   W.plates.nameplate5 = { name = "Third" }
@@ -3912,7 +3928,7 @@ do
   RC.UnmarkUnit("nameplate1")
   _G.C_NamePlate.GetNamePlateForUnit = nil
   local hint
-  for _, o in ipairs(R:Get("recap").options) do if o.label == "needs nameplates on" then hint = o end end
+  for _, o in ipairs(R:Get("rivals").options) do if o.label == "needs nameplates on" then hint = o end end
   local cvars = {}
   local keepCV = _G.C_CVar
   _G.C_CVar = { SetCVar = function(k, v) cvars[k] = v return true end }

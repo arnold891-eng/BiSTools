@@ -35,10 +35,11 @@ SlashCmdList.BISTOOLS = function(msg)
   -- SHORT WORDS for the lists (Arn, 14 Oct: rivals and pals "be its own thing ... dont need to write
   -- to command all the time"): /bist rival is /bist recap rival, and so on. They live in the recap
   -- tool still - its death cards add rivals - but nobody should have to know that to use them.
-  local short = { rival = "rival", rivals = "rivals", pal = "pal", pals = "pals", surname = "surname" }
+  -- since 14 Oct they are their own tool, "rivals": /bist rivals is the tool, the rest its words
+  local short = { rival = "rival", pal = "pal", pals = "pals", surname = "surname" }
   if short[cmd] then
     rest = short[cmd] .. ((rest ~= "" and (" " .. rest)) or "")
-    cmd = "recap"
+    cmd = "rivals"
   end
   local tool = R:Get(cmd)
   if not tool then return NS.Print("no tool '%s' - /bist for the list", cmd) end

@@ -155,7 +155,7 @@ function B.Buttons()
   if RC and RC.tbtn then
     B.Colour(RC.tbtn, RC.MARK_RED)
     local db = R:DBFor(R:Get("recap"))
-    out[#out + 1] = { b = RC.tbtn, show = (RC.tbtn.count or 0) > 0 and db.button ~= false and R:Enabled("recap") }
+    out[#out + 1] = { b = RC.tbtn, show = (RC.tbtn.count or 0) > 0 and db.button ~= false and R:Enabled("rivals") }
   end
   -- the battleground "+ rival" button (Arn, 13 Oct: "a bg button that rivals someone"): only in a
   -- battleground or arena, where the right-click menu cannot carry "add rival"
@@ -164,7 +164,7 @@ function B.Buttons()
     local ab = RC.AddButton(db)
     B.Colour(ab, RC.MARK_RED)
     RC.PaintAdd()
-    out[#out + 1] = { b = ab, show = R:Enabled("recap") and RC.InPvP() and db.addButton ~= false }
+    out[#out + 1] = { b = ab, show = R:Enabled("rivals") and RC.InPvP() and db.addButton ~= false }
   end
   -- the battleground "mark" (Arn, 14 Oct): their healers and killer, read now - battlegrounds only
   local BG = NS.BG

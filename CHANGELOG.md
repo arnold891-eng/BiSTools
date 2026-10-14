@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Rivals & pals are their own tool.** A row of their own in the tools list, their own settings section in the options (sound, crosshair, guild rivals, guildmates, the target button) and their own commands: `/bist rivals`, `/bist rival`, `/bist pal`, `/bist pals`, `/bist surname`. Switching the death recap off no longer turns them off; switching rivals & pals off takes every crosshair, heart, crown and crest down but keeps your lists. Clicking a killer on the recap still makes them a rival, and the old `/bist recap rival` commands still work. Your rivals and pals are where they always were - nothing to set up again.
+
 ## 0.7.0
 
 - **Battlegrounds: their healers and their top killer, marked** (new tool `bg`, on by default, battlegrounds only). The enemy's **top three healers** wear **white crossed sabers** on them, and their player with the **most killing blows** wears **red** ones - glowing and pulsing, right on the body under the nameplate. Forever hides the scoreboard's numbers mid-match, but it still sorts by them: BiS Tools reads the order, every 10 seconds while your scoreboard is closed (never while you're looking at it). Nothing in the first 90 seconds, while everyone is still at 0.
