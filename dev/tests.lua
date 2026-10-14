@@ -3221,6 +3221,7 @@ do
   W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
   m = root() hookedMenus.MENU_UNIT_FOCUS(nil, m, { name = "Defias Thug", unit = "target" })
   ok(#m.lines == 0, "a MOB's menu: no rival line")
+  ok(RC.menuDecision == "target is not a player", "and the decision says why", RC.menuDecision)
   W.target = { name = "Dai", player = true, guid = "Player-4619-00DA1" }
   -- a menu kind nobody listed: the game's own UnitPopup_OpenMenu is watched; a new kind is noted and
   -- carries the line from the next right-click; a guild menu never
@@ -3249,6 +3250,7 @@ do
     local all = table.concat(said, "\n")
     ok(all:find("last right-click menu", 1, true) and all:find("COMMUNITIES_GUILD_MEMBER", 1, true)
        and all:find("a guild menu: never", 1, true), "/bist recap why says which menu opened last, and why no line")
+    ok(all:find("the rival line, last time:", 1, true), "and what the rival line decided the last time a menu asked")
     _G.hooksecurefunc, _G.UnitPopup_OpenMenu = keepHook, nil
   end
   _G.Menu = nil

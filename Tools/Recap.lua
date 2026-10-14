@@ -885,16 +885,26 @@ end
 
 --- The lines for one menu: add, or remove, this player as a rival.
 function RC.MenuLines(db, root, ctx)
-  if not (R:Enabled("recap") and root and root.CreateButton) then return end
+  -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
+  -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
+  local function say(why) RC.menuDecision = why end
+  if not R:Enabled("recap") then return say("the recap tool is off") end
+  if not (root and root.CreateButton) then return say("the menu would not take a line") end
   -- a menu about a UNIT must be about a player (TARGET and FOCUS also open on mobs); a menu with no
   -- unit (a name in chat) is a player by where it came from
   local unit = field(ctx, "unit")
   if type(unit) == "string" then
     local okP, isPlayer = pcall(UnitIsPlayer, unit)
-    if not okP or hidden(isPlayer) or isPlayer ~= true then return end
+    if not okP then return say("the game refused 'is this a player?' for " .. unit) end
+    if hidden(isPlayer) then return say("the game HID whether " .. unit .. " is a player") end
+    if isPlayer ~= true then return say(unit .. " is not a player") end
   end
   local name = RC.MenuName(ctx)
-  if not name then return end
+  if not name then
+    local raw = field(ctx, "name")
+    return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
+  end
+  say("added for " .. name)
   local r, key = RC.Find(db, name)
   if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
@@ -1393,6 +1403,7 @@ function RC.Why(db)
   DEFAULT_CHAT_FRAME:AddMessage("  last right-click menu: " .. (menu and T.text("ink", menu) or T.text("muted", "none seen yet"))
     .. (menu and (RC.tags[menu] and T.text("good", " - has the rival line") or
         T.text("warn", RC.MenuAllowed(menu) and " - not yet (right-click again)" or " - a guild menu: never")) or ""))
+  DEFAULT_CHAT_FRAME:AddMessage("  the rival line, last time: " .. T.text("ink", RC.menuDecision or "no menu with it opened yet"))
   -- the target, read now, every way it can go wrong
   local ok, raw = pcall(UnitName, "target")
   local said
