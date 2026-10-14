@@ -501,7 +501,7 @@ local function kill(name, guid, src, mark)
   if mark then W.target = nil W.marks.target = nil end
 end
 local pass = 0
-local function ok(cond, msg) if not cond then error("FAIL: " .. msg, 2) end pass = pass + 1 end
+local function ok(cond, msg, got) if not cond then error("FAIL: " .. msg .. (got ~= nil and ("  [" .. tostring(got) .. "]") or ""), 2) end pass = pass + 1 end
 
 -- ------------------------------------------------------------ checks
 ok(BiSToolsFarm and BiSToolsFarm:IsShown(), "window shown on login (db.shown default)")
@@ -2803,8 +2803,17 @@ do
   ok(w.mid.what.text == "killing blow 27 +14", "the killing blow and its overkill", w.mid.what.text)
   ok(w.foot.text == "306 damage in 6.0 seconds", "the total line", w.foot.text)
   ok(w.rows[1].amt.text == "27 +14" and w.rows[2].what.text == "melee crit" and w.rows[5].what.text == "melee 22 blk",
-     "the hits, newest first, crits and blocks marked")
+     "the hits, newest first, crits and blocks marked", tostring(w.rows[1].amt.text) .. " | " .. tostring(w.rows[2].what.text) .. " | " .. tostring(w.rows[5].what.text))
   ok(w.stripLeft.text == "292 of 1192 health when these began", "the strip says where the hits began", w.stripLeft.text)
+  -- THE REMADE RECAP (Arn, 14 Oct: "redo this window ... the imax 70mm aspect ratio")
+  ok(math.abs(w.w / w.h - 1.43) < 0.01, "the death recap is 1.43:1", w.w .. "x" .. w.h)
+  ok(w.who[1].name.text == "Molten Elemental" and w.who[1].amt.text == "128 (42%)" and w.who[2].name.text ~= "",
+     "who hit you: a bar per attacker, the most damage first", w.who[1].name.text .. " " .. w.who[1].amt.text)
+  ok(w.who[1].bar.shown ~= false and w.who[1].bar.w > w.who[2].bar.w, "the bars as long as their share")
+  ok(w.kind[1].name.text == "physical" or w.kind[2].name.text:find("magic", 1, true),
+     "what kind: physical, magic", w.kind[1].name.text .. " / " .. w.kind[2].name.text)
+  ok(#w.rows == 10 and w.rows[6].amt.text ~= "" and w.rows[10].amt.text ~= "", "all ten hits, in two columns")
+  ok(w.drawer == RC.rwin and math.abs(RC.rwin.w / RC.rwin.h - 1.43) < 0.01, "the rivals: their own window, also 1.43:1")
   ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
   fitsIn(w, "the death recap")
 
@@ -2898,13 +2907,22 @@ do
   ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
   -- the short words (Arn: "dont need to write to command all the time"): /bist rivals is the same
   said2 = {}
+  S("rivals list")
+  ok(table.concat(said2, " | "):find("Hunting Moms", 1, true), "/bist rivals list lists them in chat")
+  -- /bist rivals: THEIR OWN WINDOW (Arn: "make its own thing that can be pulled up")
+  RC.SetExpanded(rdb2, false)   -- start from closed: an earlier step left it open
   S("rivals")
-  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "/bist rivals lists them too")
+  ok(RC.rwin and RC.rwin:IsShown(), "/bist rivals opens the rivals & pals window", tostring(RC.rwin) .. " on=" .. tostring(R:Enabled("rivals")) .. " said=" .. table.concat(said2, " | "))
+  local found
+  for _, b in ipairs(RC.rwin.rows) do if b.rival == "Hunting Moms" and b:IsShown() then found = b end end
+  ok(found, "listing them")
+  S("rivals")
+  ok(not RC.rwin:IsShown(), "and again closes it")
   -- their own tool: with the recap switched off, the rivals' commands still answer
   R:SetEnabled("recap", false)
   said2 = {}
-  S("rivals")
-  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "recap off: /bist rivals still lists them - their own tool now")
+  S("rivals list")
+  ok(table.concat(said2, " | "):find("Hunting Moms", 1, true), "recap off: /bist rivals list still lists them - their own tool now")
   R:SetEnabled("recap", true)
   said2 = {}
   S("pals")
@@ -3037,6 +3055,11 @@ do
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
     root.click()
     ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    -- and in the rivals & pals window's right column
+    RC.BuildRivals(rdb2)
+    RC.db = RC.db or rdb2
+    RC.PaintRivals()
+    ok(RC.rwin.pals[1].pal == "Pal Guy" and RC.rwin.pals[1]:IsShown(), "the rivals & pals window lists the pal")
     plates.nameplate10 = CreateFrame("Frame", nil, nil)
     W.plates.nameplate10 = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
@@ -3836,14 +3859,15 @@ do
   _G.GetZoneText = keepZone
   W.plates.nameplate7, W.plates.nameplate8, W.plates.nameplate9, W.target = nil, nil, nil, nil
 
-  -- no death this session, but rivals: /bist recap opens on the drawer alone
+  -- no death this session, but rivals: /bist recap opens the rivals & pals window instead (their own
+  -- window since 14 Oct - an empty death recap is not shown)
   RC.last = nil
   _G.C_DeathRecap.GetRecapEvents = function() return nil end
   w:Hide()
+  RC.SetExpanded(rdb2, false)
   S("recap")
-  ok(w:IsShown() and d:IsShown() and not w.mid:IsShown() and w.caption.text == "nothing has killed you this session",
-     "no death yet: the window opens on your rivals")
-  fitsIn(w, "the recap with no death")
+  ok(not w:IsShown() and d:IsShown(), "no death yet: the rivals & pals window opens, not an empty recap")
+  fitsIn(d, "the rivals & pals window")
   W.shift = true
   d.rows[1].scripts.OnClick(d.rows[1], "LeftButton")
   W.shift = false

@@ -78,9 +78,13 @@ NS.Registry:Register({
   -- the same words the recap tool always took for these, so old macros keep working; no word = the list
   -- (the roll-out preview of these marks lives with the bg tool's: Battleground.lua B.AttachPreview,
   -- mode "rivals", painted by Recap.lua RC.PaintPreview)
+  -- the hub's row, and /bist rivals with no word: the rivals & pals window (Arn, 14 Oct: "its own
+  -- thing that can be pulled up"); /bist rivals list still prints them in chat
+  OnOpen = function() RC.db = RC.db or D() RC.ToggleRivals(D(), true) end,
   OnSlash = function(_, _, args)
     args = args or ""
-    if args == "" or args == "list" then args = "rivals" end
+    if args == "" then RC.db = RC.db or D() return RC.ToggleRivals(D()) end
+    if args == "list" then args = "rivals" end
     if args == "add" then args = "rival" end
     local recap = R:Get("recap")
     return recap.OnSlash(recap, D(), args)
