@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **"BiS: add rival" works in battlegrounds**: in a battleground the game leaves the name out of a player's right-click menu, so the line had nothing to go on and stayed away. It now takes the name from the player the menu is about (with their surname when the game gives it). It is also on target and focus menus now - for players only, never a mob - and any other player menu the game opens gets it from the next right-click. A rival saved as just "Grape" is still found as "Grape Sprite". `/bist recap why` says which menu opened last and what the rival line decided.
+- **Adding a rival in a battleground: `/bist recap rival`** adds your current target as a rival (again takes them off) - put it on a macro button. Inside battlegrounds and dungeons the game's right-click menu breaks if an addon adds a line to it, so BiS Tools no longer adds one there; out in the world "BiS: add rival" is still on the menu, now on target and focus menus too (players only). A rival saved as just "Grape" is still found as "Grape Sprite". `/bist recap why` says which menu opened last and what the rival line decided.
 - **Farm a mob from its right-click menu**: right-click a mob's portrait and pick **BiS: track in farm** - no typing its name, no killing one first. On the mob you are already farming it says **BiS: stop farming**. Only on mobs you can attack, never on players.
 
 ## 0.5.1

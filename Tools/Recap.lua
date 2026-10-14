@@ -301,6 +301,31 @@ function RC.Rivals(db)
 end
 
 --- Add a player to your rivals, or take them off. Answers true when they are a rival now.
+--- /bist recap rival: your target added as a rival (or, already one, taken off). The battleground
+--- road (13 Oct): the right-click menu cannot carry our line inside an instance (RC.MenuSafe), and
+--- this touches nothing of the game's - it reads the target and writes our own list. Works in a
+--- macro on a button.
+function RC.RivalFromTarget(db)
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  if ask(UnitExists, "target") ~= true then return NS.Print("target a player first") end
+  if ask(UnitIsPlayer, "target") ~= true then return NS.Print("your target is not a player") end
+  local name = ask(GetUnitName, "target", false)
+  if type(name) ~= "string" or name == "" or name == (UNKNOWNOBJECT or "Unknown") then name = ask(UnitName, "target") end
+  if type(name) ~= "string" or name == "" or name == (UNKNOWNOBJECT or "Unknown") then
+    return NS.Print("the game is not giving your target's name right now")
+  end
+  if name == ask(UnitName, "player") then return NS.Print("that is you") end
+  local r, key = RC.Find(db, name)
+  if r then return RC.ToggleRival(db, { player = true, title = key }) end
+  local okC, _, class = pcall(UnitClass, "target")
+  if not okC or hidden(class) or type(class) ~= "string" then class = nil end
+  return RC.ToggleRival(db, { player = true, title = name, class = class, key = ask(UnitGUID, "target") })
+end
+
 function RC.ToggleRival(db, a)
   if not (a and a.player and type(a.title) == "string") then return nil end
   local list = RC.Rivals(db)
@@ -865,6 +890,20 @@ RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_R
   -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
   "TARGET", "FOCUS" }
 
+--- CAN A LINE GO INTO THE GAME'S RIGHT-CLICK MENU HERE? Not inside an instance. Arn's BugGrabber
+--- in a battleground, 13 Oct: "FrameUtil.lua:223: attempt to perform arithmetic on local 'frameLeft'
+--- (a secret number value, while execution tainted by 'BiSTools')" - inside an instance the
+--- menu's own frame rects are secret, and once an addon has put a line in the menu, Blizzard's
+--- layout runs tainted and may not do sums on them: the menu breaks (no Report Player, no Copy
+--- Name). Outside, the rects are plain and the line is fine. So inside: no line, ever - and
+--- /bist recap rival adds your target instead, with nothing of the game's touched.
+function RC.MenuSafe()
+  if not IsInInstance then return true end
+  local ok, inside = pcall(IsInInstance)
+  if not ok or hidden(inside) then return false end
+  return inside ~= true
+end
+
 --- A guild roster menu is never touched (Olympus: a line there left promote/kick refused).
 function RC.MenuAllowed(tag)
   if type(tag) ~= "string" then return false end
@@ -904,6 +943,9 @@ function RC.MenuLines(db, root, ctx)
   -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
   local function say(why) RC.menuDecision = why end
   if not R:Enabled("recap") then return say("the recap tool is off") end
+  if not RC.MenuSafe() then
+    return say("inside an instance (a battleground): the game's menu breaks with an addon line there - /bist recap rival adds your target")
+  end
   if not (root and root.CreateButton) then return say("the menu would not take a line") end
   -- a menu about a UNIT must be about a player (TARGET and FOCUS also open on mobs); a menu with no
   -- unit (a name in chat) is a player by where it came from
@@ -1656,7 +1698,7 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rivals | forget <name> | key <key> | style <name> | why | raw]",
+  usage = "/bist recap [rival | rivals | forget <name> | key <key> | style <name> | why | raw]",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
@@ -1700,6 +1742,7 @@ NS.Registry:Register({
   OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) RC.HookGuild(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
+    if args == "rival" then return RC.RivalFromTarget(db) end
     local style = args:match("^style%s*(%S*)$")
     if style then
       if RC.SetStyle(db, (style == "l" or style == "L") and "L" or style:lower()) then return NS.Print("crosshair: %s", db.style) end

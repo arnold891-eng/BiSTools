@@ -3247,6 +3247,55 @@ do
        "no name and no unit: nothing, and why says so")
     _G.GetUnitName, W.target = keepGUN, keepT
   end
+  -- INSIDE AN INSTANCE THE MENU BREAKS WITH AN ADDON LINE (Arn's BugGrabber in a battleground, 13 Oct:
+  -- FrameUtil.lua:223 arithmetic on a secret frameLeft, "while execution tainted by 'BiSTools'").
+  -- The mock menu is taught to break the same way: any line added inside an instance is an error.
+  do
+    local keepInst, keepT = _G.IsInInstance, W.target
+    local inside = true
+    _G.IsInInstance = function() return inside, inside and "pvp" or "none" end
+    local function strictRoot()
+      local r = { lines = {} }
+      function r:CreateDivider() if inside then error("menu tainted inside an instance (FrameUtil secret rect)") end end
+      function r:CreateButton(text, fn)
+        if inside then error("menu tainted inside an instance (FrameUtil secret rect)") end
+        self.lines[#self.lines + 1] = text self.click = fn
+      end
+      return r
+    end
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local okM, errM = pcall(hookedMenus.MENU_UNIT_PLAYER, nil, strictRoot(), { name = "Grape", unit = "target" })
+    ok(okM, "in a battleground the rival line never touches the game's menu", errM)
+    ok(RC.menuDecision:find("inside an instance", 1, true) and RC.menuDecision:find("/bist recap rival", 1, true),
+       "and why says so, with the way to add one there", RC.menuDecision)
+    -- the farm's line (TARGET on a mob) is guarded the same way
+    local F = NS.Farm
+    W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-9", hostile = true }
+    local okF, errF = pcall(F.MenuLines, F.db, strictRoot(), { unit = "target" })
+    ok(okF, "nor does the farm's line on a mob inside an instance", errF)
+    -- /bist recap rival: the battleground road, touching nothing of the game's
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local keepGUN = _G.GetUnitName
+    _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
+    S("recap rival")
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active and rivals["Grape Sprite"].guid == UnitGUID("target"),
+       "/bist recap rival: your target is a gold rival, surname, GUID and all")
+    S("recap rival")
+    ok(rivals["Grape Sprite"] == nil, "again: taken off")
+    W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-9", hostile = true }
+    S("recap rival")
+    ok(rivals["Defias Thug"] == nil, "a mob on target is never a rival")
+    W.target = nil
+    S("recap rival")
+    ok(next(rivals) == nil or rivals["Grape Sprite"] == nil, "no target: nothing added")
+    -- outside an instance the menu line works as before
+    inside = false
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local mo = strictRoot()
+    hookedMenus.MENU_UNIT_PLAYER(nil, mo, { name = "Grape", unit = "target" })
+    ok(mo.lines[1] == "BiS: add rival", "out in the world: the menu line, as before")
+    _G.GetUnitName, _G.IsInInstance, W.target = keepGUN, keepInst, keepT
+  end
   W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
   m = root() hookedMenus.MENU_UNIT_FOCUS(nil, m, { name = "Defias Thug", unit = "target" })
   ok(#m.lines == 0, "a MOB's menu: no rival line")
