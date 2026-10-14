@@ -4678,6 +4678,12 @@ do
        "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
     ok(BG.killer and BG.killer.name == "Shocka", "the red crosshair: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    -- OUR MVPs (Arn: "do 2 for friendly players and just mark them MVP with the same box style" - "best
+    -- healer and best killer"): Ourhealer is our best healer AND our best killer - one >MVP<
+    ok(BG.mvps.Ourhealer, "our side's best healer and best killer, read off the same sorts", tostring(BG.mvps.Ourhealer))
+    local mvp = mark("E")
+    ok(mvp and mvp.kind == "mvp" and mvp.tag and mvp.text.text:find("MVP", 1, true) and mvp.text.text:find("ffd100", 1, true),
+       "a friend on top wears >MVP< - the tag box, the word in gold", mvp and mvp.text and mvp.text.text)
     -- the same "mark" in the BiS> tools box (Arn: "add that scoreboard button to the bis tools")
     do
       local function boxShows()

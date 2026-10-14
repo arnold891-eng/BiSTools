@@ -1,5 +1,6 @@
 ## Unreleased
 
+- **Your own side's MVPs**: in a battleground, your team's best healer and best killer wear a **>MVP<** tag - the same white box, the word in gold - read off the same scoreboard as theirs.
 - **Marks above the nameplate, if you like them there**: "mark spot" under bg - on (on the body, under the nameplate) or above (on top of the nameplate, over the name). "mark height" nudges from either.
 - **The saber button in the tools box: left-click targets, right-click marks.** A left-click now only targets one of their marked players (nearest first); a right-click reads the scoreboard and marks them.
 - **A pal nearby, a small note**: when one of your pals comes into view, out of combat, a green "<3 *Name* is nearby" in chat - once every ten minutes each, no sound. "pal nearby note" in the options switches it off.

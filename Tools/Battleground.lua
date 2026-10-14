@@ -125,17 +125,18 @@ B.ORDER_GAP = 5     -- s: a sort can itself fire UPDATE_BATTLEFIELD_SCORE - neve
 local function sortRead(col, myFaction)
   if not pcall(SortBattlefieldScoreData, col) then return nil end
   local n = yes(GetNumBattlefieldScores) or 0
-  local out = {}
+  local out, ours = {}, {}
   for i = 1, type(n) == "number" and n or 0 do
     local ok, info = pcall(C_PvP.GetScoreInfo, i)
     if ok and type(info) == "table" then
       local faction = field(info, "faction")
-      if type(faction) == "number" and myFaction ~= nil and faction ~= myFaction then
-        out[#out + 1] = { name = bare(field(info, "name")), class = field(info, "classToken") }
+      if type(faction) == "number" and myFaction ~= nil then
+        local row = { name = bare(field(info, "name")), class = field(info, "classToken") }
+        if faction ~= myFaction then out[#out + 1] = row else ours[#ours + 1] = row end
       end
     end
   end
-  return out
+  return out, ours
 end
 
 --- The scoreboard window, if Blizzard's is open: we never re-sort what Arn is looking at.
@@ -349,8 +350,15 @@ function B.ReadOrder(force)
   local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
   -- a different column first: sorting the same column twice flips it, and Arn may have clicked one
   pcall(SortBattlefieldScoreData, "name")
-  local byHeal = sortRead("healing", myFaction) or {}
-  local byKill = sortRead("kills", myFaction) or {}
+  local byHeal, ourHeal = sortRead("healing", myFaction)
+  local byKill, ourKill = sortRead("kills", myFaction)
+  byHeal, byKill, ourHeal, ourKill = byHeal or {}, byKill or {}, ourHeal or {}, ourKill or {}
+  -- OUR side's best healer (a healing class, as theirs) and best killer: >MVP<
+  B.mvps = {}
+  for _, s in ipairs(ourHeal) do
+    if s.name and B.HEAL_CLASSES[s.class or ""] then B.mvps[s.name] = "healer" break end
+  end
+  if ourKill[1] and ourKill[1].name then B.mvps[ourKill[1].name] = B.mvps[ourKill[1].name] or "killer" end
   local heals, healers = {}, {}
   for _, s in ipairs(byHeal) do
     if s.name and B.HEAL_CLASSES[s.class or ""] and #heals < B.TOP_HEALERS then
@@ -427,8 +435,11 @@ B.TAG_PULSE_LOW = 0.7               -- dims to 70% only: a tag must be read, not
 B.TAG_WORD = { healer = "Healer", killer = "Killer" }
 
 --- ">Healer<": white arrows, a red word.
+B.TAG_WORD.mvp = "MVP"
+B.TAG_INK = { healer = "ff1a1a", killer = "ff1a1a", mvp = "ffd100" }   -- their marks red; our MVP gold
+
 function B.TagText(kind)
-  return "|cffffffff>|r|cffff1a1a" .. (B.TAG_WORD[kind] or "Healer") .. "|r|cffffffff<|r"
+  return "|cffffffff>|r|cff" .. (B.TAG_INK[kind] or "ff1a1a") .. (B.TAG_WORD[kind] or "Healer") .. "|r|cffffffff<|r"
 end
 
 --- The chosen look's place in B.LOOKS (the stepper's number), 1 = X.
@@ -493,7 +504,8 @@ function B.NewSaber(kind, look)
   f.kind, f.look = kind, look
   f.parts, f.hilts = {}, {}
   f.blades = {}
-  if B.LOOKS[look] and B.LOOKS[look].tag then
+  -- our MVP always wears the tag (Arn: "mark them MVP with the same box style"), whatever the look
+  if kind == "mvp" or (B.LOOKS[look] and B.LOOKS[look].tag) then
     -- the white box: four thin edges, nothing behind (no black)
     f.tag = true
     f.edges = {}
@@ -813,6 +825,7 @@ B.FORGET_DAYS = 30
 B.KEEP = 300
 B.counted = {}                     -- "name:h" / "name:k" already counted this battleground
 B.onBoard = {}                     -- guid/name of every enemy this battleground's scoreboard has read
+B.mvps = {}                        -- our side's best healer and best killer, by name -> "healer" / "killer"
 
 function B.Known()
   local db = R:DBFor(R:Get("bg"))
@@ -896,6 +909,9 @@ end
 function B.Which(u)
   local guid = yes(UnitGUID, u)
   local name = B.PlateName(u)
+  -- OUR MVPs (Arn, 14 Oct: "can we do 2 for friendly players and just mark them MVP" - "best healer
+  -- and best killer"): a friend the board puts first in healing or in kills
+  if name and next(B.mvps) and B.Look(B.mvps, name) and yes(UnitCanAttack, "player", u) ~= true then return "mvp" end
   local k = B.killer
   if k and ((guid and k.guid == guid) or sameName(k.name, name)) then return "killer" end
   if (guid and B.healers[guid]) or B.Look(B.healers, name) then return "healer" end
@@ -963,7 +979,7 @@ end
 
 function B.ClearAll()
   for u in pairs(B.marks) do B.Undraw(u) end
-  B.healers, B.killer = {}, nil
+  B.healers, B.killer, B.mvps = {}, nil, {}
 end
 
 ------------------------------------------------------------------ the loop --
@@ -995,6 +1011,7 @@ function B.Watch()
   if B.inBG and not was then
     B.counted = B.SameMatch()         -- a new battleground: everyone may be counted once again
     B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
+    B.mvps = {}
     B.onBoard = {}
     B.ended = nil
     B.Prune()
