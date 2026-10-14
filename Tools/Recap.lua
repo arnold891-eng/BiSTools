@@ -894,23 +894,32 @@ local function newHeart()
     local t = bar(f, "ARTWORK", c[1], c[2], c[3]) t:SetPoint("CENTER") t:SetSize(6, 6)
     return f
   end
-  local pts = {}
-  for i = 0, 12 do
-    local t = i / 12 * 2 * math.pi
-    local x = 16 * math.sin(t) ^ 3
-    local y = 13 * math.cos(t) - 5 * math.cos(2 * t) - 2 * math.cos(3 * t) - math.cos(4 * t)
-    pts[#pts + 1] = { x / 17 * 6, y / 17 * 5.5 }
-  end
+  -- FILLED, a row at a time (Arn, 14 Oct, seeing the outline: "it looks like broken heart lets do
+  -- <3"): the heart curve (x²+y²-1)³ - x²y³ <= 0, scanned row by row, one short line per run of
+  -- inside - two runs across the lobes, one below. Solid at 12 px, where a thin outline read as cracked.
   f.parts = {}
-  for i = 1, #pts - 1 do
-    for _, layer in ipairs({ { 3.5, 0.35 }, { 1.6, 1 } }) do
-      local l = f:CreateLine(nil, "ARTWORK")
-      l:SetTexture("Interface\\Buttons\\WHITE8X8")
-      l:SetVertexColor(c[1], c[2], c[3], layer[2])
-      l:SetThickness(layer[1])
-      l:SetStartPoint("CENTER", f, pts[i][1], pts[i][2])
-      l:SetEndPoint("CENTER", f, pts[i + 1][1], pts[i + 1][2])
-      f.parts[#f.parts + 1] = l
+  local W, H = 12, 11
+  local rows = H
+  for r = 0, rows - 1 do
+    local y = 1.25 - (r + 0.5) / rows * 2.45            -- top (1.25) down to the point (-1.2)
+    local inside, from = false, nil
+    for i = 0, 60 do
+      local x = -1.3 + i / 60 * 2.6
+      local a = x * x + y * y - 1
+      local isIn = a * a * a - x * x * y * y * y <= 0
+      if isIn and not inside then from = x end
+      if (not isIn or i == 60) and inside then
+        local to = isIn and x or (x - 2.6 / 60)
+        local py = H / 2 - r - 0.5
+        local l = f:CreateLine(nil, "ARTWORK")
+        l:SetTexture("Interface\\Buttons\\WHITE8X8")
+        l:SetVertexColor(c[1], c[2], c[3], 1)
+        l:SetThickness(1.15)
+        l:SetStartPoint("CENTER", f, from / 1.3 * W / 2, py)
+        l:SetEndPoint("CENTER", f, math.max(to, from + 0.05) / 1.3 * W / 2, py)
+        f.parts[#f.parts + 1] = l
+      end
+      inside = isIn
     end
   end
   return f
