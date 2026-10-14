@@ -1,5 +1,6 @@
 ## Unreleased
 
+- **The saber button in the tools box: left-click targets, right-click marks.** A left-click now only targets one of their marked players (nearest first); a right-click reads the scoreboard and marks them.
 - **A pal nearby, a small note**: when one of your pals comes into view, out of combat, a green "<3 *Name* is nearby" in chat - once every ten minutes each, no sound. "pal nearby note" in the options switches it off.
 - **See the marks on yourself before a battleground.** Hover "mark look", "mark size" or "mark height" in the options and a panel rolls out beside the window: two 3D models of your own character, a nameplate over each, wearing the healer mark and the killer mark - redrawn as you click through.
 - **A sixth battleground mark: the tag.** A white box with **>Healer<** over their top healers and **>Killer<** over their top killer - white arrows, a red word, nothing behind it. "mark look" in the options, under bg.

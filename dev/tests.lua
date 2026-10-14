@@ -4664,28 +4664,32 @@ do
       local n1 = #sorts
       local keepChat = DEFAULT_CHAT_FRAME.AddMessage
       DEFAULT_CHAT_FRAME.AddMessage = function() end
-      BG.bbtn.scripts.OnClick(BG.bbtn)
+      -- LEFT targets only, RIGHT marks (Arn: "right click marks left click targets")
+      local n0 = #sorts
+      BG.bbtn.scripts.OnClick(BG.bbtn, "LeftButton")
+      ok(#sorts == n0, "a left-click only targets - it reads nothing")
+      BG.bbtn.scripts.OnClick(BG.bbtn, "RightButton")
       DEFAULT_CHAT_FRAME.AddMessage = keepChat
       ok(#sorts > n1 and BG.healers.Heala == 1, "pressed: reads the board now and marks")
       -- and TARGETS one of them (Arn: "target the nearest on the list"): a secure macro, near last
-      local m = BG.bbtn:GetAttribute("macrotext") or ""
-      ok(BG.bbtn:GetAttribute("type") == "macro" and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
+      local m = BG.bbtn:GetAttribute("macrotext1") or ""
+      ok(BG.bbtn:GetAttribute("type1") == "macro" and BG.bbtn:GetAttribute("type2") == nil and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
          "the box button targets the marked players by macro", m)
       BG.Undraw(unitOf("C"))           -- Mendy: no plate on screen now - far away
       BG.ApplyMacro()
-      m = BG.bbtn:GetAttribute("macrotext")
+      m = BG.bbtn:GetAttribute("macrotext1")
       local lastLine = m:match("([^\n]+)$")
       ok(m:find("^/target Mendy") and lastLine == "/target Heala",
          "far ones first, near ones last - the last /target that finds someone wins; the top healer last of all", m)
       BG.Paint(unitOf("C"))
       local keepLock = _G.InCombatLockdown
       _G.InCombatLockdown = function() return true end
-      BG.bbtn:SetAttribute("macrotext", "untouched")
-      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext") == "untouched" and BG.macroDirty,
+      BG.bbtn:SetAttribute("macrotext1", "untouched")
+      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext1") == "untouched" and BG.macroDirty,
          "in a fight the macro is not touched - written when it ends")
       _G.InCombatLockdown = keepLock
       ev("PLAYER_REGEN_ENABLED")
-      ok(BG.bbtn:GetAttribute("macrotext") ~= "untouched" and not BG.macroDirty, "the fight over: written")
+      ok(BG.bbtn:GetAttribute("macrotext1") ~= "untouched" and not BG.macroDirty, "the fight over: written")
       -- the X fills the rival crosshair's box: tips in its corners
       local x = mark("A")
       local tip = x.parts[3].to

@@ -256,7 +256,7 @@ function B.ApplyMacro()
   if InCombatLockdown and InCombatLockdown() then B.macroDirty = true return false end
   B.macroDirty = nil
   local macro = B.TargetMacro()
-  b:SetAttribute("macrotext", macro)
+  b:SetAttribute("macrotext1", macro)
   b.macro = macro
   return true
 end
@@ -279,8 +279,10 @@ function B.BoxButton()
   b:SetSize(26, 26)
   b:SetFrameStrata("MEDIUM")
   b:RegisterForClicks("AnyDown")
-  b:SetAttribute("type", "macro")
-  b:SetAttribute("macrotext", "")
+  -- LEFT targets, RIGHT marks (Arn, 14 Oct: "right click marks left click targets"): the macro is
+  -- the left button's alone; the right button is ours (B.Mark), nothing secure
+  b:SetAttribute("type1", "macro")
+  b:SetAttribute("macrotext1", "")
   K.tex(b, "BACKGROUND", "field", 0.95)
   b.edge = K.border(b, "accent", 1)
   local function tex(f, layer, c, a, add)
@@ -298,12 +300,13 @@ function B.BoxButton()
   local hilt = tex(b, "OVERLAY", { 0.55, 0.57, 0.6 }, 1)
   hilt:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
   hilt:SetSize(4, 5)
-  b:HookScript("OnClick", function() B.Mark() end)
+  b:HookScript("OnClick", function(_, button) if button == "RightButton" then B.Mark() end end)
   b:SetScript("OnEnter", function(self)
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Target and mark their healers and killer")
-    GameTooltip:AddLine("Targets one of them - those near you first - then reads the scoreboard: white crossed sabers on their top three healers, red on their top killer. Who it targets is set out of combat. Same marks as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:AddLine("Their healers and killer")
+    GameTooltip:AddLine("Left-click: target one of them - those near you first (who it targets is set out of combat).", 1, 1, 1, true)
+    GameTooltip:AddLine("Right-click: mark them - reads the scoreboard now: white on their top three healers, red on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
