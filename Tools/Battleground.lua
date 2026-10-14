@@ -781,21 +781,10 @@ function B.OnScores()
   B.PaintAll()
   B.ApplyMacro()
   B.Button()
-  B.AtEnd()
 end
-
---- PROBE (14 Oct): mid-match every number on the board is hidden from addons (Arn's /bist bg raw).
---- Does the board unlock when the match is over? Once per battleground, the moment it has a
---- winner, print the raw row by itself. If the numbers come plain, B.OnScores above has already
---- written the top healers and killer into the memory - nothing else to build for that part.
-function B.AtEnd()
-  if B.ended or not GetBattlefieldWinner then return end
-  local ok, w = pcall(GetBattlefieldWinner)
-  if not ok or plain(w) == nil then return end
-  B.ended = true
-  NS.Print("bg: the match is over - the scoreboard as an addon reads it now:")
-  B.Raw()
-end
+-- (The match-end probe that stood here, 14 Oct, answered its question - the board DOES unlock when
+-- a match ends, and B.OnScores reads it then - and came out before 0.7.0: it printed a scoreboard
+-- row at the end of every battleground.)
 
 function B.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_ADDED" then

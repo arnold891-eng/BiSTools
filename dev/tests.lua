@@ -4501,18 +4501,11 @@ do
   local rawText = table.concat(said, "\n", from)
   ok(rawText:find("healingDone=HIDDEN", 1, true) and rawText:find("killingBlows=", 1, true)
      and rawText:find("name=", 1, true), "/bist bg raw prints an enemy row's fields, hidden as HIDDEN", rawText)
-  -- the match-end probe: quiet while there is no winner, the raw row once when there is
+  -- the match-end probe is gone (0.7.0): a finished match prints nothing by itself
   local before = #said
-  _G.GetBattlefieldWinner = function() return nil end
-  ev("UPDATE_BATTLEFIELD_SCORE")
-  ok(#said == before, "no winner yet: the match-end probe stays quiet")
   _G.GetBattlefieldWinner = function() return 1 end
   ev("UPDATE_BATTLEFIELD_SCORE")
-  local endText = table.concat(said, "\n", before + 1)
-  ok(endText:find("match is over", 1, true) and endText:find("healingDone=", 1, true), "a winner: the raw row prints by itself", endText)
-  local after = #said
-  ev("UPDATE_BATTLEFIELD_SCORE")
-  ok(#said == after, "once per battleground, not every scoreboard read")
+  ok(#said == before, "a match ending says nothing in chat - no probe left behind")
   _G.GetBattlefieldWinner = nil
   DEFAULT_CHAT_FRAME.AddMessage = keepChat
   local all = table.concat(said, "\n")
