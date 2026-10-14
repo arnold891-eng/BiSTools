@@ -32,6 +32,14 @@ SlashCmdList.BISTOOLS = function(msg)
     return NS.Print("%s %s", tool.name, cmd == "on" and T.text("good", "on") or T.text("warn", "off"))
   end
   if NS.HubSlash and NS.HubSlash(cmd) then return end
+  -- SHORT WORDS for the lists (Arn, 14 Oct: rivals and pals "be its own thing ... dont need to write
+  -- to command all the time"): /bist rival is /bist recap rival, and so on. They live in the recap
+  -- tool still - its death cards add rivals - but nobody should have to know that to use them.
+  local short = { rival = "rival", rivals = "rivals", pal = "pal", pals = "pals", surname = "surname" }
+  if short[cmd] then
+    rest = short[cmd] .. ((rest ~= "" and (" " .. rest)) or "")
+    cmd = "recap"
+  end
   local tool = R:Get(cmd)
   if not tool then return NS.Print("no tool '%s' - /bist for the list", cmd) end
   -- a tool may keep its slash alive while off (summon: the nag switch must

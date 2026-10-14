@@ -284,12 +284,15 @@ local function plateOf(u)
   return plate
 end
 
+-- the flash: full to T.PULSE_LOW and back, T.PULSE_DUR each way. The bg tool's crossed sabers
+-- borrow it (Arn, 14 Oct: "we got the flashing down in the threat meters i want that kind of pulsing")
+T.PULSE_LOW, T.PULSE_DUR = 0.3, 0.5
 local function pulse(f)
   if not f.CreateAnimationGroup then return end
   local ok, g = pcall(f.CreateAnimationGroup, f)
   if not (ok and g) then return end
   local fade = g:CreateAnimation("Alpha")
-  fade:SetFromAlpha(1) fade:SetToAlpha(0.3) fade:SetDuration(0.5)
+  fade:SetFromAlpha(1) fade:SetToAlpha(T.PULSE_LOW) fade:SetDuration(T.PULSE_DUR)
   if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
   g:SetLooping("BOUNCE")
   f.pulse = g
@@ -514,10 +517,10 @@ R:Register({
   usage = "/bist threat [auto | tank | dps | from <30-90> | why]  (no word: the window)",
   defaults = { role = "auto", from = T.FROM, flashAt = T.FLASH_AT, look = "marker" },
   options = {
-    { kind = "seg", label = "watch as", values = T.ROLES,
+    { kind = "seg", label = "watch as", help = "Which threat warnings you see: auto - from your role; tank - mobs you are losing; dps - mobs you are pulling.", values = T.ROLES,
       get = function(db) return db.role or "auto" end,
       set = function(db, v) db.role = v T.Refresh() end },
-    { kind = "step", label = "show from", min = 30, max = 90, step = 10,
+    { kind = "step", label = "show from", help = "A mob's threat mark appears once you are this far toward pulling it. Lower shows it earlier.", min = 30, max = 90, step = 10,
       get = function(db) return T.From(db) end,
       set = function(db, v) db.from = v T.Refresh() end,
       show = function(db) return T.From(db) .. "%" end },

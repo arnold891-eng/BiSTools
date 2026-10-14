@@ -1,6 +1,16 @@
-## Unreleased
+## 0.7.0
 
-- **Battlegrounds: their healers and their top killer, marked** (new tool `bg`, on by default, battlegrounds only). Every 10 seconds the scoreboard is read: the enemy's **top three healers** wear a **white neon saber** at the left of their nameplate, and their player with the **most killing blows** wears a **red glow**. It works from the scoreboard because the game hides other players' casts from addons. **It remembers:** a player who was one of their top healers or their top killer is marked the moment they show up in your next battleground - dimmer until the live scoreboard confirms it. Forgotten after 30 days unseen; `/bist bg forget <name>`, `/bist bg clear`, `/bist bg why`.
+- **Battlegrounds: their healers and their top killer, marked** (new tool `bg`, on by default, battlegrounds only). The enemy's **top three healers** wear **white crossed sabers** on them, and their player with the **most killing blows** wears **red** ones - glowing and pulsing, right on the body under the nameplate. Forever hides the scoreboard's numbers mid-match, but it still sorts by them: BiS Tools reads the order, every 10 seconds while your scoreboard is closed (never while you're looking at it). Nothing in the first 90 seconds, while everyone is still at 0.
+  - **A saber button** in the BiS> tools box (battlegrounds only): one click **targets** one of the marked players - those near you first - and reads the board right then. Also a **"BiS> mark"** button under the scoreboard window, and `/bist bg mark`.
+  - **It remembers** their healers and killers across battlegrounds - a known healer is marked the moment they show up in your next one. `/bist bg why`, `/bist bg forget <name>`, `/bist bg clear`.
+  - **Five looks** - X, saber, arrow, diamond, corners - with **size** and **height** settings under "bg".
+- **Rivals are enemies; pals are friends.** A friendly player can no longer be made a rival or wear a rival's crosshair. Instead, right-click a friendly player for **"BiS: add pal"**: a little **green heart** over them, out of combat. A rival named "Terry Lin" no longer marks a "Terry Daviss" - whole names and player IDs are checked.
+- **A whole surname at once**: `/bist surname Foreverpvp` - everyone named "*something* Foreverpvp" gets a small **gold crown**: enemies any time (one call-out a minute for the whole surname, not one per player), friends out of combat. The same again turns it off.
+- **Battleground rivals are for that match**: a rival you add inside a battleground is let go when you leave - unless they kill you 10 times in that match, then they're kept for good.
+- **Guildmates wear a small guild crest** instead of the plain +.
+- **Shorter commands**: `/bist rival`, `/bist rivals`, `/bist pal`, `/bist pals`, `/bist surname`.
+- **Thank-you emotes now catch a re-cast buff** (someone refreshing a Blessing of Kings you already had), and `/bist social why` keeps its real answer instead of "nothing new on you".
+- **Options windows**: every setting says what it does in a help strip at the bottom when you hover it; windows are the BiS shape (1.43:1) with settings in even columns, and two BiS windows no longer open on top of each other.
 
 ## 0.6.0
 

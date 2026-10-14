@@ -166,6 +166,13 @@ function B.Buttons()
     RC.PaintAdd()
     out[#out + 1] = { b = ab, show = R:Enabled("recap") and RC.InPvP() and db.addButton ~= false }
   end
+  -- the battleground "mark" (Arn, 14 Oct): their healers and killer, read now - battlegrounds only
+  local BG = NS.BG
+  if BG and BG.BoxButton then
+    local mb = BG.BoxButton()
+    B.Colour(mb, BG.WHITE)
+    out[#out + 1] = { b = mb, show = R:Enabled("bg") and BG.InBG() and true or false }
+  end
   return out
 end
 

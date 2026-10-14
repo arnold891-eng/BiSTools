@@ -35,7 +35,7 @@ B.EVERY = 10                       -- seconds between scoreboard reads, in a bat
 B.TOP_HEALERS = 3
 B.WHITE = { 0.92, 0.97, 1.00 }     -- a neon white, a breath of blue
 B.RED = { 1.00, 0.12, 0.12 }
-B.SABER_W, B.SABER_OVER = 2, 14    -- the core's width; how far the blade runs past the plate
+B.SABER_W, B.SABER_H = 2, 70       -- the core's width; its height, the rival crosshair's (RC.MARK_H)
 B.plates = {}                      -- nameplate units in sight
 B.marks, B.pool = {}, {}           -- unit -> frame, and spare frames per kind
 B.healers, B.killer = {}, nil      -- guid/name -> rank (1-3), and the top killer's key
@@ -114,6 +114,254 @@ function B.Pick(scores)
   return healers, killer
 end
 
+--- FOREVER HIDES THE NUMBERS (Arn's /bist bg raw, 14 Oct: only name, faction, class and race are
+--- plain mid-match). Arn's idea, same night - "what about we can click the top heals": the game can
+--- still SORT the board by a hidden column, and the names come back in that order. Proven in his
+--- match: sorted by kills, the names matched the board's killing blows. So: sort, read names.
+B.HEAL_CLASSES = { PRIEST = true, DRUID = true, SHAMAN = true, PALADIN = true }
+B.WARMUP = 90       -- s into a match before anyone is marked: until then everyone ties at 0, in no order
+B.ORDER_GAP = 5     -- s: a sort can itself fire UPDATE_BATTLEFIELD_SCORE - never read again inside this
+
+local function sortRead(col, myFaction)
+  if not pcall(SortBattlefieldScoreData, col) then return nil end
+  local n = yes(GetNumBattlefieldScores) or 0
+  local out = {}
+  for i = 1, type(n) == "number" and n or 0 do
+    local ok, info = pcall(C_PvP.GetScoreInfo, i)
+    if ok and type(info) == "table" then
+      local faction = field(info, "faction")
+      if type(faction) == "number" and myFaction ~= nil and faction ~= myFaction then
+        out[#out + 1] = { name = bare(field(info, "name")), class = field(info, "classToken") }
+      end
+    end
+  end
+  return out
+end
+
+--- The scoreboard window, if Blizzard's is open: we never re-sort what Arn is looking at.
+--- Second answer: the window that exists (shown or not), for the button to sit on.
+B.BOARDS = { "PVPMatchScoreboard", "WorldStateScoreFrame" }
+function B.Board()
+  local found
+  for _, n in ipairs(B.BOARDS) do
+    local f = _G[n]
+    if f and f.IsShown then
+      found = found or f
+      local ok, shown = pcall(f.IsShown, f)
+      if ok and plain(shown) == true then return f, f end
+    end
+  end
+  return nil, found
+end
+
+--- "BiS> mark" on the scoreboard (Arn: "add a button in scoreboard"): read the board's order now,
+--- even with the window open, mark, and say who. Our own button on UIParent, shown with the window
+--- (hooked), placed on its bottom-right; the window's own frames are never touched.
+function B.Button()
+  local _, board = B.Board()
+  if not board or B.button then return B.button end
+  local K = NS.Farm
+  local b = CreateFrame("Button", "BiSToolsBGMark", UIParent)
+  b:SetSize(84, 20)
+  -- 14 Oct, Arn's screenshot: "shown" on the window's own layer, yet not to be seen - under the
+  -- window's inner panels. The top layer, and just UNDER the window's bottom edge, where nothing of
+  -- Blizzard's sits; if its place cannot be taken (hidden rects in an instance), top of the screen.
+  b:SetFrameStrata("FULLSCREEN_DIALOG")
+  if b.SetToplevel then pcall(b.SetToplevel, b, true) end
+  if not pcall(b.SetPoint, b, "TOP", board, "BOTTOM", 0, -2) then
+    b:SetPoint("TOP", UIParent, "TOP", 0, -120)
+  end
+  K.tex(b, "BACKGROUND", "frame", 0.85)
+  b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  b.text:SetPoint("CENTER")
+  b.text:SetText(NS.T.text("accent", "BiS>") .. " mark")
+  b:SetScript("OnClick", function() B.Mark() end)
+  local function show(on) if on then b:Show() else b:Hide() end end
+  show(board:IsShown() and B.On())
+  board:HookScript("OnShow", function() show(B.On()) end)
+  board:HookScript("OnHide", function() b:Hide() end)
+  B.button = b
+  return b
+end
+
+--- /bist bg board: why no button - which scoreboard windows exist, and what is under the mouse.
+--- Hover the scoreboard, type it: the window's real name on Forever, if B.BOARDS has it wrong.
+function B.BoardWhy()
+  for _, n in ipairs(B.BOARDS) do
+    local f = _G[n]
+    local okS, shown = pcall(function() return f and f:IsShown() end)
+    local okT, strata = pcall(function() return f and f:GetFrameStrata() end)
+    NS.Print("bg board: %s %s%s", n, f and "exists" or "missing",
+      f and ((okS and plain(shown) and ", shown" or ", hidden") .. ", " .. tostring(okT and plain(strata) or "?")) or "")
+  end
+  local b = B.button
+  local where = "?"
+  if b then
+    local okR, l, bt, w, h = pcall(b.GetRect, b)
+    if okR then where = ("%s,%s %sx%s"):format(tostring(plain(l)), tostring(plain(bt)), tostring(plain(w)), tostring(plain(h))) end
+  end
+  NS.Print("bg board: button %s", b and ((b:IsShown() and "shown" or "hidden") .. ", " .. tostring(b:GetFrameStrata())
+    .. ", at " .. where .. (b.IsVisible and (b:IsVisible() and ", visible" or ", NOT visible") or "")) or "not made yet")
+  local foci = {}
+  local okM, list = pcall(function() return GetMouseFoci and GetMouseFoci() end)
+  for _, f in ipairs(okM and type(list) == "table" and list or {}) do
+    local chain, cur = {}, f
+    for _ = 1, 8 do
+      if not cur then break end
+      local okN, nm = pcall(cur.GetName, cur)
+      chain[#chain + 1] = tostring(okN and plain(nm) or "?")
+      local okP, par = pcall(cur.GetParent, cur)
+      cur = okP and par or nil
+    end
+    foci[#foci + 1] = table.concat(chain, " < ")
+  end
+  NS.Print("bg board: under the mouse: %s", #foci > 0 and table.concat(foci, " | ") or "nothing named")
+end
+
+--- The box button's macro: the marked players, those far away first and those with a plate on
+--- screen LAST - the last /target that finds someone wins, so a near one is chosen over a far one.
+--- Healers before the killer within each group. At most RC.MACRO_MAX characters.
+function B.TargetMacro()
+  local near, far = {}, {}
+  local onPlate = {}
+  for u in pairs(B.marks) do
+    local n = B.PlateName(u)
+    if n then onPlate[n] = true end
+  end
+  local function add(name)
+    if type(name) ~= "string" or name == "" then return end
+    local first = name:match("^(%S+)")
+    if onPlate[name] or onPlate[first] then near[#near + 1] = name else far[#far + 1] = name end
+  end
+  local hs = {}
+  for name, rank in pairs(B.healers or {}) do if type(name) == "string" and type(rank) == "number" then hs[#hs + 1] = { name, rank } end end
+  table.sort(hs, function(x, y) return x[2] > y[2] end)       -- #3 first, #1 last: the top healer wins a tie
+  if B.killer and B.killer.name then add(B.killer.name) end
+  for _, h in ipairs(hs) do add(h[1]) end
+  local lines, len = {}, 0
+  local max = (NS.Recap and NS.Recap.MACRO_MAX) or 255
+  for _, group in ipairs({ far, near }) do
+    for _, name in ipairs(group) do
+      local line = "/target " .. name
+      if len + #line + 1 <= max then lines[#lines + 1] = line len = len + #line + 1 end
+    end
+  end
+  return table.concat(lines, "\n"), #lines
+end
+
+--- Written into the secure button out of combat only; in a fight, the next PLAYER_REGEN_ENABLED.
+function B.ApplyMacro()
+  local b = B.bbtn
+  if not b then return false end
+  if InCombatLockdown and InCombatLockdown() then B.macroDirty = true return false end
+  B.macroDirty = nil
+  local macro = B.TargetMacro()
+  b:SetAttribute("macrotext", macro)
+  b.macro = macro
+  return true
+end
+
+--- In a battleground, asked live (the box may lay out before B.Watch has heard the same event).
+function B.InBG()
+  local ok, inside, kind = pcall(IsInInstance)
+  return ok and plain(inside) == true and plain(kind) == "pvp"
+end
+
+--- The same "mark" in the BiS> tools box (Arn, 14 Oct: "add that scoreboard button to the bis
+--- tools") - read the board mid-fight without opening it. Its face: a little lit saber.
+function B.BoxButton()
+  if B.bbtn then return B.bbtn end
+  local K = NS.Farm
+  -- SECURE (Arn, 14 Oct: "when i click this i also want to try and target the nearest on the list"):
+  -- targeting is protected, so a macro, as the rival target button; its names are written out of
+  -- combat only (B.ApplyMacro). The read itself is our Lua, hooked after.
+  local b = CreateFrame("Button", "BiSToolsBGMarkBox", UIParent, "SecureActionButtonTemplate")
+  b:SetSize(26, 26)
+  b:SetFrameStrata("MEDIUM")
+  b:RegisterForClicks("AnyDown")
+  b:SetAttribute("type", "macro")
+  b:SetAttribute("macrotext", "")
+  K.tex(b, "BACKGROUND", "field", 0.95)
+  b.edge = K.border(b, "accent", 1)
+  local function tex(f, layer, c, a, add)
+    local t = f:CreateTexture(nil, layer)
+    t:SetColorTexture(c[1], c[2], c[3], a or 1)
+    if add and t.SetBlendMode then pcall(t.SetBlendMode, t, "ADD") end
+    return t
+  end
+  for _, layer in ipairs({ { 7, 0.18 }, { 4, 0.45 }, { 2, 1 } }) do
+    local t = tex(b, "ARTWORK", B.WHITE, layer[2], true)
+    t:SetPoint("TOP", b, "TOP", 0, -4)
+    t:SetPoint("BOTTOM", b, "BOTTOM", 0, 9)
+    t:SetWidth(layer[1])
+  end
+  local hilt = tex(b, "OVERLAY", { 0.55, 0.57, 0.6 }, 1)
+  hilt:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
+  hilt:SetSize(4, 5)
+  b:HookScript("OnClick", function() B.Mark() end)
+  b:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Target and mark their healers and killer")
+    GameTooltip:AddLine("Targets one of them - those near you first - then reads the scoreboard: white crossed sabers on their top three healers, red on their top killer. Who it targets is set out of combat. Same marks as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+  b:Hide()
+  B.bbtn = b
+  return b
+end
+
+function B.Mark()
+  if not B.On() then return NS.Print("bg: not in a battleground") end
+  if not B.ReadOrder(true) then return NS.Print("bg: %s", (B.read and B.read.note) or "the board could not be read") end
+  B.PaintAll()
+  B.ApplyMacro()
+  local names = {}
+  for _, s in ipairs(B.read.heals or {}) do names[#names + 1] = s.name end
+  NS.Print("bg: healers %s; killer %s", #names > 0 and table.concat(names, ", ") or "none",
+    B.killer and B.killer.name or "none")
+end
+
+--- Top healers and killer by the board's order. `force` = the button: sort even with the window open.
+function B.ReadOrder(force)
+  if not (SortBattlefieldScoreData and C_PvP and C_PvP.GetScoreInfo) then return false end
+  -- never sort what Arn may be looking at: the window open, OR not found at all - then we cannot
+  -- know it is closed (14 Oct: the name was wrong, it sorted every 10 s under his eyes - "annoying")
+  local open, exists = B.Board()
+  if not force and (open or not exists) then
+    if not exists then B.read = B.read or { enemies = 0, heals = {} } B.read.wait = "the scoreboard window was not found - /bist bg mark reads it, /bist bg board says why" B.read.note = B.read.wait end
+    return false
+  end
+  local now = GetTime and GetTime() or 0
+  if not force and B.lastOrder and now - B.lastOrder < B.ORDER_GAP then return false end
+  local run = yes(GetBattlefieldInstanceRunTime)
+  if type(run) == "number" and run < B.WARMUP * 1000 then
+    B.read = { enemies = 0, heals = {}, wait = "the match has only just started - marked from " .. B.WARMUP .. " s" }
+    B.read.note = B.read.wait
+    return false
+  end
+  B.lastOrder = now
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  -- a different column first: sorting the same column twice flips it, and Arn may have clicked one
+  pcall(SortBattlefieldScoreData, "name")
+  local byHeal = sortRead("healing", myFaction) or {}
+  local byKill = sortRead("kills", myFaction) or {}
+  local heals, healers = {}, {}
+  for _, s in ipairs(byHeal) do
+    if s.name and B.HEAL_CLASSES[s.class or ""] and #heals < B.TOP_HEALERS then
+      heals[#heals + 1] = s
+      healers[s.name] = #heals
+    end
+  end
+  local killer = byKill[1] and byKill[1].name and byKill[1] or nil
+  B.healers, B.killer = healers, killer
+  B.read = { enemies = #byHeal, heals = heals, killer = killer, note = "numbers hidden - read by the board's order", byOrder = true }
+  B.Remember(heals, killer)
+  return true
+end
+
 ------------------------------------------------------------------- drawing --
 
 local function plateOf(u)
@@ -144,38 +392,114 @@ local function pulse(f, low, dur)
   f.pulse = g
 end
 
---- THE SABER: a white-hot core in two soft glow layers, a dark hilt below it.
-function B.NewSaber()
-  local f = CreateFrame("Frame", nil, UIParent)
-  f:SetFrameStrata("BACKGROUND")
-  f.kind = "healer"
-  f.parts = {}
-  local W = B.SABER_W
-  for _, layer in ipairs({ { W + 10, 0.12 }, { W + 4, 0.35 }, { W, 1 } }) do
-    local t = tex(f, "ARTWORK", B.WHITE, layer[2], true)
-    t:SetPoint("TOP", f, "TOP", 0, 0)
-    t:SetPoint("BOTTOM", f, "BOTTOM", 0, 7)
-    t:SetWidth(layer[1])
-    f.parts[#f.parts + 1] = t
-  end
-  local hilt = tex(f, "OVERLAY", { 0.18, 0.18, 0.2 }, 1)
-  hilt:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
-  hilt:SetSize(W + 4, 7)
-  local band = tex(f, "OVERLAY", { 0.7, 0.72, 0.75 }, 1)
-  band:SetPoint("BOTTOM", hilt, "TOP", 0, 0)
-  band:SetSize(W + 6, 1)
-  f.hilt = hilt
-  pulse(f, 0.75, 1.2)                             -- the slow hum of a lit blade
-  return f
+--- CROSSED SABERS, an X, glowing (Arn, 14 Oct: "lets make them sabers X and glowing same for
+--- killer but red"): white on their healers, red on their killer. Each blade a white-hot core in two
+--- soft glow layers with a dark hilt, drawn as Lines (a solid texture's SetRotation turns only its
+--- image inside its box, so a thin bar cannot be tilted that way). A client without Lines: one
+--- upright blade, as before.
+B.X_W = 46                          -- the X's width before a plate sizes it; its height is B.SABER_H
+B.X_SIZE = { 30, 35 }               -- BiS Healing's tank X (FN.TANK_W, FN.TANK_H): the same X
+
+--- THE LOOKS (Arn, 14 Oct: "i also wanted different disigns not all want x"). Strokes in a box
+--- from -1 to 1 each way, scaled to the size stepper; the X and the saber wear hilts. The same five,
+--- in the same order, as BiS Healing's tank mark (Now.lua FN.LOOKS).
+B.LOOKS = {
+  { key = "x", word = "X", hilts = true, strokes = { { -1, -1, 1, 1 }, { 1, -1, -1, 1 } } },
+  { key = "saber", word = "saber", hilts = true, strokes = { { 0, -1, 0, 1 } } },
+  { key = "arrow", word = "arrow", strokes = { { -1, 1, 0, -0.3 }, { 1, 1, 0, -0.3 } } },
+  { key = "diamond", word = "diamond", strokes = { { 0, 1, 1, 0 }, { 1, 0, 0, -1 }, { 0, -1, -1, 0 }, { -1, 0, 0, 1 } } },
+  { key = "corners", word = "corners", strokes = {
+    { -1, 1, -0.45, 1 }, { -1, 1, -1, 0.45 }, { 1, 1, 0.45, 1 }, { 1, 1, 1, 0.45 },
+    { -1, -1, -0.45, -1 }, { -1, -1, -1, -0.45 }, { 1, -1, 0.45, -1 }, { 1, -1, 1, -0.45 } } },
+}
+
+--- The chosen look's place in B.LOOKS (the stepper's number), 1 = X.
+function B.LookIndex(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.look)
+  v = v and math.floor(v) or 1
+  return (v >= 1 and v <= #B.LOOKS) and v or 1
 end
 
---- THE RED GLOW for the top killer: the threat tool's glow (sides and bottom, open at the top).
-function B.NewGlow()
+-- slim (Arn, 14 Oct, the X in the crosshair: "50% smaller"): half the glow it first had
+local function blade(f, c, stroke, hilted)
+  local W = B.SABER_W
+  local bl = { stroke = stroke, lines = {} }
+  for _, layer in ipairs({ { W + 4, 0.16 }, { W + 1.5, 0.45 }, { W, 1 } }) do
+    local l = f:CreateLine(nil, "ARTWORK")
+    l:SetTexture("Interface\\Buttons\\WHITE8X8")
+    l:SetVertexColor(c[1], c[2], c[3], layer[2])
+    if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
+    l:SetThickness(layer[1])
+    l.w = layer[1]
+    f.parts[#f.parts + 1] = l
+    bl.lines[#bl.lines + 1] = l
+  end
+  if hilted then
+    local h = f:CreateLine(nil, "OVERLAY")
+    h:SetTexture("Interface\\Buttons\\WHITE8X8")
+    h:SetVertexColor(0.2, 0.2, 0.22, 1)
+    h:SetThickness(W + 2)
+    bl.hilt = h
+    f.hilts[#f.hilts + 1] = h
+  end
+  f.blades[#f.blades + 1] = bl
+end
+
+--- The strokes to a box (Arn: "like the tips of the x on the corners of the red cross hairs"). A
+--- hilted stroke runs hilt-first: its lowest sixth is the hilt, the rest the blade.
+local function fit(f, w, h)
+  local x, y = w / 2 - 2, h / 2 - 2
+  for _, bl in ipairs(f.blades) do
+    local s = bl.stroke
+    local x1, y1, x2, y2 = s[1] * x, s[2] * y, s[3] * x, s[4] * y
+    local hx, hy = x1, y1
+    if bl.hilt then
+      hx, hy = x1 + (x2 - x1) * 0.16, y1 + (y2 - y1) * 0.16
+      bl.hilt:SetStartPoint("CENTER", f, x1, y1)
+      bl.hilt:SetEndPoint("CENTER", f, hx, hy)
+    end
+    for _, l in ipairs(bl.lines) do
+      l:SetStartPoint("CENTER", f, hx, hy)
+      l:SetEndPoint("CENTER", f, x2, y2)
+    end
+  end
+end
+
+function B.NewSaber(kind, look)
+  kind = kind or "healer"
+  look = look or 1
+  local c = kind == "killer" and B.RED or B.WHITE
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f.kind, f.look = kind, look
+  f.parts, f.hilts = {}, {}
+  f.blades = {}
+  if f.CreateLine and pcall(function()
+    local L = B.LOOKS[look]
+    for _, st in ipairs(L.strokes) do blade(f, c, st, L.hilts) end
+    fit(f, B.X_W, B.SABER_H)
+  end) then
+    f.x = true
+    f.Fit = fit
+  else
+    f.parts, f.hilts = {}, {}
+    for _, layer in ipairs({ { B.SABER_W + 10, 0.12 }, { B.SABER_W + 4, 0.35 }, { B.SABER_W, 1 } }) do
+      local t = tex(f, "ARTWORK", c, layer[2], true)
+      t:SetPoint("TOP", f, "TOP", 0, 0)
+      t:SetPoint("BOTTOM", f, "BOTTOM", 0, 7)
+      t:SetWidth(layer[1])
+      f.parts[#f.parts + 1] = t
+    end
+    local hilt = tex(f, "OVERLAY", { 0.18, 0.18, 0.2 }, 1)
+    hilt:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+    hilt:SetSize(B.SABER_W + 4, 7)
+    f.hilts[1] = hilt
+  end
+  f.hilt = f.hilts[1]
+  -- the threat meter's flash, the same for both (Arn: "i want that kind of pulsing")
   local T = NS.Threat
-  local f = (T and T.NewIndicator) and T.NewIndicator("glow") or CreateFrame("Frame", nil, UIParent)
-  f.kind = "killer"
-  if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
-  if not f.pulse then pulse(f, 0.4, 0.6) end
+  pulse(f, T and T.PULSE_LOW or 0.3, T and T.PULSE_DUR or 0.5)
   return f
 end
 
@@ -186,8 +510,9 @@ function B.Undraw(u)
   f:Hide()
   f:ClearAllPoints()
   B.marks[u] = nil
-  B.pool[f.kind] = B.pool[f.kind] or {}
-  table.insert(B.pool[f.kind], f)
+  local pk = f.kind .. (f.look or 1)                -- pooled by kind AND look
+  B.pool[pk] = B.pool[pk] or {}
+  table.insert(B.pool[pk], f)
 end
 
 function B.Draw(u, kind)
@@ -196,18 +521,26 @@ function B.Draw(u, kind)
   if f then B.Undraw(u) end
   local plate = plateOf(u)
   if not plate then return nil end
-  B.pool[kind] = B.pool[kind] or {}
-  f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewGlow())
+  local look = B.LookIndex()
+  local pk = kind .. look
+  B.pool[pk] = B.pool[pk] or {}
+  f = table.remove(B.pool[pk]) or B.NewSaber(kind, look)
   f:ClearAllPoints()
-  if kind == "healer" then
-    -- upright at the plate's left, the blade running past it top and bottom
-    f:SetPoint("TOPRIGHT", plate, "TOPLEFT", -3, B.SABER_OVER)
-    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMLEFT", -3, -B.SABER_OVER)
-    f:SetWidth(B.SABER_W + 10)
+  -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
+  -- centred on the body
+  if f.x then
+    -- centred in the rival crosshair's box (Arn, 14 Oct, seeing it fill the box: "perfect now 50%
+    -- smaller"), and since the same night THE SIZE OF BiS HEALING'S TANK X (Arn: "lets make bis
+    -- tools bg the same size as these") - fixed, not a share of the plate, so the two read as one
+    local RC = NS.Recap
+    local k = B.Size() / 100
+    local w, h = math.floor(B.X_SIZE[1] * k + 0.5), math.floor(B.X_SIZE[2] * k + 0.5)
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+    f:SetSize(w, h)
+    pcall(f.Fit, f, w, h)
   else
-    f:SetPoint("TOPLEFT", plate, "TOPLEFT", -1, 1)
-    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMRIGHT", 1, -1)
-    if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+    f:SetSize(B.SABER_W + 10, B.SABER_H)
   end
   f:SetAlpha(1)
   f:Show()
@@ -272,7 +605,8 @@ end
 --- A remembered player on this plate: their record, or nil.
 function B.Recall(guid, name)
   local known = B.Known()
-  if name and known[name] then return known[name] end
+  local rec = B.Look(known, name)
+  if rec then return rec end
   if guid then
     for _, rec in pairs(known) do if rec.guid == guid then return rec end end
   end
@@ -281,16 +615,43 @@ end
 
 --- Who is on this plate: "killer", "healer" or nil - and whether that is remembered, not live.
 --- Live (this battleground's scoreboard) first; then what earlier battlegrounds taught.
+--- A plate's name, as the scoreboard writes it. Forever names have two parts ("Swig Xd"): the board
+--- has both, a plate's UnitName may give only "Swig" (14 Oct: the right healers read, NO saber).
+--- GetUnitName(u, false) carries the surname (as the rival tool learned); else the first part.
+function B.PlateName(u)
+  local full = yes(GetUnitName, u, false)
+  if type(full) == "string" and full ~= "" then return bare(full) end
+  return F.Name(u)
+end
+
+--- Look a name up in a table keyed by board names: exact, else a one-word name against the first
+--- word of each key (cost: only for a one-word name, and these tables are a match's players).
+function B.Look(tbl, name)
+  if not name then return nil end
+  if tbl[name] then return tbl[name] end
+  if name:find(" ", 1, true) then return nil end
+  for key, v in pairs(tbl) do
+    if type(key) == "string" and key:match("^(%S+)") == name then return v end
+  end
+  return nil
+end
+
+local function sameName(a, b)
+  if not (a and b) then return false end
+  if a == b then return true end
+  return a:match("^(%S+)") == b or b:match("^(%S+)") == a
+end
+
 function B.Which(u)
   local guid = yes(UnitGUID, u)
-  local name = F.Name(u)
+  local name = B.PlateName(u)
   local k = B.killer
-  if k and ((guid and k.guid == guid) or (name and k.name == name)) then return "killer" end
-  if (guid and B.healers[guid]) or (name and B.healers[name]) then return "healer" end
+  if k and ((guid and k.guid == guid) or sameName(k.name, name)) then return "killer" end
+  if (guid and B.healers[guid]) or B.Look(B.healers, name) then return "healer" end
   if not (guid or name) then return nil end
   -- the memory is for players this battleground's scoreboard has not judged yet: once the live
   -- scoreboard has them, IT decides (a healer who fell out of the top three loses the saber)
-  if (guid and B.onBoard[guid]) or (name and B.onBoard[name]) then return nil end
+  if (guid and B.onBoard[guid]) or B.Look(B.onBoard, name) then return nil end
   -- an enemy only: a remembered name on our own side is somebody we play with now
   if yes(UnitCanAttack, "player", u) ~= true then return nil end
   local rec = B.Recall(guid, name)
@@ -325,6 +686,24 @@ end
 
 function B.PaintAll() for u in pairs(B.plates) do B.Paint(u) end end
 
+--- The marks' size (% of B.X_SIZE) and lift (px up from the middle of the crosshair's box).
+function B.Size(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.size)
+  return v and math.max(50, math.min(200, v)) or 100
+end
+function B.Lift(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.lift)
+  return v and math.max(-40, math.min(40, v)) or 0
+end
+
+--- A setting changed: every mark drawn again at the new size and height.
+function B.Redraw()
+  for u in pairs(B.marks) do B.Undraw(u) end
+  B.PaintAll()
+end
+
 function B.ClearAll()
   for u in pairs(B.marks) do B.Undraw(u) end
   B.healers, B.killer = {}, nil
@@ -333,15 +712,34 @@ end
 ------------------------------------------------------------------ the loop --
 
 --- In a battleground: ask for the scoreboard now and every B.EVERY seconds. Out of one: stop.
+--- The match, kept across a /reload (Arn, 14 Oct: "fix the reload double count" - a reload is a
+--- fresh load, and every healer was counted twice). A match = its zone + when it started (now -
+--- the run time), within a minute. The same match: its "already counted" list comes back.
+function B.SameMatch()
+  local db = R:DBFor(R:Get("bg"))
+  local run = yes(GetBattlefieldInstanceRunTime)
+  local start = (type(run) == "number" and run > 0) and ((time and time() or 0) - math.floor(run / 1000)) or nil
+  local zone = yes(GetRealZoneText)
+  local m = db.match
+  if start and type(m) == "table" and m.zone == zone and type(m.start) == "number"
+     and math.abs(m.start - start) < 60 and type(m.counted) == "table" then
+    return m.counted
+  end
+  local counted = {}
+  db.match = start and { zone = zone, start = start, counted = counted } or nil
+  return counted
+end
+
 function B.Watch()
   local ok, inside, kind = pcall(IsInInstance)
   local was = B.inBG
   -- a battleground only: an arena is 2v2/3v3, nobody needs a scoreboard to find the healer there
   B.inBG = ok and plain(inside) == true and plain(kind) == "pvp"
   if B.inBG and not was then
-    B.counted = {}                    -- a new battleground: everyone may be counted once again
+    B.counted = B.SameMatch()         -- a new battleground: everyone may be counted once again
     B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
     B.onBoard = {}
+    B.ended = nil
     B.Prune()
   end
   if B.On() then
@@ -362,17 +760,31 @@ end
 function B.OnScores()
   if not B.On() then return end
   local scores, note = B.Scores()
-  B.healers, B.killer = B.Pick(scores)
-  B.read.note = note
   for _, sc in ipairs(scores) do
     if sc.enemy then
       if sc.guid then B.onBoard[sc.guid] = true end
       if sc.name then B.onBoard[sc.name] = true end
     end
   end
-  B.Remember(B.read.heals or {}, B.killer)
+  if note then
+    -- hidden numbers (Forever, mid-match): by the board's order instead; between reads the last stays
+    if not B.ReadOrder() and not (B.read and B.read.byOrder) then
+      B.healers, B.killer = {}, nil
+      local enemies = 0
+      for _, sc in ipairs(scores) do if sc.enemy then enemies = enemies + 1 end end
+      B.read = { enemies = enemies, heals = {}, note = (B.read and B.read.wait) or note }
+    end
+  else
+    B.healers, B.killer = B.Pick(scores)
+    B.Remember(B.read.heals or {}, B.killer)
+  end
   B.PaintAll()
+  B.ApplyMacro()
+  B.Button()
 end
+-- (The match-end probe that stood here, 14 Oct, answered its question - the board DOES unlock when
+-- a match ends, and B.OnScores reads it then - and came out before 0.7.0: it printed a scoreboard
+-- row at the end of every battleground.)
 
 function B.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_ADDED" then
@@ -383,13 +795,15 @@ function B.OnEvent(_, event, unit)
     B.OnScores()
   elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
     B.Watch()
+  elseif event == "PLAYER_REGEN_ENABLED" then
+    if B.On() then B.ApplyMacro() end
   end
 end
 
 -- registered at load, never from a timer; an event this client does not know is pcalled
 B.frame = CreateFrame("Frame")
 for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UPDATE_BATTLEFIELD_SCORE",
-                     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" }) do
+                     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "PLAYER_REGEN_ENABLED" }) do
   pcall(B.frame.RegisterEvent, B.frame, e)
 end
 B.frame:SetScript("OnEvent", B.OnEvent)
@@ -403,16 +817,93 @@ function B.Why()
   local heals = {}
   for i, s in ipairs(r.heals or {}) do
     if i > B.TOP_HEALERS then break end
-    heals[#heals + 1] = ("%s %s"):format(tostring(s.name or "?"), tostring(s.heal))
+    heals[#heals + 1] = ("%s %s"):format(tostring(s.name or "?"), s.heal and tostring(s.heal) or ("#" .. i))
   end
   DEFAULT_CHAT_FRAME:AddMessage("  enemies on the scoreboard: " .. tostring(r.enemies or 0)
     .. (r.note and ("  (" .. r.note .. ")") or ""))
   DEFAULT_CHAT_FRAME:AddMessage("  top healers (saber): " .. (#heals > 0 and table.concat(heals, ", ") or "none read"))
-  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red glow): " .. (r.killer and ("%s, %d killing blows"):format(
-    tostring(r.killer.name or "?"), r.killer.kb or 0) or "none read"))
+  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red crosshair): " .. (r.killer and (r.killer.kb
+    and ("%s, %d killing blows"):format(tostring(r.killer.name or "?"), r.killer.kb)
+    or (tostring(r.killer.name or "?") .. ", most killing blows")) or "none read"))
   local marked, recalled = 0, 0
   for _, f in pairs(B.marks) do marked = marked + 1 if f.remembered then recalled = recalled + 1 end end
   DEFAULT_CHAT_FRAME:AddMessage(("  marked on screen now: %d (%d remembered from earlier battlegrounds)"):format(marked, recalled))
+  if yes(UnitExists, "target") == true then
+    local kind, rem = B.Which("target")
+    DEFAULT_CHAT_FRAME:AddMessage(("  your target reads as \"%s\" (plate %s): %s"):format(tostring(B.PlateName("target") or "?"),
+      tostring(yes(UnitName, "target") or "?"), kind and (kind .. (rem and ", remembered" or "")) or "not marked"))
+  end
+end
+
+--- /bist bg raw: ONE enemy row of the scoreboard, every field as the game hands it over - a value,
+--- or HIDDEN. Arn's first battleground, 14 Oct: "30 row(s) with the numbers hidden" - and a missing
+--- field (Forever naming it differently) and a hidden one read alike in B.Scores. This tells them
+--- apart, and shows what the old positional GetBattlefieldScore answers for the same row.
+function B.Raw()
+  local G = C_PvP and C_PvP.GetScoreInfo
+  local n = yes(GetNumBattlefieldScores) or 0
+  if not (G and type(n) == "number" and n > 0) then return NS.Print("bg raw: no scoreboard rows (in a battleground? /bist bg why)") end
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  local pick, info
+  for i = 1, n do
+    local ok, row = pcall(G, i)
+    if ok and type(row) == "table" then
+      local f = field(row, "faction")
+      if pick == nil or (type(f) == "number" and f ~= myFaction) then pick, info = i, row end
+      if type(f) == "number" and f ~= myFaction then break end
+    end
+  end
+  if not info then return NS.Print("bg raw: C_PvP.GetScoreInfo gave no table for any of %d rows", n) end
+  local function show(v)
+    local okS, s = pcall(issecretvalue or function() return false end, v)
+    if not okS or s then return "HIDDEN" end
+    if type(v) == "table" then return "{table}" end
+    return tostring(v)
+  end
+  local keys = {}
+  local okP = pcall(function() for k in pairs(info) do keys[#keys + 1] = tostring(k) end end)
+  table.sort(keys)
+  NS.Print("bg raw: scoreboard row %d of %d, C_PvP.GetScoreInfo%s:", pick, n, okP and "" or " (its keys could not be listed)")
+  local line = {}
+  for _, k in ipairs(keys) do
+    local okV, v = pcall(function() return info[k] end)
+    line[#line + 1] = k .. "=" .. (okV and show(v) or "refused")
+    if #line == 6 then DEFAULT_CHAT_FRAME:AddMessage("  " .. table.concat(line, "  ")) line = {} end
+  end
+  if #line > 0 then DEFAULT_CHAT_FRAME:AddMessage("  " .. table.concat(line, "  ")) end
+  if GetBattlefieldScore then
+    local res = { pcall(GetBattlefieldScore, pick) }
+    local out = {}
+    for i = 2, math.min(#res, 17) do out[#out + 1] = (i - 1) .. ":" .. show(res[i]) end
+    DEFAULT_CHAT_FRAME:AddMessage("  GetBattlefieldScore(" .. pick .. "): " .. (res[1] and table.concat(out, " ") or "refused"))
+  end
+end
+
+--- PROBE /bist bg sort [healing|kills|...]: Arn's idea, 14 Oct - "what about we can click the top
+--- heals". The numbers are hidden, the names are not: ask the game to SORT the board by a column,
+--- then read the names in row order. Printed now and again a second later, enemies marked "E".
+function B.SortProbe(col)
+  col = (col and col ~= "") and col or "healing"
+  if not SortBattlefieldScoreData then return NS.Print("bg sort: this client has no SortBattlefieldScoreData") end
+  local okS, err = pcall(SortBattlefieldScoreData, col)
+  if not okS then return NS.Print("bg sort: refused (%s)", tostring(err)) end
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  local function list(when)
+    local G = C_PvP and C_PvP.GetScoreInfo
+    local n = yes(GetNumBattlefieldScores) or 0
+    local out = {}
+    for i = 1, math.min(type(n) == "number" and n or 0, 10) do
+      local ok, row = pcall(G, i)
+      local name = ok and type(row) == "table" and plain(field(row, "name"))
+      local f = ok and type(row) == "table" and field(row, "faction")
+      out[#out + 1] = i .. "." .. tostring(name or "?") .. ((type(f) == "number" and f ~= myFaction) and " E" or "")
+    end
+    NS.Print("bg sort %s, %s: %s", col, when, table.concat(out, ", "))
+  end
+  list("now")
+  C_Timer.After(1, function() list("1 s later") end)
 end
 
 --- The memory, read out: how many healers and dangerous players it knows.
@@ -428,9 +919,28 @@ end
 
 R:Register({
   name = "bg",
-  desc = "battlegrounds: a saber on their top 3 healers, a red glow on their top killer",
-  usage = "/bist bg [why | forget <name> | clear]",
+  desc = "battlegrounds: crossed sabers on their top 3 healers (white) and top killer (red)",
+  usage = "/bist bg [why | mark | forget <name> | clear]",
   defaults = { known = {} },
+  -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
+  options = {
+    -- a stepper through names (Arn: "not all want x")
+    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond or corners.", min = 1, max = #B.LOOKS, step = 1,
+      get = function(db) return B.LookIndex(db) end,
+      set = function(db, v) db.look = v B.Redraw() end,
+      show = function(db) return B.LOOKS[B.LookIndex(db)].word end },
+    { kind = "step", label = "mark size", help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
+      get = function(db) return B.Size(db) end,
+      set = function(db, v) db.size = v B.Redraw() end,
+      show = function(db) return B.Size(db) .. "%" end },
+    { kind = "step", label = "mark height", help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
+      get = function(db) return B.Lift(db) end,
+      set = function(db, v) db.lift = v B.Redraw() end,
+      show = function(db)
+        local v = B.Lift(db)
+        return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+      end },
+  },
   OnInit = function() end,
   OnLogin = function() B.Watch() end,
   OnEnable = function() B.Watch() end,
@@ -447,6 +957,11 @@ R:Register({
       B.PaintAll()
       return NS.Print("bg: %s forgotten", key)
     end
+    if args:lower() == "raw" then return B.Raw() end
+    if args:lower() == "board" then return B.BoardWhy() end
+    if args:lower() == "mark" then return B.Mark() end
+    local col = args:lower():match("^sort%s*(%S*)$")
+    if col then return B.SortProbe(col) end
     if args:lower() == "clear" then
       local db = R:DBFor(R:Get("bg"))
       db.known = {}

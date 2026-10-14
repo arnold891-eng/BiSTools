@@ -248,11 +248,11 @@ end
 -- the Hub's own options, listed under "tools"
 function H.OwnOptions()
   return {
-    { kind = "toggle", label = "minimap button", get = function() return H.DB().minimap ~= false end,
+    { kind = "toggle", label = "minimap button", help = "Show the BiS Tools button on the minimap. Off hides it; /bist still opens everything.", get = function() return H.DB().minimap ~= false end,
       set = function(_, on) H.DB().minimap = on and true or false H.ApplyMinimap() end },
-    { kind = "toggle", label = "BiS channel (/biscomm)", get = function() local l = _G.LibBiSComm return l and l:Enabled() end,
+    { kind = "toggle", label = "BiS channel (/biscomm)", help = "Lets BiS addons talk to each other's copies in your group and guild (summon facts, rivals the guild shares). Off: you hear nothing and say nothing.", get = function() local l = _G.LibBiSComm return l and l:Enabled() end,
       set = function(_, on) local l = _G.LibBiSComm if l then l:SetEnabled(on and true or false) end end },
-    { kind = "button", label = "reset window positions", button = "reset", action = function() H.ResetPositions() end },
+    { kind = "button", label = "reset window positions", help = "Puts every BiS Tools window back in the middle of the screen, if one was dragged out of reach.", button = "reset", action = function() H.ResetPositions() end },
   }
 end
 

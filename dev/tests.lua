@@ -287,6 +287,24 @@ _G.CreateFrame = function(kind, name, parent, template)
     self.scripts[k] = prev and function(...) prev(...) return fn(...) end or fn
   end
   function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
+  -- a Line (the bg tool's crossed sabers): a texture with two ends and a thickness
+  function f:CreateLine()
+    local l = Texture()
+    function l:SetVertexColor(r, g, b, a)
+      if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then error("SetVertexColor wants r,g,b numbers") end
+      self.color = { r, g, b, a or 1 }
+    end
+    function l:SetThickness(w) if type(w) ~= "number" then error("SetThickness wants a number") end self.w = w end
+    function l:SetStartPoint(p, rel, x, y)
+      if type(p) ~= "string" or type(x) ~= "number" or type(y) ~= "number" then error("SetStartPoint(point, rel, x, y)") end
+      self.from = { x, y }
+    end
+    function l:SetEndPoint(p, rel, x, y)
+      if type(p) ~= "string" or type(x) ~= "number" or type(y) ~= "number" then error("SetEndPoint(point, rel, x, y)") end
+      self.to = { x, y }
+    end
+    return l
+  end
   function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
   function f:SetHeight(h) self.h = h end
@@ -953,7 +971,7 @@ lib.sendGap = 0
 do local listed = false for _, f in ipairs(files) do if f == "Libs/BiSTheme/Options.lua" then listed = true end end
   ok(listed, "the TOC lists Libs/BiSTheme/Options.lua (the client loads it from here, not from the BiSTheme addon)") end
 ok(type(BiSTheme.Options) == "function", "BiSTheme.Options is defined after the TOC load")
-ok(BiSTheme.OPTIONS_MINOR == 2, "options kit minor 2 (Escape closes): " .. tostring(BiSTheme.OPTIONS_MINOR))
+ok(BiSTheme.OPTIONS_MINOR == 3, "options kit minor 3 (windows dodge each other): " .. tostring(BiSTheme.OPTIONS_MINOR))
 ok(_G.SLASH_BISCOMM1 == "/biscomm", "minor 4 gave /bis back to LoonBestInSlot; the lib is /biscomm")
 for k, v in pairs(_G) do if type(k) == "string" and k:match("^SLASH_") then ok(v ~= "/bis", k .. " must not take /bis (LoonBestInSlot owns it)") end end
 -- version: the TOC's, never a literal (RegisterAddon announces it to the whole raid)
@@ -1799,10 +1817,26 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (0) -> 7 headers + 26 rows
-  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
-  ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (3) -> 7 headers + 29 rows
+  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
+  -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
+  ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
+  -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): hover a setting, the bottom says what it does
+  local hb = opt.helpBox
+  ok(hb and hb.shown ~= false and hb.h and hb.h >= BiSTheme.OPTIONS.HELP_MIN, "the window carries a help strip at the bottom")
+  local spot = find("spot radius")
+  spot.scripts.OnEnter(spot)
+  ok(hb.text.text:find("spawn spot", 1, true) and hb.title.text:find("spot radius", 1, true), "hovering a setting says what it does", hb.text.text)
+  local kids = spot.GetChildren and { spot:GetChildren() } or {}
+  if kids[1] and kids[1].scripts.OnEnter then
+    find("burst window").scripts.OnEnter(find("burst window"))
+    kids[1].scripts.OnEnter(kids[1])
+    ok(hb.text.text:find("spawn spot", 1, true), "and so does hovering its own buttons")
+  end
+  local undocumented = {}
+  for _, r in ipairs(opt.rows) do if r.opt and not r.opt.help then undocumented[#undocumented + 1] = r.opt.label end end
+  ok(#undocumented == 0, "every BiS Tools setting has its help written", table.concat(undocumented, ", "))
   -- every option label fits its lane (controls take the right 110 px)
   for _, r in ipairs(opt.rows) do if r.name then ok(r.name:GetStringWidth() <= H.OPT_W - 12 - 110, "option label fits: " .. tostring(r.name.text)) end end
   -- a section header's box toggles the tool
@@ -2814,6 +2848,13 @@ do
   S("recap rivals")
   local listed = table.concat(said2, "\n")
   ok(listed:find("Hunting Moms", 1, true) and listed:find("killed you 1 more time", 1, true), "/bist recap rivals lists them")
+  -- the short words (Arn: "dont need to write to command all the time"): /bist rivals is the same
+  said2 = {}
+  S("rivals")
+  ok(table.concat(said2, "\n"):find("Hunting Moms", 1, true), "/bist rivals lists them too")
+  said2 = {}
+  S("pals")
+  ok(table.concat(said2, "\n"):find("no pals yet", 1, true), "/bist pals: none yet, and how to add one")
   S("recap forget hunting moms")
   ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
@@ -2902,6 +2943,122 @@ do
      and mk.point[1] == "TOP" and mk.point[3] == "BOTTOM",
      "a gold rival's nameplate wears the crosshair, hanging under the plate")
   ok(mk.w == 90 and mk.h == RC.MARK_H, "half the plate's width (Arn: \"tighten it up 50%\"), centred", mk.w)
+  -- A SHARED FIRST NAME IS NOT THE RIVAL (Arn, 14 Oct: "terry daviss is marked as rival because there
+  -- is a terry lin alliance")
+  do
+    local keepGUN = _G.GetUnitName
+    plates.nameplate9 = CreateFrame("Frame", nil, nil)
+    W.plates.nameplate9 = { name = "Hunting", guid = rivals["Hunting Moms"].guid }
+    _G.GetUnitName = function(u) if u == "nameplate9" then return "Hunting Daviss" end end
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "the plate's whole name is somebody else's: no crosshair")
+    _G.GetUnitName = keepGUN
+    W.plates.nameplate9 = { name = "Hunting", guid = "Player-1-SOMEONEELSE" }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "one word only, but another player's GUID: no crosshair")
+    _G.GetUnitName = function(u) if u == "nameplate9" then return "Hunting Moms" end end
+    W.plates.nameplate9 = { name = "Hunting", guid = rivals["Hunting Moms"].guid }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 and RC.marks.nameplate9.rival == "Hunting Moms", "the rival's own whole name and GUID: the crosshair")
+    -- A PAL IS NEVER A RIVAL (Arn: "there should be a check if its friendly target not a rival but a
+    -- pal - enemy hostile player rival")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
+    W.plates.nameplate9.hostile = false
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "a friendly player, even by the rival's own name: no crosshair")
+    local keepT = W.target
+    W.target = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
+    RC.RivalFromTarget(rdb2)
+    ok(rivals["Pal Guy"] == nil, "a friendly target is never added as a rival")
+    local root = { lines = {} }
+    function root:CreateButton(t) self.lines[#self.lines + 1] = t end
+    RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
+    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
+       "the right-click menu offers 'add pal' on them, never 'add rival'", RC.menuDecision)
+    -- PALS (Arn: "a freindly list too ... puts a tiny little heart green ... only works out of combat")
+    local pals = RC.Pals(rdb2)
+    root.click = nil
+    function root:CreateButton(t, fn) self.lines[#self.lines + 1] = t self.click = fn end
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
+    root.click()
+    ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    plates.nameplate10 = CreateFrame("Frame", nil, nil)
+    W.plates.nameplate10 = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    local heart = RC.hearts.nameplate10
+    ok(heart and heart.shown and heart.point and heart.point[1] == "BOTTOM" and heart.point[3] == "TOP",
+       "a pal's nameplate: a little heart over it")
+    ok(heart.parts == nil or (heart.parts[2].color[2] > 0.9 and heart.parts[2].color[1] < 0.4), "green")
+    RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
+    ok(RC.hearts.nameplate10 == nil, "a fight starts: the hearts come down")
+    local keepLock = _G.InCombatLockdown
+    _G.InCombatLockdown = function() return true end
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(RC.hearts.nameplate10 == nil, "and none goes up mid-fight")
+    _G.InCombatLockdown = keepLock
+    RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+    ok(RC.hearts.nameplate10 ~= nil, "the fight over: back")
+    W.plates.nameplate11 = { name = "Pal", player = true, hostile = false, guid = "Player-1-OTHERPAL" }
+    plates.nameplate11 = CreateFrame("Frame", nil, nil)
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate11")
+    ok(RC.hearts.nameplate11 == nil, "another player sharing the first word: no heart")
+    -- /bist recap pal on the target: off again
+    RC.PalFromTarget(rdb2)
+    ok(pals["Pal Guy"] == nil and RC.hearts.nameplate10 == nil, "/bist recap pal on a pal: no longer one, the heart gone")
+    W.target = { name = "Enemy Guy", player = true, guid = "Player-1-ENEMY" }
+    RC.PalFromTarget(rdb2)
+    ok(pals["Enemy Guy"] == nil, "an enemy is never a pal")
+    for _, u in ipairs({ "nameplate10", "nameplate11" }) do
+      RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", u)
+      W.plates[u], plates[u] = nil, nil
+    end
+    -- A WHOLE SURNAME (Arn: "a special command for pals and rivals, that adds everyone with the
+    -- Foreverpvp surname"): enemies wearing it are rivals, friends pals
+    do
+      local keepG = _G.GetUnitName
+      local whole = { nameplate12 = "Kutsu Foreverpvp", nameplate13 = "Darof Foreverpvp",
+                      nameplate14 = "Abba Foreverpvp", nameplate15 = "Kutsu Otherguy" }
+      _G.GetUnitName = function(u) return whole[u] end
+      W.plates.nameplate12 = { name = "Kutsu", player = true, guid = "Player-1-K" }
+      W.plates.nameplate13 = { name = "Darof", player = true, guid = "Player-1-D" }
+      W.plates.nameplate14 = { name = "Abba", player = true, hostile = false, guid = "Player-1-A" }
+      W.plates.nameplate15 = { name = "Kutsu", player = true, guid = "Player-1-O" }
+      for u in pairs(whole) do plates[u] = CreateFrame("Frame", nil, nil) end
+      S("surname Foreverpvp")
+      ok(RC.Surnames(rdb2).foreverpvp == "Foreverpvp", "/bist surname Foreverpvp keeps it")
+      local sounds0 = #W.sounds
+      W.now = W.now + RC.ALERT_GAP + 1
+      for _, u in ipairs({ "nameplate12", "nameplate13", "nameplate14", "nameplate15" }) do
+        RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", u)
+      end
+      ok(RC.crowns.nameplate12 and RC.crowns.nameplate13 and RC.marks.nameplate12 == nil,
+         "every enemy wearing it: the gold crown (Arn: \"a champion competition looking thing\"), not a crosshair")
+      local cr = RC.crowns.nameplate12
+      ok(cr.point and cr.point[1] == "BOTTOM" and cr.point[3] == "TOP" and cr.parts and cr.parts[2].color[1] == 1
+         and cr.parts[2].color[3] < 0.4, "over the plate, gold")
+      ok(#W.sounds == sounds0 + 1, "but one call-out a minute for the whole surname, not one per player", #W.sounds - sounds0)
+      ok(RC.crowns.nameplate14 and RC.crowns.nameplate14.friend and RC.hearts.nameplate14 == nil and RC.marks.nameplate14 == nil,
+         "a friend wearing it: the crown too, never a heart or a crosshair")
+      ok(RC.crowns.nameplate15 == nil and RC.marks.nameplate15 == nil, "a different surname: nothing")
+      RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
+      ok(RC.crowns.nameplate14 == nil and RC.crowns.nameplate12 ~= nil, "a fight: a friend's crown comes down, an enemy's stays")
+      RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_ENABLED")
+      ok(RC.crowns.nameplate14 ~= nil, "and comes back after")
+      S("surname foreverpvp")
+      ok(RC.Surnames(rdb2).foreverpvp == nil and RC.crowns.nameplate12 == nil and RC.crowns.nameplate14 == nil,
+         "the same again lets it go - crosshairs and hearts down")
+      for u in pairs(whole) do
+        RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", u)
+        W.plates[u], plates[u] = nil, nil
+      end
+      _G.GetUnitName = keepG
+    end
+    W.target = keepT
+    _G.GetUnitName = keepGUN
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
+    W.plates.nameplate9, plates.nameplate9 = nil, nil
+  end
   -- Arn's shape: a rail down each side of the body, a tick in at the middle of each
   ok(#mk.parts == 4 and mk.leftRail.h == RC.MARK_H and mk.rightRail.h == RC.MARK_H
      and mk.leftTick.anchor[1] == "LEFT" and mk.rightTick.anchor[1] == "RIGHT"
@@ -3290,6 +3447,25 @@ do
     W.target = nil
     S("recap rival")
     ok(next(rivals) == nil or rivals["Grape Sprite"] == nil, "no target: nothing added")
+    -- for THIS match only (Arn: "it resets at the end of the bg - dont want a rival list that's 10000
+    -- names long"); rivals from the world stay
+    rivals["World Foe"] = { added = 1, kills = 2, active = true }
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    S("recap rival")
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].bg == true, "added inside a battleground: marked for this match")
+    for _ = 1, RC.KEEP_AFTER - 1 do RC.KilledBy(nil, rivals["Grape Sprite"], "Grape Sprite") end
+    ok(rivals["Grape Sprite"].bg == true, (RC.KEEP_AFTER - 1) .. " kills: still for this match only")
+    rivals["Bully Boy"] = { added = 1, kills = 0, active = true, bg = true }
+    for _ = 1, RC.KEEP_AFTER do RC.KilledBy(nil, rivals["Bully Boy"], "Bully Boy") end
+    ok(rivals["Bully Boy"].bg == nil, RC.KEEP_AFTER .. " kills in the match: kept for good")
+    fireAll("PLAYER_ENTERING_WORLD")
+    ok(rivals["Grape Sprite"], "a /reload inside the battleground keeps them")
+    inside = false
+    fireAll("PLAYER_ENTERING_WORLD")
+    ok(rivals["Grape Sprite"] == nil and rivals["World Foe"] and rivals["World Foe"].kills == 2,
+       "out of the battleground: its rivals let go, the world's kept")
+    ok(rivals["Bully Boy"] and rivals["Bully Boy"].kills == RC.KEEP_AFTER, "and the one who farmed you stays")
+    rivals["World Foe"], rivals["Bully Boy"] = nil, nil
     -- outside an instance the menu line works as before
     inside = false
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
@@ -3486,7 +3662,9 @@ do
   W.notices, W.sounds = {}, {}
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
   local mate = RC.mates.nameplate6
-  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal +")
+  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal mark")
+  -- the crest (Arn: "some type of clan icon ... there should be respect at least in the icon")
+  ok(mate.crest and #mate.parts == #RC.CREST * 2 and mate.h == 13, "and it is the guild crest: a shield with a chevron")
   ok(#W.notices == 0 and #W.sounds == 0, "with no noise at all")
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate6")
   ok(RC.mates.nameplate6 == nil and not mate.shown, "their plate goes: so does the +")
@@ -3690,6 +3868,27 @@ do
   ok(w2:find("last thanked: ", 1, true) and w2:find("Mediumroar", 1, true) and w2:find("did not say who", 1, true),
      "why keeps the last one thanked apart from the last buff seen", w2)
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  -- A TICKING TIMER SAYS NOTHING (Arn, 14 Oct: Blessing of Kings landed, and why said "nothing new on
+  -- you" - the answer about the buff overwritten by the next aura change)
+  local whyBefore = Sc.lastWhy
+  fire({ isFullUpdate = false })
+  fire({ updatedAuraInstanceIDs = {} })
+  ok(Sc.lastWhy == whyBefore, "an aura change with nothing landed leaves the last answer standing", Sc.lastWhy)
+  -- A RECAST: the buff you wore, back at its full duration - an update, thanked like a new one
+  local keepUA = _G.C_UnitAuras
+  local auras = {
+    [77] = { isHelpful = true, sourceUnit = "mouseover", duration = 3600, expirationTime = W.now + 3600 },  -- just recast
+    [78] = { isHelpful = true, sourceUnit = "target", duration = 3600, expirationTime = W.now + 1200 },     -- ticking
+  }
+  _G.C_UnitAuras = { GetAuraDataByAuraInstanceID = function(_, id) return auras[id] end }
+  Sc.next, Sc.thanked = nil, {}
+  units.mouseover = { name = "Kingsgiver", player = true }
+  local before = #emoted
+  fire({ updatedAuraInstanceIDs = { 78 } })
+  ok(#emoted == before, "a buff whose timer merely ticks: no emote")
+  fire({ updatedAuraInstanceIDs = { 77 } })
+  ok(#emoted == before + 1 and emoted[#emoted].who == "Kingsgiver", "a buff recast on you (full duration again): thanked")
+  _G.C_UnitAuras = keepUA
   -- LEAN: everyone else's auras change constantly; that costs one string compare
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n = Cost.Count(function() for i = 1, 500 do Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "raid" .. (i % 25 + 1), buff("target")) end end)
@@ -4251,23 +4450,29 @@ do
   W.tick()
   ok(asked == 2, "the ticker asks again")
   ev("UPDATE_BATTLEFIELD_SCORE")
-  ok(mark("B") and mark("B").kind == "killer", "their top killer (9 killing blows): the red glow")
+  ok(mark("B") and mark("B").kind == "killer", "their top killer (9 killing blows): the red crosshair")
   ok(mark("A") and mark("A").kind == "healer" and mark("C") and mark("C").kind == "healer",
      "their top healers: the saber")
   ok(mark("F") == nil and mark("D") == nil, "only the top three heals count (Shocka is #2 and the killer - the glow wins)")
   ok(mark("E") == nil, "never one of ours, however much they heal")
-  -- the saber's shape: a white-hot core in glow layers, a hilt, at the plate's left, humming
+  -- the saber's shape: a white-hot core in glow layers, a hilt, under the plate on the body, humming
   local s = mark("A")
-  ok(#s.parts == 3 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "a core in two glow layers")
+  ok(s.x and #s.parts == 6 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "two blades, each a core in two glow layers")
   local core = s.parts[3].color
   ok(core[1] > 0.9 and core[2] > 0.9 and core[3] == 1 and core[4] == 1, "the core neon white, solid")
   ok(s.parts[1].color[4] < s.parts[2].color[4], "the outer glow fainter than the inner")
-  ok(s.hilt and s.point and s.point[1] == "BOTTOMRIGHT" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOMLEFT",
-     "upright at the plate's left")
+  local b1, b2 = s.parts[3], s.parts[6]
+  ok(b1.to[1] > 0 and b2.to[1] < 0 and b1.to[2] > 0 and b2.to[2] > 0 and b1.from[1] < 0 and b2.from[1] > 0,
+     "crossed: one blade leans right, the other left - an X")
+  ok(#s.hilts == 2, "a hilt on each")
+  ok(s.point and s.point[1] == "CENTER" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
+     and s.point[5] == -2 - NS.Recap.MARK_H / 2 and s.w == BG.X_SIZE[1] and s.h == BG.X_SIZE[2],
+     "on them: centred where the rival crosshair's middle is, BiS Healing's tank X size")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
-  ok(g.parts and #g.parts == 6 and g.parts[1].color[1] == 1 and g.parts[1].color[2] < 0.2,
-     "the killer's glow: red, the threat glow's U - sides and bottom, open at the top")
+  ok(g.kind == "killer" and g.x and g.parts[3].color[1] == 1 and g.parts[3].color[2] < 0.2 and g.point and g.point[1] == "CENTER",
+     "the killer: the same crossed sabers, red, on them")
+  ok(g.pulse and g.pulse:IsPlaying(), "humming")
   -- a name the game hides on the plate: the GUID still matches
   W.plates[unitOf("C")].name = nil
   BG.Undraw(unitOf("C"))
@@ -4288,10 +4493,24 @@ do
   DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
   ev("UPDATE_BATTLEFIELD_SCORE")
   S("bg why")
+  -- raw: one enemy row, every field as given - a hidden one says HIDDEN, never a guess
+  rows[1].healingDone = SECRET
+  local from = #said + 1
+  S("bg raw")
+  rows[1].healingDone = 90000
+  local rawText = table.concat(said, "\n", from)
+  ok(rawText:find("healingDone=HIDDEN", 1, true) and rawText:find("killingBlows=", 1, true)
+     and rawText:find("name=", 1, true), "/bist bg raw prints an enemy row's fields, hidden as HIDDEN", rawText)
+  -- the match-end probe is gone (0.7.0): a finished match prints nothing by itself
+  local before = #said
+  _G.GetBattlefieldWinner = function() return 1 end
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(#said == before, "a match ending says nothing in chat - no probe left behind")
+  _G.GetBattlefieldWinner = nil
   DEFAULT_CHAT_FRAME.AddMessage = keepChat
   local all = table.concat(said, "\n")
   ok(all:find("top healers (saber): Fourth 100000, Heala 90000, Shocka 60000", 1, true)
-     and all:find("top killer (red glow): Shocka, 9 killing blows", 1, true), "/bist bg why reads out what it saw", all)
+     and all:find("top killer (red crosshair): Shocka, 9 killing blows", 1, true), "/bist bg why reads out what it saw", all)
   -- COST: one scoreboard update, six players, six plates. Measured 64 (~10 a player: the row, a
   -- "hidden?" for each field, and the plate's GUID and name). A full 40-player battleground is ~400
   -- every 10 s - about 40 a second. Budget 80.
@@ -4317,7 +4536,7 @@ do
   for k in pairs(who) do ev("NAME_PLATE_UNIT_REMOVED", unitOf(k)) ev("NAME_PLATE_UNIT_ADDED", unitOf(k)) end
   ok(mark("A") and mark("A").kind == "healer" and mark("A").remembered and mark("A").alpha == BG.REMEMBERED_ALPHA
      and not mark("A").pulse:IsPlaying(), "a known healer is marked the moment their plate appears - dimmer, steady")
-  ok(mark("B") and mark("B").kind == "killer" and mark("B").remembered, "and the known dangerous one wears the red glow")
+  ok(mark("B") and mark("B").kind == "killer" and mark("B").remembered, "and the known dangerous one wears the red crosshair")
   ok(mark("D") == nil and mark("E") == nil, "not the unknown, not ours")
   ev("UPDATE_BATTLEFIELD_SCORE")
   ok(mark("A") and not mark("A").remembered and mark("A").alpha == 1 and mark("A").pulse:IsPlaying(),
@@ -4337,6 +4556,171 @@ do
   ok(count == BG.KEEP and BG.Known().P1 and not BG.Known()["P" .. (BG.KEEP + 20)],
      "never more than " .. BG.KEEP .. " - the longest unseen go first")
   S("bg clear")
+  -- FOREVER: every number hidden mid-match (Arn's /bist bg raw, 14 Oct). Arn: "what about we can click
+  -- the top heals" - the game still SORTS by a hidden column; the names come back in that order.
+  do
+    local truth = {   -- what the sort sees; the addon never does
+      { name = "Heala",   g = "A", class = "PRIEST",  h = 90000,  k = 1 },
+      { name = "Shocka",  g = "B", class = "SHAMAN",  h = 60000,  k = 9 },
+      { name = "Mendy",   g = "C", class = "DRUID",   h = 30000,  k = 0 },
+      { name = "Bandaid", g = "D", class = "WARRIOR", h = 999999, k = 2 },  -- first-aid spam: not a healer class
+      { name = "Fourth",  g = "F", class = "PALADIN", h = 20000,  k = 0 },
+      { name = "Ourhealer", g = "E", class = "PRIEST", h = 200000, k = 20, ours = true },
+    }
+    local sorts = {}
+    local function fill()
+      for i, t in ipairs(truth) do
+        rows[i] = { name = t.name, guid = SECRET, faction = t.ours and 1 or 0, classToken = t.class,
+                    healingDone = SECRET, killingBlows = SECRET }
+      end
+    end
+    fill()
+    _G.SortBattlefieldScoreData = function(col)
+      sorts[#sorts + 1] = col
+      local key = col == "healing" and "h" or (col == "kills" and "k") or nil
+      table.sort(truth, function(a, b) if key then return a[key] > b[key] end return a.name < b.name end)
+      fill()
+    end
+    local run = 300000
+    _G.GetBattlefieldInstanceRunTime = function() return run end
+    -- no scoreboard window found: we cannot know it is closed, so no sort on our own
+    W.now = (W.now or 0) + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == 0 and BG.read.note:find("not found", 1, true), "the window cannot be found: never sorts on its own, and why says so")
+    local board = CreateFrame("Frame", "PVPMatchScoreboard", UIParent)
+    _G.PVPMatchScoreboard = board
+    board:Hide()
+    W.now = (W.now or 0) + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(sorts[1] == "name" and sorts[2] == "healing" and sorts[3] == "kills",
+       "hidden numbers: sorted by name first (so healing never flips), then healing, then kills", table.concat(sorts, ","))
+    ok(BG.healers.Heala == 1 and BG.healers.Shocka == 2 and BG.healers.Mendy == 3 and BG.healers.Bandaid == nil,
+       "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
+    ok(BG.killer and BG.killer.name == "Shocka", "the red crosshair: the first enemy in kills order - never one of ours")
+    ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    -- the same "mark" in the BiS> tools box (Arn: "add that scoreboard button to the bis tools")
+    do
+      local function boxShows()
+        for _, e in ipairs(NS.Box.Buttons()) do if e.b == BG.bbtn then return e.show end end
+      end
+      ok(boxShows() == true, "in a battleground: the tools box carries the mark button")
+      inBG = false
+      ok(boxShows() == false, "out of one: it does not")
+      inBG = true
+      local n1 = #sorts
+      local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+      DEFAULT_CHAT_FRAME.AddMessage = function() end
+      BG.bbtn.scripts.OnClick(BG.bbtn)
+      DEFAULT_CHAT_FRAME.AddMessage = keepChat
+      ok(#sorts > n1 and BG.healers.Heala == 1, "pressed: reads the board now and marks")
+      -- and TARGETS one of them (Arn: "target the nearest on the list"): a secure macro, near last
+      local m = BG.bbtn:GetAttribute("macrotext") or ""
+      ok(BG.bbtn:GetAttribute("type") == "macro" and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
+         "the box button targets the marked players by macro", m)
+      BG.Undraw(unitOf("C"))           -- Mendy: no plate on screen now - far away
+      BG.ApplyMacro()
+      m = BG.bbtn:GetAttribute("macrotext")
+      local lastLine = m:match("([^\n]+)$")
+      ok(m:find("^/target Mendy") and lastLine == "/target Heala",
+         "far ones first, near ones last - the last /target that finds someone wins; the top healer last of all", m)
+      BG.Paint(unitOf("C"))
+      local keepLock = _G.InCombatLockdown
+      _G.InCombatLockdown = function() return true end
+      BG.bbtn:SetAttribute("macrotext", "untouched")
+      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext") == "untouched" and BG.macroDirty,
+         "in a fight the macro is not touched - written when it ends")
+      _G.InCombatLockdown = keepLock
+      ev("PLAYER_REGEN_ENABLED")
+      ok(BG.bbtn:GetAttribute("macrotext") ~= "untouched" and not BG.macroDirty, "the fight over: written")
+      -- the X fills the rival crosshair's box: tips in its corners
+      local x = mark("A")
+      local tip = x.parts[3].to
+      ok(x.w == BG.X_SIZE[1] and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
+         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X: the tank X's size, its tips in its own corners")
+      -- the steppers (Arn: "we add the stepper if they want to change the marks")
+      local bdb = R:DBFor(R:Get("bg"))
+      bdb.size, bdb.lift = 200, 10
+      BG.Redraw()
+      x = mark("A")
+      ok(x.w == BG.X_SIZE[1] * 2 and x.h == BG.X_SIZE[2] * 2 and x.point[5] == -2 - NS.Recap.MARK_H / 2 + 10,
+         "mark size 200%, height 10 up: redrawn at once", x.w .. "x" .. x.h)
+      bdb.size, bdb.lift = 999, -999
+      ok(BG.Size(bdb) == 200 and BG.Lift(bdb) == -40, "out-of-range settings are held to the stepper's ends")
+      bdb.size, bdb.lift = nil, nil
+      -- the looks (Arn: "not all want x"): each its own strokes, hilts on the X and the saber
+      for i, look in ipairs(BG.LOOKS) do
+        bdb.look = i
+        BG.Redraw()
+        local m = mark("A")
+        ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
+           "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+      end
+      bdb.look = 99
+      ok(BG.LookIndex(bdb) == 1, "an unknown look falls back to the X")
+      bdb.look = nil
+      BG.Redraw()
+      ok(BG.Look({ ["Heala Moon"] = 1 }, "Heala") == 1, "the name lookup is still the name lookup")
+    end
+    -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
+    do
+      local h, k = BG.healers, BG.killer
+      BG.healers, BG.killer = { ["Heala Moon"] = 1 }, { name = "Shocka Storm" }
+      ok(BG.Which(unitOf("A")) == "healer" and BG.Which(unitOf("B")) == "killer" and BG.Which(unitOf("C")) == nil,
+         "a plate's one-word name finds the board's two-word name")
+      BG.healers, BG.killer = h, k
+    end
+    ok(BG.Known().Heala and BG.Known().Shocka and BG.Known().Bandaid == nil, "and remembered (counts: once per battleground, already spent here)")
+    -- a /reload mid-match is a fresh load: the same match must not count anyone twice
+    BG.inBG = false
+    ev("PLAYER_ENTERING_WORLD")           -- into the match, its run time readable (as in the client)
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    local before = BG.Known().Heala.healer
+    BG.inBG, BG.counted = false, {}
+    ev("PLAYER_ENTERING_WORLD")
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(BG.Known().Heala.healer == before, "a /reload in the same match: nobody counted twice")
+    -- a NEW match (started later): counted again
+    BG.inBG = false
+    run = 30000 + 0   -- just started: a different start time
+    ev("PLAYER_ENTERING_WORLD")
+    ok(next(BG.counted) == nil, "a new match: the counted list starts empty")
+    run = 300000
+    BG.inBG = false
+    ev("PLAYER_ENTERING_WORLD")
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    -- the sort fires its own score event: never read again inside B.ORDER_GAP
+    local n0 = #sorts
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == n0 and BG.healers.Heala == 1, "a score event right after a read: no re-sort, the last read stays")
+    -- Arn's scoreboard is open: never reshuffle what he is looking at
+    board:Show() if board.scripts.OnShow then board.scripts.OnShow(board) end
+    W.now = W.now + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == n0, "the scoreboard window is open: no sort")
+    -- the button on it does it on demand
+    local b = BG.button
+    ok(b and b:IsShown(), "\"BiS> mark\" sits on the open scoreboard")
+    local said = {}
+    local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+    b.scripts.OnClick(b)
+    DEFAULT_CHAT_FRAME.AddMessage = keepChat
+    ok(#sorts > n0 and table.concat(said, "\n"):find("healers Heala, Shocka, Mendy; killer Shocka", 1, true),
+       "pressed: sorts now and says who", table.concat(said, "\n"))
+    board:Hide() board.scripts.OnHide(board)   -- the client fires OnHide; this mock's Hide does not
+    ok(not b:IsShown(), "the window closes: the button goes with it")
+    -- the first moments of a match: everyone ties at 0, so nobody is marked
+    run = 30000
+    W.now = W.now + 60
+    BG.read = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(BG.read and BG.read.note and BG.read.note:find("only just started", 1, true), "inside the first 90 s: nothing new read, and why says so")
+    _G.SortBattlefieldScoreData, _G.GetBattlefieldInstanceRunTime, _G.PVPMatchScoreboard = nil, nil, nil
+    S("bg clear")
+  end
   -- off, and out
   R:SetEnabled("bg", false)
   ok(next(BG.marks) == nil and BG.ticker == nil, "switched off: marks down, ticker stopped")
