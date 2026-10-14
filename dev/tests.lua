@@ -4722,6 +4722,10 @@ do
           ok(m.tag and m.edges and m.edges.top and m.edges.left and white and #m.parts == 4,
              "mark look tag: a white rectangle of four lines, no background")
           ok(txt == "|cffffffff>|r|cffff1a1aHealer|r|cffffffff<|r", "white arrows, a red Healer", txt)
+          -- easier to read (Arn: "very small and kinda hard to see" - "maybe thicker letters too")
+          ok(m.text2 and m.text2.text == txt and BG.TAG[1] >= 100 and BG.TAG[2] >= 26,
+             "bigger, and the word drawn twice a pixel apart - thicker letters")
+          ok(BG.TAG_PULSE_LOW >= 0.7, "a gentler pulse: a tag must stay readable")
           local killer = BG.NewSaber("killer", i)
           ok(killer.text.text:find("Killer", 1, true), "the killer's tag reads >Killer<")
           ok(m.w == math.floor(BG.TAG[1] + 0.5) and m.h == math.floor(BG.TAG[2] + 0.5), "the tag at its own size")

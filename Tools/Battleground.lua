@@ -419,7 +419,11 @@ B.LOOKS = {
   -- killer's reads >Killer<. BiS Tools only (BiS Healing's tank mark keeps its five).
   { key = "tag", word = "tag", tag = true, strokes = {} },
 }
-B.TAG = { 66, 18 }                  -- the tag's box at 100%; the size stepper scales it
+-- the tag's box at 100%; the size stepper scales it. 66x18 at first - Arn, 14 Oct, in the open world:
+-- "very small and kinda hard to see". Bigger, outlined letters, a thicker box, a gentler pulse.
+B.TAG = { 110, 28 }
+B.TAG_EDGE = 2
+B.TAG_PULSE_LOW = 0.7               -- dims to 70% only: a tag must be read, not just noticed
 B.TAG_WORD = { healer = "Healer", killer = "Killer" }
 
 --- ">Healer<": white arrows, a red word.
@@ -500,18 +504,27 @@ function B.NewSaber(kind, look)
     end
     f.text = f:CreateFontString(nil, "OVERLAY")
     f.text:SetPoint("CENTER", f, "CENTER", 0, 0)
+    -- THICKER LETTERS (Arn: "maybe thicker letters too"): the game's fonts have no bold, so the word
+    -- is drawn twice, a pixel apart - every stroke a pixel heavier
+    f.text2 = f:CreateFontString(nil, "OVERLAY")
+    f.text2:SetPoint("CENTER", f, "CENTER", 1, 0)
     function f.Fit(_, w, h)
-      local e, t = f.edges, 1.5
+      local e, t = f.edges, B.TAG_EDGE
       e.top:ClearAllPoints() e.top:SetPoint("TOPLEFT", f, "TOPLEFT") e.top:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.top:SetHeight(t)
       e.bottom:ClearAllPoints() e.bottom:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.bottom:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.bottom:SetHeight(t)
       e.left:ClearAllPoints() e.left:SetPoint("TOPLEFT", f, "TOPLEFT") e.left:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT") e.left:SetWidth(t)
       e.right:ClearAllPoints() e.right:SetPoint("TOPRIGHT", f, "TOPRIGHT") e.right:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT") e.right:SetWidth(t)
-      pcall(f.text.SetFont, f.text, STANDARD_TEXT_FONT, math.max(7, math.floor(h * 0.62 + 0.5)), "")
-      f.text:SetText(B.TagText(f.kind))
+      -- OUTLINED letters: no background (Arn: "remove the black"), but red on sand and grass needs an
+      -- edge on each letter to be read
+      local size = math.max(8, math.floor(h * 0.6 + 0.5))
+      for _, fs in ipairs({ f.text, f.text2 }) do
+        pcall(fs.SetFont, fs, STANDARD_TEXT_FONT, size, "THICKOUTLINE")
+        fs:SetText(B.TagText(f.kind))
+      end
     end
     f:Fit(B.TAG[1], B.TAG[2])
     local T = NS.Threat
-    pulse(f, T and T.PULSE_LOW or 0.3, T and T.PULSE_DUR or 0.5)
+    pulse(f, B.TAG_PULSE_LOW, T and T.PULSE_DUR or 0.5)
     return f
   end
   if f.CreateLine and pcall(function()
