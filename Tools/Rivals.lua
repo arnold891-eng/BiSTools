@@ -21,14 +21,17 @@ NS.Registry:Register({
   desc = "rivals (enemies you hunt), pals (friends you find), surname crowns, guildmates",
   usage = "/bist rivals [rival | pal | pals | surname <word> | forget <name> | key <key> | style <name> | why]",
   options = {
-    { kind = "toggle", label = "sound when a rival is near", help = "A ping with the warning when a gold rival - or a kept surname - comes into sight.",
+    { kind = "toggle", label = "sound when a rival is near", rivalPreview = true, help = "A ping with the warning when a gold rival - or a kept surname - comes into sight.",
       get = function() return D().sound ~= false end,
       set = function(_, on) D().sound = on and true or false end },
     -- eight shapes do not fit one row of buttons: a stepper, the name shown, each step redrawn live
-    { kind = "step", label = "crosshair", help = "The crosshair's look on rivals and farm mobs: rails, L, aim, box, scope, drop, chevron, tee, or none.",
+    { kind = "step", label = "crosshair", rivalPreview = true, help = "The crosshair's look on rivals and farm mobs: rails, L, aim, box, scope, drop, chevron, tee, or none.",
       min = 1, max = #RC.STYLES, step = 1,
       get = function() for i, s in ipairs(RC.STYLES) do if s == (D().style or "rails") then return i end end return 1 end,
-      set = function(_, v) RC.SetStyle(D(), RC.STYLES[v] or "rails") end,
+      set = function(_, v)
+        RC.SetStyle(D(), RC.STYLES[v] or "rails")
+        if NS.BG and NS.BG.PaintPreview then NS.BG.PaintPreview() end     -- the preview, in the new shape
+      end,
       show = function() return D().style or "rails" end },
     -- THE HINT (Arn: "a hint that says need nameplates on"): every mark hangs off a nameplate, and the
     -- game shows none for enemies until it is told to. The button tells it.
@@ -38,17 +41,17 @@ NS.Registry:Register({
         local set = (C_CVar and C_CVar.SetCVar) or SetCVar
         if set and pcall(set, "nameplateShowEnemies", "1") then NS.Print("enemy nameplates on") end
       end },
-    { kind = "toggle", label = "pal nearby note", help = "A small green line in chat when one of your pals comes into view, out of combat - once every ten minutes each, no sound.",
+    { kind = "toggle", label = "pal nearby note", rivalPreview = true, help = "A small green line in chat when one of your pals comes into view, out of combat - once every ten minutes each, no sound.",
       get = function() return D().palNote ~= false end,
       set = function(_, on) D().palNote = on and true or false end },
-    { kind = "toggle", label = "guild rivals (amber)", help = "Rivals your guild shares wear an amber crosshair, and the guild hears when you see one.",
+    { kind = "toggle", label = "guild rivals (amber)", rivalPreview = true, help = "Rivals your guild shares wear an amber crosshair, and the guild hears when you see one.",
       get = function() return D().guildShow ~= false end,
       set = function(_, on)
         D().guildShow = on and true or false
         if not on then for unit, f in pairs(RC.marks) do if f.kind == "guild" then RC.UnmarkUnit(unit) end end end
         RC.PaintRivals()
       end },
-    { kind = "toggle", label = "guildmates (crest, alone)", help = "A small teal guild crest under guildmates you pass - only while you are solo, never in a group or battleground.",
+    { kind = "toggle", label = "guildmates (crest, alone)", rivalPreview = true, help = "A small teal guild crest under guildmates you pass - only while you are solo, never in a group or battleground.",
       get = function() return D().mates ~= false end,
       set = function(_, on) D().mates = on and true or false if not on then RC.ClearMates() end end },
     { kind = "toggle", label = "rival target button", help = "A button in the BiS> tools box that targets your gold rivals, even across the map.",
@@ -73,6 +76,8 @@ NS.Registry:Register({
     RC.HookGuild(D())
   end,
   -- the same words the recap tool always took for these, so old macros keep working; no word = the list
+  -- (the roll-out preview of these marks lives with the bg tool's: Battleground.lua B.AttachPreview,
+  -- mode "rivals", painted by Recap.lua RC.PaintPreview)
   OnSlash = function(_, _, args)
     args = args or ""
     if args == "" or args == "list" then args = "rivals" end

@@ -685,6 +685,14 @@ function B.PaintPreview()
   if not (pv and pv:IsShown()) then return end
   for _, m in pairs(pv.marks or {}) do m:Hide() end
   pv.marks = {}
+  for _, m in pairs(pv.rmarks or {}) do m:Hide() end
+  -- TWO MODES (Arn: "need the preview for pals and rivals"): the rivals & pals tool's marks
+  if pv.mode == "rivals" then
+    if NS.Recap and NS.Recap.PaintPreview then NS.Recap.PaintPreview(pv) end
+    return
+  end
+  pv.cellH.word:SetText("their healers")
+  pv.cellK.word:SetText("their top killer")
   pv.made = pv.made or {}
   local look = B.LookIndex()
   local okS, strata = pcall(pv.GetFrameStrata, pv)
@@ -723,7 +731,9 @@ function B.AttachPreview(opt)
   pv:Hide()
   B.preview = pv
   local function hover(r)
-    if r.opt and r.opt.markPreview then
+    local mode = r.opt and ((r.opt.markPreview and "bg") or (r.opt.rivalPreview and "rivals"))
+    if mode then
+      pv.mode = mode
       if not pv:IsShown() then pv:Show() B.DressPreview() end
       B.PaintPreview()
     elseif pv:IsShown() then

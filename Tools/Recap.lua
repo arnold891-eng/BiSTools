@@ -1101,6 +1101,44 @@ function RC.MarkCrown(unit, friend)
   return true
 end
 
+--- THE PREVIEW, rivals & pals (Arn, 14 Oct: "its looking good need the preview for pals and rivals").
+--- The bg tool's roll-out panel (Battleground.lua B.AttachPreview: you, twice, as 3D models) wears
+--- this tool's marks instead: left a RIVAL - the crosshair in the style picked, a crown over the name
+--- (a kept surname); right a PAL - the heart over the name, the guild crest under the plate. Each
+--- built by the same builder as the real one; placed as the real one is (the preview's name sits
+--- above its plate, so over-the-name marks go above that).
+function RC.PaintPreview(pv)
+  pv.rmade, pv.rmarks = pv.rmade or {}, pv.rmarks or {}
+  for _, m in pairs(pv.rmarks) do m:Hide() end
+  pv.rmarks = {}
+  local okS, strata = pcall(pv.GetFrameStrata, pv)
+  local okL, level = pcall(pv.GetFrameLevel, pv)
+  local function get(key, make, cell)
+    local f = pv.rmade[key]
+    if not f then f = make() pv.rmade[key] = f end
+    f:SetParent(cell)
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    f:ClearAllPoints()
+    f:Show()
+    if f.pulse then f.pulse:Play() end
+    pv.rmarks[#pv.rmarks + 1] = f
+    return f
+  end
+  local L, Rt = pv.cellH, pv.cellK
+  local style = RC.style or "rails"
+  if style ~= "none" then
+    local cross = get("cross" .. style, function() return newMark("own") end, L)
+    cross:SetSize(math.floor(64 * RC.MARK_WIDE + 0.5), RC.MARK_H)     -- the plate's width x MARK_WIDE, as RC.MarkPlate
+    cross:SetPoint("TOP", L.plate, "BOTTOM", 0, -2)
+  end
+  get("crown", newCrown, L):SetPoint("BOTTOM", L.plate, "TOP", 0, 12)
+  get("heart", newHeart, Rt):SetPoint("BOTTOM", Rt.plate, "TOP", 0, 12)
+  get("crest", newMate, Rt):SetPoint("TOP", Rt.plate, "BOTTOM", 0, -2)
+  L.word:SetText("a rival  (crown: a kept surname)")
+  Rt.word:SetText("a pal  (crest: a guildmate)")
+end
+
 --- /bist surname <word>: kept, or - kept already - let go. No word: the list.
 function RC.Surname(db, word)
   local list = RC.Surnames(db)
