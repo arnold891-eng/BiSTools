@@ -218,6 +218,49 @@ function B.BoardWhy()
   NS.Print("bg board: under the mouse: %s", #foci > 0 and table.concat(foci, " | ") or "nothing named")
 end
 
+--- The box button's macro: the marked players, those far away first and those with a plate on
+--- screen LAST - the last /target that finds someone wins, so a near one is chosen over a far one.
+--- Healers before the killer within each group. At most RC.MACRO_MAX characters.
+function B.TargetMacro()
+  local near, far = {}, {}
+  local onPlate = {}
+  for u in pairs(B.marks) do
+    local n = B.PlateName(u)
+    if n then onPlate[n] = true end
+  end
+  local function add(name)
+    if type(name) ~= "string" or name == "" then return end
+    local first = name:match("^(%S+)")
+    if onPlate[name] or onPlate[first] then near[#near + 1] = name else far[#far + 1] = name end
+  end
+  local hs = {}
+  for name, rank in pairs(B.healers or {}) do if type(name) == "string" and type(rank) == "number" then hs[#hs + 1] = { name, rank } end end
+  table.sort(hs, function(x, y) return x[2] > y[2] end)       -- #3 first, #1 last: the top healer wins a tie
+  if B.killer and B.killer.name then add(B.killer.name) end
+  for _, h in ipairs(hs) do add(h[1]) end
+  local lines, len = {}, 0
+  local max = (NS.Recap and NS.Recap.MACRO_MAX) or 255
+  for _, group in ipairs({ far, near }) do
+    for _, name in ipairs(group) do
+      local line = "/target " .. name
+      if len + #line + 1 <= max then lines[#lines + 1] = line len = len + #line + 1 end
+    end
+  end
+  return table.concat(lines, "\n"), #lines
+end
+
+--- Written into the secure button out of combat only; in a fight, the next PLAYER_REGEN_ENABLED.
+function B.ApplyMacro()
+  local b = B.bbtn
+  if not b then return false end
+  if InCombatLockdown and InCombatLockdown() then B.macroDirty = true return false end
+  B.macroDirty = nil
+  local macro = B.TargetMacro()
+  b:SetAttribute("macrotext", macro)
+  b.macro = macro
+  return true
+end
+
 --- In a battleground, asked live (the box may lay out before B.Watch has heard the same event).
 function B.InBG()
   local ok, inside, kind = pcall(IsInInstance)
@@ -229,10 +272,15 @@ end
 function B.BoxButton()
   if B.bbtn then return B.bbtn end
   local K = NS.Farm
-  local b = CreateFrame("Button", "BiSToolsBGMarkBox", UIParent)
+  -- SECURE (Arn, 14 Oct: "when i click this i also want to try and target the nearest on the list"):
+  -- targeting is protected, so a macro, as the rival target button; its names are written out of
+  -- combat only (B.ApplyMacro). The read itself is our Lua, hooked after.
+  local b = CreateFrame("Button", "BiSToolsBGMarkBox", UIParent, "SecureActionButtonTemplate")
   b:SetSize(26, 26)
   b:SetFrameStrata("MEDIUM")
-  b:RegisterForClicks("LeftButtonUp")
+  b:RegisterForClicks("AnyDown")
+  b:SetAttribute("type", "macro")
+  b:SetAttribute("macrotext", "")
   K.tex(b, "BACKGROUND", "field", 0.95)
   b.edge = K.border(b, "accent", 1)
   local function tex(f, layer, c, a, add)
@@ -250,12 +298,12 @@ function B.BoxButton()
   local hilt = tex(b, "OVERLAY", { 0.55, 0.57, 0.6 }, 1)
   hilt:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
   hilt:SetSize(4, 5)
-  b:SetScript("OnClick", function() B.Mark() end)
+  b:HookScript("OnClick", function() B.Mark() end)
   b:SetScript("OnEnter", function(self)
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("Mark their healers and killer")
-    GameTooltip:AddLine("Reads the scoreboard now: a white saber on their top three healers, a red crosshair on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:AddLine("Target and mark their healers and killer")
+    GameTooltip:AddLine("Targets one of them - those near you first - then reads the scoreboard: white crossed sabers on their top three healers, red on their top killer. Who it targets is set out of combat. Same marks as /bist bg mark.", 1, 1, 1, true)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -268,6 +316,7 @@ function B.Mark()
   if not B.On() then return NS.Print("bg: not in a battleground") end
   if not B.ReadOrder(true) then return NS.Print("bg: %s", (B.read and B.read.note) or "the board could not be read") end
   B.PaintAll()
+  B.ApplyMacro()
   local names = {}
   for _, s in ipairs(B.read.heals or {}) do names[#names + 1] = s.name end
   NS.Print("bg: healers %s; killer %s", #names > 0 and table.concat(names, ", ") or "none",
@@ -350,28 +399,43 @@ end
 --- upright blade, as before.
 B.X_W = 46                          -- the X's width; its height is B.SABER_H
 
-local function blade(f, c, x1, y1, x2, y2)
+-- slim (Arn, 14 Oct, the X in the crosshair: "50% smaller"): half the glow it first had
+local function blade(f, c, sign)
   local W = B.SABER_W
-  local dx, dy = x2 - x1, y2 - y1
-  local hx, hy = x1 + dx * 0.16, y1 + dy * 0.16   -- the hilt: the lowest sixth
-  for _, layer in ipairs({ { W + 8, 0.14 }, { W + 3, 0.4 }, { W, 1 } }) do
+  local bl = { sign = sign, lines = {} }
+  for _, layer in ipairs({ { W + 4, 0.16 }, { W + 1.5, 0.45 }, { W, 1 } }) do
     local l = f:CreateLine(nil, "ARTWORK")
     l:SetTexture("Interface\\Buttons\\WHITE8X8")
     l:SetVertexColor(c[1], c[2], c[3], layer[2])
     if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
     l:SetThickness(layer[1])
-    l:SetStartPoint("CENTER", f, hx, hy)
-    l:SetEndPoint("CENTER", f, x2, y2)
     l.w = layer[1]
     f.parts[#f.parts + 1] = l
+    bl.lines[#bl.lines + 1] = l
   end
   local h = f:CreateLine(nil, "OVERLAY")
   h:SetTexture("Interface\\Buttons\\WHITE8X8")
   h:SetVertexColor(0.2, 0.2, 0.22, 1)
-  h:SetThickness(W + 3)
-  h:SetStartPoint("CENTER", f, x1, y1)
-  h:SetEndPoint("CENTER", f, hx, hy)
+  h:SetThickness(W + 2)
+  bl.hilt = h
   f.hilts[#f.hilts + 1] = h
+  f.blades[#f.blades + 1] = bl
+end
+
+--- The X to a box: its four tips in the four corners (Arn: "like the tips of the x on the corners of
+--- the red cross hairs"). sign 1 = hilt bottom-left, tip top-right; -1 its mirror.
+local function fit(f, w, h)
+  local x, y = w / 2 - 2, h / 2 - 2
+  for _, bl in ipairs(f.blades) do
+    local x1, y1, x2, y2 = -x * bl.sign, -y, x * bl.sign, y
+    local hx, hy = x1 + (x2 - x1) * 0.16, y1 + (y2 - y1) * 0.16   -- the hilt: the lowest sixth
+    for _, l in ipairs(bl.lines) do
+      l:SetStartPoint("CENTER", f, hx, hy)
+      l:SetEndPoint("CENTER", f, x2, y2)
+    end
+    bl.hilt:SetStartPoint("CENTER", f, x1, y1)
+    bl.hilt:SetEndPoint("CENTER", f, hx, hy)
+  end
 end
 
 function B.NewSaber(kind)
@@ -381,12 +445,14 @@ function B.NewSaber(kind)
   f:SetFrameStrata("BACKGROUND")
   f.kind = kind
   f.parts, f.hilts = {}, {}
+  f.blades = {}
   if f.CreateLine and pcall(function()
-    local x, y = B.X_W / 2 - 3, B.SABER_H / 2 - 3
-    blade(f, c, -x, -y, x, y)       -- hilt bottom-left, tip top-right
-    blade(f, c, x, -y, -x, y)       -- and its mirror
+    blade(f, c, 1)
+    blade(f, c, -1)
+    fit(f, B.X_W, B.SABER_H)
   end) then
     f.x = true
+    f.Fit = fit
   else
     f.parts, f.hilts = {}, {}
     for _, layer in ipairs({ { B.SABER_W + 10, 0.12 }, { B.SABER_W + 4, 0.35 }, { B.SABER_W, 1 } }) do
@@ -402,7 +468,9 @@ function B.NewSaber(kind)
     f.hilts[1] = hilt
   end
   f.hilt = f.hilts[1]
-  if kind == "killer" then pulse(f, 0.45, 0.55) else pulse(f, 0.75, 1.2) end   -- the killer hums hotter
+  -- the threat meter's flash, the same for both (Arn: "i want that kind of pulsing")
+  local T = NS.Threat
+  pulse(f, T and T.PULSE_LOW or 0.3, T and T.PULSE_DUR or 0.5)
   return f
 end
 
@@ -429,7 +497,18 @@ function B.Draw(u, kind)
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
   f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
-  f:SetSize(f.x and B.X_W or (B.SABER_W + 10), B.SABER_H)
+  if f.x then
+    -- the rival crosshair's own box (RC.MarkPlate): half the plate wide, RC.MARK_H tall
+    local RC = NS.Recap
+    local okW, pw = pcall(plate.GetWidth, plate)
+    pw = okW and plain(pw)
+    if type(pw) ~= "number" or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
+    local w, h = math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H
+    f:SetSize(w, h)
+    pcall(f.Fit, f, w, h)
+  else
+    f:SetSize(B.SABER_W + 10, B.SABER_H)
+  end
   f:SetAlpha(1)
   f:Show()
   if f.pulse then f.pulse:Play() end
@@ -649,6 +728,7 @@ function B.OnScores()
     B.Remember(B.read.heals or {}, B.killer)
   end
   B.PaintAll()
+  B.ApplyMacro()
   B.Button()
   B.AtEnd()
 end
@@ -675,13 +755,15 @@ function B.OnEvent(_, event, unit)
     B.OnScores()
   elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
     B.Watch()
+  elseif event == "PLAYER_REGEN_ENABLED" then
+    if B.On() then B.ApplyMacro() end
   end
 end
 
 -- registered at load, never from a timer; an event this client does not know is pcalled
 B.frame = CreateFrame("Frame")
 for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UPDATE_BATTLEFIELD_SCORE",
-                     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" }) do
+                     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "PLAYER_REGEN_ENABLED" }) do
   pcall(B.frame.RegisterEvent, B.frame, e)
 end
 B.frame:SetScript("OnEvent", B.OnEvent)

@@ -4457,6 +4457,30 @@ do
       BG.bbtn.scripts.OnClick(BG.bbtn)
       DEFAULT_CHAT_FRAME.AddMessage = keepChat
       ok(#sorts > n1 and BG.healers.Heala == 1, "pressed: reads the board now and marks")
+      -- and TARGETS one of them (Arn: "target the nearest on the list"): a secure macro, near last
+      local m = BG.bbtn:GetAttribute("macrotext") or ""
+      ok(BG.bbtn:GetAttribute("type") == "macro" and m:find("/target Heala", 1, true) and m:find("/target Shocka", 1, true),
+         "the box button targets the marked players by macro", m)
+      BG.Undraw(unitOf("C"))           -- Mendy: no plate on screen now - far away
+      BG.ApplyMacro()
+      m = BG.bbtn:GetAttribute("macrotext")
+      local lastLine = m:match("([^\n]+)$")
+      ok(m:find("^/target Mendy") and lastLine == "/target Heala",
+         "far ones first, near ones last - the last /target that finds someone wins; the top healer last of all", m)
+      BG.Paint(unitOf("C"))
+      local keepLock = _G.InCombatLockdown
+      _G.InCombatLockdown = function() return true end
+      BG.bbtn:SetAttribute("macrotext", "untouched")
+      ok(BG.ApplyMacro() == false and BG.bbtn:GetAttribute("macrotext") == "untouched" and BG.macroDirty,
+         "in a fight the macro is not touched - written when it ends")
+      _G.InCombatLockdown = keepLock
+      ev("PLAYER_REGEN_ENABLED")
+      ok(BG.bbtn:GetAttribute("macrotext") ~= "untouched" and not BG.macroDirty, "the fight over: written")
+      -- the X fills the rival crosshair's box: tips in its corners
+      local x = mark("A")
+      local tip = x.parts[3].to
+      ok(x.w == math.floor(120 * NS.Recap.MARK_WIDE + 0.5) and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
+         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X's tips sit in the crosshair box's corners")
     end
     -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
     do

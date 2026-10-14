@@ -284,12 +284,15 @@ local function plateOf(u)
   return plate
 end
 
+-- the flash: full to T.PULSE_LOW and back, T.PULSE_DUR each way. The bg tool's crossed sabers
+-- borrow it (Arn, 14 Oct: "we got the flashing down in the threat meters i want that kind of pulsing")
+T.PULSE_LOW, T.PULSE_DUR = 0.3, 0.5
 local function pulse(f)
   if not f.CreateAnimationGroup then return end
   local ok, g = pcall(f.CreateAnimationGroup, f)
   if not (ok and g) then return end
   local fade = g:CreateAnimation("Alpha")
-  fade:SetFromAlpha(1) fade:SetToAlpha(0.3) fade:SetDuration(0.5)
+  fade:SetFromAlpha(1) fade:SetToAlpha(T.PULSE_LOW) fade:SetDuration(T.PULSE_DUR)
   if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
   g:SetLooping("BOUNCE")
   f.pulse = g
