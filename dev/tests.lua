@@ -1838,6 +1838,24 @@ do
     kids[1].scripts.OnEnter(kids[1])
     ok(hb.text.text:find("spawn spot", 1, true), "and so does hovering its own buttons")
   end
+  -- THE MARK PREVIEW (Arn: "a window to the helper thing to preview the look")
+  local BGt = NS.BG
+  local lookRow = find("mark look")
+  lookRow.scripts.OnEnter(lookRow)
+  local pv = BGt.preview
+  ok(pv and pv:IsShown() and pv.marks and pv.marks.healer and pv.marks.killer, "hovering a mark setting: the preview rolls out with both marks")
+  -- Arn: "a full on rollout 3d model of self with the marks on them, like how we did for bisgamba"
+  ok(pv.cellH.model and pv.cellK.model, "two 3D models of you, one per mark")
+  ok(math.abs(pv.w / pv.h - 1.43) < 0.01, "the roll-out is 1.43:1, the BiSTheme standard", pv.w .. "x" .. pv.h)
+  ok(pv.point and pv.point[1] == "TOPLEFT" and pv.point[2] == opt and pv.point[3] == "TOPRIGHT", "hung off the options window's right edge")
+  ok(pv.marks.healer.point and pv.marks.healer.point[2] == pv.cellH.plate, "the mark placed on the preview's own nameplate, by the same code as a real one")
+  ok(pv.marks.healer.look == BGt.LookIndex() and pv.marks.healer.shown ~= false, "in the look picked now")
+  local bdbP = R:DBFor(R:Get("bg"))
+  for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 6) end end
+  ok(pv.marks.healer.tag and pv.marks.killer.tag, "a step in the options redraws the preview at once (the tag)")
+  for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 1) end end
+  find("spot radius").scripts.OnEnter(find("spot radius"))
+  ok(not pv:IsShown(), "any other setting: the preview goes")
   local undocumented = {}
   for _, r in ipairs(opt.rows) do if r.opt and not r.opt.help then undocumented[#undocumented + 1] = r.opt.label end end
   ok(#undocumented == 0, "every BiS Tools setting has its help written", table.concat(undocumented, ", "))

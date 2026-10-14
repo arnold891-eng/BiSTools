@@ -561,6 +561,17 @@ function B.Draw(u, kind)
   local pk = kind .. look
   B.pool[pk] = B.pool[pk] or {}
   f = table.remove(B.pool[pk]) or B.NewSaber(kind, look)
+  B.Place(f, plate)
+  f:SetAlpha(1)
+  f:Show()
+  if f.pulse then f.pulse:Play() end
+  B.marks[u] = f
+  return f
+end
+
+--- Where a mark sits on a plate - the real one, or the options' preview plate (the same code, so the
+--- preview cannot lie about where it lands).
+function B.Place(f, plate)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
@@ -585,11 +596,123 @@ function B.Draw(u, kind)
     f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
     f:SetSize(B.SABER_W + 10, B.SABER_H)
   end
-  f:SetAlpha(1)
-  f:Show()
-  if f.pulse then f.pulse:Play() end
-  B.marks[u] = f
-  return f
+end
+
+-- ---------------------------------------------------------------- the preview
+-- Arn, 14 Oct: "can we add a window to the helper thing to preview the look" - then "maybe a full on
+-- rollout 3d model of self with the marks on them, like how we did for bisgamba". Hover "mark look",
+-- "mark size" or "mark height" and a panel rolls out beside the options window: YOU, twice, as 3D
+-- models (BiSGamba's DressUpModel + SetUnit), a nameplate over each head, wearing the healer mark and
+-- the killer mark exactly as B.Place puts them - redrawn on every step. 1.43:1, the BiSTheme standard.
+B.PREVIEW_H = 230
+B.PREVIEW_W = math.floor(B.PREVIEW_H * 1.43 + 0.5)
+
+--- One half of the panel: a model of you, a nameplate over its head, a word under it.
+local function previewCell(pv, x, w, kind)
+  local cell = CreateFrame("Frame", nil, pv)
+  cell:SetPoint("TOPLEFT", pv, "TOPLEFT", x, -18)
+  cell:SetSize(w, B.PREVIEW_H - 22)
+  local ok, m = pcall(CreateFrame, "DressUpModel", nil, cell)
+  if ok and m then
+    m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -10)
+    m:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 14)
+    cell.model = m
+  end
+  -- the plate stands where a nameplate stands: over the head
+  local p = CreateFrame("Frame", nil, cell)
+  p:SetSize(64, 7)
+  p:SetPoint("TOP", cell, "TOP", 0, -14)
+  tex(p, "BACKGROUND", { 0.10, 0.10, 0.12 }, 0.9):SetAllPoints(p)
+  local fill = tex(p, "ARTWORK", { 0.75, 0.18, 0.18 }, 1)
+  fill:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1) fill:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -12, 1)
+  p.name = p:CreateFontString(nil, "OVERLAY")
+  pcall(p.name.SetFont, p.name, STANDARD_TEXT_FONT, 8, "")
+  p.name:SetPoint("BOTTOM", p, "TOP", 0, 1)
+  cell.plate = p
+  cell.word = cell:CreateFontString(nil, "OVERLAY")
+  pcall(cell.word.SetFont, cell.word, STANDARD_TEXT_FONT, 9, "")
+  cell.word:SetPoint("BOTTOM", cell, "BOTTOM", 0, 2)
+  cell.word:SetText(kind == "killer" and "their top killer" or "their healers")
+  cell.kind = kind
+  return cell
+end
+
+--- You, in the models: the live player; facing a little to the side, the way BiSGamba poses a seat.
+function B.DressPreview()
+  local pv = B.preview
+  if not pv then return end
+  local me = yes(UnitName, "player")
+  for _, cell in ipairs({ pv.cellH, pv.cellK }) do
+    cell.plate.name:SetText(type(me) == "string" and me or "you")
+    local m = cell.model
+    if m then
+      pcall(m.SetUnit, m, "player")
+      pcall(m.SetFacing, m, cell.kind == "killer" and -0.35 or 0.35)
+      if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 0) end
+    end
+  end
+end
+
+--- (Re)draw the two marks in the current look, size and height.
+function B.PaintPreview()
+  local pv = B.preview
+  if not (pv and pv:IsShown()) then return end
+  for _, m in pairs(pv.marks or {}) do m:Hide() end
+  pv.marks = {}
+  pv.made = pv.made or {}
+  local look = B.LookIndex()
+  local okS, strata = pcall(pv.GetFrameStrata, pv)
+  local okL, level = pcall(pv.GetFrameLevel, pv)
+  for kind, cell in pairs({ healer = pv.cellH, killer = pv.cellK }) do
+    local key = kind .. look
+    local f = pv.made[key]
+    if not f then
+      f = B.NewSaber(kind, look)
+      f:SetParent(cell)
+      pv.made[key] = f
+    end
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    B.Place(f, cell.plate)
+    f:Show()
+    if f.pulse then f.pulse:Play() end
+    pv.marks[kind] = f
+  end
+end
+
+--- The roll-out, hung off the options window's right edge; shown while a mark setting is hovered.
+function B.AttachPreview(opt)
+  if not opt or B.preview then return B.preview end
+  local pv = CreateFrame("Frame", "BiSToolsMarkPreview", opt)
+  pv:SetSize(B.PREVIEW_W, B.PREVIEW_H)
+  pv:SetPoint("TOPLEFT", opt, "TOPRIGHT", 4, 0)
+  tex(pv, "BACKGROUND", { 0.05, 0.05, 0.08 }, 0.92):SetAllPoints(pv)
+  local title = pv:CreateFontString(nil, "OVERLAY")
+  pcall(title.SetFont, title, STANDARD_TEXT_FONT, 9, "")
+  title:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -5)
+  title:SetText(NS.T and NS.T.text and NS.T.text("accent", "BiS>") .. " the marks, on you" or "the marks, on you")
+  local half = math.floor((B.PREVIEW_W - 12) / 2)
+  pv.cellH = previewCell(pv, 6, half, "healer")
+  pv.cellK = previewCell(pv, 6 + half, half, "killer")
+  pv:Hide()
+  B.preview = pv
+  local function hover(r)
+    if r.opt and r.opt.markPreview then
+      if not pv:IsShown() then pv:Show() B.DressPreview() end
+      B.PaintPreview()
+    elseif pv:IsShown() then
+      pv:Hide()
+    end
+  end
+  for _, r in ipairs(opt.rows) do
+    if r.HookScript then pcall(r.HookScript, r, "OnEnter", function() hover(r) end) end
+    if r.GetChildren then
+      for _, c in ipairs({ r:GetChildren() }) do
+        if c.HookScript then pcall(c.HookScript, c, "OnEnter", function() hover(r) end) end
+      end
+    end
+  end
+  return pv
 end
 
 ------------------------------------------------------------------- memory --
@@ -968,17 +1091,17 @@ R:Register({
   -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
   options = {
     -- a stepper through names (Arn: "not all want x")
-    { kind = "step", label = "mark look", help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond, corners, or tag - a white box reading >Healer< or >Killer<.", min = 1, max = #B.LOOKS, step = 1,
+    { kind = "step", label = "mark look", markPreview = true, help = "The shape on their healers (white) and top killer (red): X, saber, arrow, diamond, corners, or tag - a white box reading >Healer< or >Killer<.", min = 1, max = #B.LOOKS, step = 1,
       get = function(db) return B.LookIndex(db) end,
-      set = function(db, v) db.look = v B.Redraw() end,
+      set = function(db, v) db.look = v B.Redraw() B.PaintPreview() end,
       show = function(db) return B.LOOKS[B.LookIndex(db)].word end },
-    { kind = "step", label = "mark size", help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
+    { kind = "step", label = "mark size", markPreview = true, help = "How big the battleground marks are.", min = 50, max = 200, step = 10,
       get = function(db) return B.Size(db) end,
-      set = function(db, v) db.size = v B.Redraw() end,
+      set = function(db, v) db.size = v B.Redraw() B.PaintPreview() end,
       show = function(db) return B.Size(db) .. "%" end },
-    { kind = "step", label = "mark height", help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
+    { kind = "step", label = "mark height", markPreview = true, help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
       get = function(db) return B.Lift(db) end,
-      set = function(db, v) db.lift = v B.Redraw() end,
+      set = function(db, v) db.lift = v B.Redraw() B.PaintPreview() end,
       show = function(db)
         local v = B.Lift(db)
         return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))

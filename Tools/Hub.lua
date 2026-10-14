@@ -283,6 +283,8 @@ function H.BuildOptions()
     for _, opt in ipairs(tool.options or {}) do f:Row(opt, R:DBFor(tool)) end
   end
   f:Fit()
+  -- the bg marks' live preview in the help strip (Arn: "a window to the helper thing to preview the look")
+  if NS.BG and NS.BG.AttachPreview then NS.BG.AttachPreview(f) end
   return f
 end
 
