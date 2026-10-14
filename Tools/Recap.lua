@@ -1899,7 +1899,8 @@ function RC.Build(db)
   rv:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -P, P)
   rv.label = F.fs(rv, "rivals >", 8, "accent")
   rv.label:SetPoint("RIGHT", rv, "RIGHT", 0, 0)
-  rv:SetScript("OnClick", function() RC.SetExpanded(db, true) end)
+  -- opens AND closes it (Arn: "this opens it, it should also close it"); the arrow says which
+  rv:SetScript("OnClick", function() RC.SetExpanded(db, not (RC.rwin and RC.rwin:IsShown())) end)
   f.rivalsBtn = rv
   f:SetSize(W, H)
 
@@ -2349,6 +2350,7 @@ function RC.SetExpanded(db, on)
   if db.expanded then RC.PaintRivals() d:Show() else d:Hide() end
   local f = RC.win
   if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText(db.expanded and "-" or "R") end
+  if f and f.rivalsBtn and f.rivalsBtn.label then f.rivalsBtn.label:SetText(db.expanded and "rivals <" or "rivals >") end
   return db.expanded
 end
 RC.ToggleRivals = function(db, want)

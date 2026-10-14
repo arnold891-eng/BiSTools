@@ -2814,6 +2814,12 @@ do
      "what kind: physical, magic", w.kind[1].name.text .. " / " .. w.kind[2].name.text)
   ok(#w.rows == 10 and w.rows[6].amt.text ~= "" and w.rows[10].amt.text ~= "", "all ten hits, in two columns")
   ok(w.drawer == RC.rwin and math.abs(RC.rwin.w / RC.rwin.h - 1.43) < 0.01, "the rivals: their own window, also 1.43:1")
+  -- "rivals >" opens it, and closes it again (Arn: "this opens it, it should also close it")
+  RC.SetExpanded(rdb, false)
+  w.rivalsBtn.scripts.OnClick(w.rivalsBtn)
+  ok(RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals <", "rivals >: opens the window, the arrow turns")
+  w.rivalsBtn.scripts.OnClick(w.rivalsBtn)
+  ok(not RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals >", "and again: closes it")
   ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
   fitsIn(w, "the death recap")
 
