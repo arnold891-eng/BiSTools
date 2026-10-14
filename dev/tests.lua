@@ -3296,13 +3296,19 @@ do
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
     S("recap rival")
     ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].bg == true, "added inside a battleground: marked for this match")
+    for _ = 1, RC.KEEP_AFTER - 1 do RC.KilledBy(nil, rivals["Grape Sprite"], "Grape Sprite") end
+    ok(rivals["Grape Sprite"].bg == true, (RC.KEEP_AFTER - 1) .. " kills: still for this match only")
+    rivals["Bully Boy"] = { added = 1, kills = 0, active = true, bg = true }
+    for _ = 1, RC.KEEP_AFTER do RC.KilledBy(nil, rivals["Bully Boy"], "Bully Boy") end
+    ok(rivals["Bully Boy"].bg == nil, RC.KEEP_AFTER .. " kills in the match: kept for good")
     fireAll("PLAYER_ENTERING_WORLD")
     ok(rivals["Grape Sprite"], "a /reload inside the battleground keeps them")
     inside = false
     fireAll("PLAYER_ENTERING_WORLD")
     ok(rivals["Grape Sprite"] == nil and rivals["World Foe"] and rivals["World Foe"].kills == 2,
        "out of the battleground: its rivals let go, the world's kept")
-    rivals["World Foe"] = nil
+    ok(rivals["Bully Boy"] and rivals["Bully Boy"].kills == RC.KEEP_AFTER, "and the one who farmed you stays")
+    rivals["World Foe"], rivals["Bully Boy"] = nil, nil
     -- outside an instance the menu line works as before
     inside = false
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }

@@ -349,6 +349,18 @@ function RC.ToggleRival(db, a)
   return true
 end
 
+--- A rival killed you again: counted. A battleground rival who has killed you RC.KEEP_AFTER times
+--- in the match is kept for good (Arn, 14 Oct: "more than 3 times like 10 times or something").
+RC.KEEP_AFTER = 10
+function RC.KilledBy(db, rival, name)
+  rival.kills = (rival.kills or 0) + 1
+  rival.last = time and time() or 0
+  if rival.bg and rival.kills >= RC.KEEP_AFTER then
+    rival.bg = nil
+    NS.Print("%s has killed you %d times - kept as a rival for good", T.text("warn", tostring(name)), rival.kills)
+  end
+end
+
 --- Out of the battleground: its rivals go. A /reload inside it keeps them (still in PvP).
 function RC.DropMatchRivals(db)
   if RC.InPvP() then return 0 end
@@ -1746,7 +1758,7 @@ function RC.OnEvent(_, event, unit)
     -- a rival who killed you again: counted
     local k = RC.last and RC.last.killer
     local rival = k and k.player and RC.Rivals(db)[k.title]
-    if rival then rival.kills = (rival.kills or 0) + 1 rival.last = time and time() or 0 end
+    if rival then RC.KilledBy(db, rival, k.title) end
     if RC.last and db.popup ~= false then RC.Toggle(db, true) end
   elseif event == "PLAYER_REGEN_ENABLED" and RC.btnDirty and not RC.waitFight then
     RC.ApplyButton(db)
