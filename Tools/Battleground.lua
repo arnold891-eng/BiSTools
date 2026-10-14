@@ -425,7 +425,8 @@ end
 --- A remembered player on this plate: their record, or nil.
 function B.Recall(guid, name)
   local known = B.Known()
-  if name and known[name] then return known[name] end
+  local rec = B.Look(known, name)
+  if rec then return rec end
   if guid then
     for _, rec in pairs(known) do if rec.guid == guid then return rec end end
   end
@@ -434,16 +435,43 @@ end
 
 --- Who is on this plate: "killer", "healer" or nil - and whether that is remembered, not live.
 --- Live (this battleground's scoreboard) first; then what earlier battlegrounds taught.
+--- A plate's name, as the scoreboard writes it. Forever names have two parts ("Swig Xd"): the board
+--- has both, a plate's UnitName may give only "Swig" (14 Oct: the right healers read, NO saber).
+--- GetUnitName(u, false) carries the surname (as the rival tool learned); else the first part.
+function B.PlateName(u)
+  local full = yes(GetUnitName, u, false)
+  if type(full) == "string" and full ~= "" then return bare(full) end
+  return F.Name(u)
+end
+
+--- Look a name up in a table keyed by board names: exact, else a one-word name against the first
+--- word of each key (cost: only for a one-word name, and these tables are a match's players).
+function B.Look(tbl, name)
+  if not name then return nil end
+  if tbl[name] then return tbl[name] end
+  if name:find(" ", 1, true) then return nil end
+  for key, v in pairs(tbl) do
+    if type(key) == "string" and key:match("^(%S+)") == name then return v end
+  end
+  return nil
+end
+
+local function sameName(a, b)
+  if not (a and b) then return false end
+  if a == b then return true end
+  return a:match("^(%S+)") == b or b:match("^(%S+)") == a
+end
+
 function B.Which(u)
   local guid = yes(UnitGUID, u)
-  local name = F.Name(u)
+  local name = B.PlateName(u)
   local k = B.killer
-  if k and ((guid and k.guid == guid) or (name and k.name == name)) then return "killer" end
-  if (guid and B.healers[guid]) or (name and B.healers[name]) then return "healer" end
+  if k and ((guid and k.guid == guid) or sameName(k.name, name)) then return "killer" end
+  if (guid and B.healers[guid]) or B.Look(B.healers, name) then return "healer" end
   if not (guid or name) then return nil end
   -- the memory is for players this battleground's scoreboard has not judged yet: once the live
   -- scoreboard has them, IT decides (a healer who fell out of the top three loses the saber)
-  if (guid and B.onBoard[guid]) or (name and B.onBoard[name]) then return nil end
+  if (guid and B.onBoard[guid]) or B.Look(B.onBoard, name) then return nil end
   -- an enemy only: a remembered name on our own side is somebody we play with now
   if yes(UnitCanAttack, "player", u) ~= true then return nil end
   local rec = B.Recall(guid, name)
@@ -610,6 +638,11 @@ function B.Why()
   local marked, recalled = 0, 0
   for _, f in pairs(B.marks) do marked = marked + 1 if f.remembered then recalled = recalled + 1 end end
   DEFAULT_CHAT_FRAME:AddMessage(("  marked on screen now: %d (%d remembered from earlier battlegrounds)"):format(marked, recalled))
+  if yes(UnitExists, "target") == true then
+    local kind, rem = B.Which("target")
+    DEFAULT_CHAT_FRAME:AddMessage(("  your target reads as \"%s\" (plate %s): %s"):format(tostring(B.PlateName("target") or "?"),
+      tostring(yes(UnitName, "target") or "?"), kind and (kind .. (rem and ", remembered" or "")) or "not marked"))
+  end
 end
 
 --- /bist bg raw: ONE enemy row of the scoreboard, every field as the game hands it over - a value,

@@ -4419,6 +4419,14 @@ do
        "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
     ok(BG.killer and BG.killer.name == "Shocka", "the red glow: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
+    do
+      local h, k = BG.healers, BG.killer
+      BG.healers, BG.killer = { ["Heala Moon"] = 1 }, { name = "Shocka Storm" }
+      ok(BG.Which(unitOf("A")) == "healer" and BG.Which(unitOf("B")) == "killer" and BG.Which(unitOf("C")) == nil,
+         "a plate's one-word name finds the board's two-word name")
+      BG.healers, BG.killer = h, k
+    end
     ok(BG.Known().Heala and BG.Known().Shocka and BG.Known().Bandaid == nil, "and remembered (counts: once per battleground, already spent here)")
     -- a /reload mid-match is a fresh load: the same match must not count anyone twice
     BG.inBG = false
