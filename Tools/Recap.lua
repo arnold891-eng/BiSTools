@@ -1907,6 +1907,7 @@ function RC.Build(db)
   local pos = db.pos
   f:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
   f:Hide()
+  if UISpecialFrames then table.insert(UISpecialFrames, "BiSToolsRecap") end   -- Escape closes it too
   RC.BuildRivals(db)
   f.drawer = RC.rwin                    -- the old drawer's name, for whoever still asks for it
   return f
@@ -2177,6 +2178,15 @@ function RC.BuildRivals(db)
   local pos = db.rpos or { "CENTER", 0, -40, "CENTER" }
   d:SetPoint(pos[1], UIParent, pos[4] or pos[1], pos[2], pos[3])
   d:Hide()
+  -- ESCAPE CLOSES IT (Arn, 14 Oct: "esc not closing the bis rival and pal page"), like every
+  -- Blizzard panel; however it closes, the recap's arrow and the saved state follow
+  if UISpecialFrames then table.insert(UISpecialFrames, "BiSToolsRivals") end
+  d:HookScript("OnHide", function()
+    db.expanded = false
+    local f = RC.win
+    if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText("R") end
+    if f and f.rivalsBtn and f.rivalsBtn.label then f.rivalsBtn.label:SetText("rivals >") end
+  end)
   return d
 end
 
@@ -2342,12 +2352,52 @@ function RC.PaintRivals()
   else d.surCap:SetText("surname crowns") end
 end
 
+--- NOT ON TOP OF ANOTHER WINDOW (Arn, 14 Oct, the rivals window opened over the recap: "needs the same
+--- brains to not overlap windows"). The BiSTheme kit's own placement (T.DodgeRect) and its list of open
+--- windows (T.OPEN): these two join that list, so they dodge the options windows and each other, and
+--- the options windows dodge them. A hidden or refused rect: left where it is.
+function RC.Dodge(f)
+  local T = BiSTheme
+  if not (f and T and T.DodgeRect) then return false end
+  T.OPEN = T.OPEN or {}
+  T.OPEN[f] = true
+  local function rect(fr)
+    local ok, l, b, w, h = pcall(fr.GetRect, fr)
+    local okS, s = pcall(fr.GetEffectiveScale, fr)
+    if not (ok and okS) then return nil end
+    for _, v in ipairs({ l, b, w, h, s }) do
+      if type(v) ~= "number" or hidden(v) then return nil end
+    end
+    if not (l and b and w and h and s) then return nil end
+    return { l * s, b * s, (l + w) * s, (b + h) * s }
+  end
+  local mine = rect(f)
+  if not mine then return false end
+  local others = {}
+  for o in pairs(T.OPEN) do
+    if o ~= f and o.IsShown and o:IsShown() then
+      local r = rect(o)
+      if r then others[#others + 1] = r end
+    end
+  end
+  if #others == 0 then return false end
+  local okU, sw, sh = pcall(function() return UIParent:GetWidth() * UIParent:GetEffectiveScale(),
+    UIParent:GetHeight() * UIParent:GetEffectiveScale() end)
+  if not okU then return false end
+  local left, top = T.DodgeRect(mine, others, sw, sh)
+  if not left then return false end
+  local s = f:GetEffectiveScale()
+  f:ClearAllPoints()
+  f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / s, top / s)
+  return true
+end
+
 --- The rivals & pals window, open or shut (the name kept from when it was a drawer).
 function RC.SetExpanded(db, on)
   db.expanded = on and true or false
   RC.db = RC.db or db
   local d = RC.BuildRivals(db)
-  if db.expanded then RC.PaintRivals() d:Show() else d:Hide() end
+  if db.expanded then RC.PaintRivals() RC.Dodge(d) d:Show() else d:Hide() end
   local f = RC.win
   if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText(db.expanded and "-" or "R") end
   if f and f.rivalsBtn and f.rivalsBtn.label then f.rivalsBtn.label:SetText(db.expanded and "rivals <" or "rivals >") end
@@ -2383,6 +2433,7 @@ function RC.Toggle(db, want)
     end
     RC.Paint(RC.last)
     RC.PaintStop(db)
+    if not RC.win:IsShown() then RC.Dodge(RC.win) end
     RC.win:Show()
   else
     RC.win:Hide()

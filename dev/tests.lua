@@ -68,6 +68,7 @@ _G.UnitIsVisible = function(u)
 end
 _G.UnitIsConnected = function() return true end
 _G.GetRealZoneText = function() return W.me.zone end
+_G.UISpecialFrames = {}   -- the client always has it: the frames Escape closes (14 Oct: the rivals window was missing)
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return W.shift or false end
@@ -2820,6 +2821,31 @@ do
   ok(RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals <", "rivals >: opens the window, the arrow turns")
   w.rivalsBtn.scripts.OnClick(w.rivalsBtn)
   ok(not RC.rwin:IsShown() and w.rivalsBtn.label.text == "rivals >", "and again: closes it")
+  -- ESCAPE CLOSES BOTH (Arn: "esc not closing the bis rival and pal page")
+  local inEsc = {}
+  for _, n in ipairs(UISpecialFrames or {}) do inEsc[n] = true end
+  ok(inEsc.BiSToolsRivals and inEsc.BiSToolsRecap, "Escape closes the rivals & pals window and the recap")
+  RC.SetExpanded(rdb, true)
+  RC.rwin:Hide() if RC.rwin.scripts.OnHide then RC.rwin.scripts.OnHide(RC.rwin) end   -- what Escape does
+  ok(rdb.expanded == false and w.rivalsBtn.label.text == "rivals >", "closed by Escape: the arrow turns back")
+  -- NOT ON TOP OF THE RECAP (Arn: "needs the same brains to not overlap windows")
+  do
+    local keepR, keepRS, keepWR, keepWS = RC.rwin.GetRect, RC.rwin.GetEffectiveScale, w.GetRect, w.GetEffectiveScale
+    w.GetRect = function() return 400, 300, 460, 322 end
+    w.GetEffectiveScale = function() return 1 end
+    RC.rwin.GetRect = function() return 450, 250, 500, 350 end      -- right over the recap
+    RC.rwin.GetEffectiveScale = function() return 1 end
+    local keepUP = _G.UIParent
+    _G.UIParent = { GetWidth = function() return 1920 end, GetHeight = function() return 1080 end,
+                    GetEffectiveScale = function() return 1 end }
+    RC.SetExpanded(rdb, true)
+    local p = RC.rwin.point
+    ok(p and p[1] == "TOPLEFT" and p[2] == _G.UIParent and p[4] == 400 + 460 + 8, "the rivals window opens beside the recap, not on it",
+       p and (tostring(p[4]) .. "," .. tostring(p[5])))
+    RC.SetExpanded(rdb, false)
+    RC.rwin.GetRect, RC.rwin.GetEffectiveScale, w.GetRect, w.GetEffectiveScale = keepR, keepRS, keepWR, keepWS
+    _G.UIParent = keepUP
+  end
   ok(w.cols[1].h > w.cols[10].h and w.cols[10].shown, "the health columns fall from oldest to newest")
   fitsIn(w, "the death recap")
 
