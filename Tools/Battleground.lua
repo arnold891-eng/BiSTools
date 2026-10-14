@@ -35,7 +35,7 @@ B.EVERY = 10                       -- seconds between scoreboard reads, in a bat
 B.TOP_HEALERS = 3
 B.WHITE = { 0.92, 0.97, 1.00 }     -- a neon white, a breath of blue
 B.RED = { 1.00, 0.12, 0.12 }
-B.SABER_W, B.SABER_OVER = 2, 14    -- the core's width; how far the blade runs past the plate
+B.SABER_W, B.SABER_H = 2, 70       -- the core's width; its height, the rival crosshair's (RC.MARK_H)
 B.plates = {}                      -- nameplate units in sight
 B.marks, B.pool = {}, {}           -- unit -> frame, and spare frames per kind
 B.healers, B.killer = {}, nil      -- guid/name -> rank (1-3), and the top killer's key
@@ -399,10 +399,10 @@ function B.Draw(u, kind)
   f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewGlow())
   f:ClearAllPoints()
   if kind == "healer" then
-    -- upright at the plate's left, the blade running past it top and bottom
-    f:SetPoint("TOPRIGHT", plate, "TOPLEFT", -3, B.SABER_OVER)
-    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMLEFT", -3, -B.SABER_OVER)
-    f:SetWidth(B.SABER_W + 10)
+    -- ON THEM, like the rival crosshair (Arn, 14 Oct: at the plate's left it sat on his nameplate
+    -- addon's buff timers - "on them... like crosshairs"): upright under the plate, centred on the body
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+    f:SetSize(B.SABER_W + 10, B.SABER_H)
   else
     f:SetPoint("TOPLEFT", plate, "TOPLEFT", -1, 1)
     f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMRIGHT", 1, -1)

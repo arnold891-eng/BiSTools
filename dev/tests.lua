@@ -4275,14 +4275,14 @@ do
      "their top healers: the saber")
   ok(mark("F") == nil and mark("D") == nil, "only the top three heals count (Shocka is #2 and the killer - the glow wins)")
   ok(mark("E") == nil, "never one of ours, however much they heal")
-  -- the saber's shape: a white-hot core in glow layers, a hilt, at the plate's left, humming
+  -- the saber's shape: a white-hot core in glow layers, a hilt, under the plate on the body, humming
   local s = mark("A")
   ok(#s.parts == 3 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "a core in two glow layers")
   local core = s.parts[3].color
   ok(core[1] > 0.9 and core[2] > 0.9 and core[3] == 1 and core[4] == 1, "the core neon white, solid")
   ok(s.parts[1].color[4] < s.parts[2].color[4], "the outer glow fainter than the inner")
-  ok(s.hilt and s.point and s.point[1] == "BOTTOMRIGHT" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOMLEFT",
-     "upright at the plate's left")
+  ok(s.hilt and s.point and s.point[1] == "TOP" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
+     and s.h == BG.SABER_H, "on them, like the rival crosshair: upright under the plate, centred on the body")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
   ok(g.parts and #g.parts == 6 and g.parts[1].color[1] == 1 and g.parts[1].color[2] < 0.2,
