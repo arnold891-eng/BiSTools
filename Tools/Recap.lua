@@ -1150,6 +1150,37 @@ function RC.Find(db, name)
   return nil
 end
 
+--- The rival a NAMEPLATE belongs to, or nil (Arn, 14 Oct: "terry daviss is marked as rival because
+--- there is a terry lin alliance"). RC.Find's first-word road is for a plate that gives ONE word: when
+--- the plate carries the whole name ("Terry Daviss", GetUnitName), only that whole name counts - or a
+--- rival kept as one word ("Grape") that it starts with. And a rival whose GUID we hold is never a
+--- plate whose readable GUID is another's, whatever the names say.
+function RC.FindPlate(db, unit, name)
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  local whole = ask(GetUnitName, unit, false)
+  local r, key
+  if type(whole) == "string" and whole:find(" ", 1, true) then
+    local list = RC.Rivals(db)
+    if list[whole] then
+      r, key = list[whole], whole
+    else
+      local first = whole:match("^(%S+)")
+      if list[first] then r, key = list[first], first end
+    end
+  else
+    r, key = RC.Find(db, name)
+  end
+  if r and type(r.guid) == "string" then
+    local guid = ask(UnitGUID, unit)
+    if type(guid) == "string" and guid ~= r.guid then return nil end
+  end
+  return r, key
+end
+
 --- A guild rival in sight: the amber crosshair, and the guild told - once a minute per rival.
 local function spotGuild(db, unit, e, full)
   RC.MarkPlate(unit, full, "guild")
@@ -1209,7 +1240,7 @@ function RC.Spot(db, unit)
     if NS.Farm.Clean(unit) then RC.MarkPlate(unit, name, "guide") end
     return looked(unit, name, "a mob the RestedXP guide wants")
   end
-  local r, full = RC.Find(db, name)
+  local r, full = RC.FindPlate(db, unit, name)
   if not (r and r.active) then
     local e, gfull = nil, nil
     if guild then e, gfull = RC.FindGuild(db, name) end

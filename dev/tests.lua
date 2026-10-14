@@ -2920,6 +2920,27 @@ do
      and mk.point[1] == "TOP" and mk.point[3] == "BOTTOM",
      "a gold rival's nameplate wears the crosshair, hanging under the plate")
   ok(mk.w == 90 and mk.h == RC.MARK_H, "half the plate's width (Arn: \"tighten it up 50%\"), centred", mk.w)
+  -- A SHARED FIRST NAME IS NOT THE RIVAL (Arn, 14 Oct: "terry daviss is marked as rival because there
+  -- is a terry lin alliance")
+  do
+    local keepGUN = _G.GetUnitName
+    plates.nameplate9 = CreateFrame("Frame", nil, nil)
+    W.plates.nameplate9 = { name = "Hunting", guid = rivals["Hunting Moms"].guid }
+    _G.GetUnitName = function(u) if u == "nameplate9" then return "Hunting Daviss" end end
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "the plate's whole name is somebody else's: no crosshair")
+    _G.GetUnitName = keepGUN
+    W.plates.nameplate9 = { name = "Hunting", guid = "Player-1-SOMEONEELSE" }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "one word only, but another player's GUID: no crosshair")
+    _G.GetUnitName = function(u) if u == "nameplate9" then return "Hunting Moms" end end
+    W.plates.nameplate9 = { name = "Hunting", guid = rivals["Hunting Moms"].guid }
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 and RC.marks.nameplate9.rival == "Hunting Moms", "the rival's own whole name and GUID: the crosshair")
+    _G.GetUnitName = keepGUN
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
+    W.plates.nameplate9, plates.nameplate9 = nil, nil
+  end
   -- Arn's shape: a rail down each side of the body, a tick in at the middle of each
   ok(#mk.parts == 4 and mk.leftRail.h == RC.MARK_H and mk.rightRail.h == RC.MARK_H
      and mk.leftTick.anchor[1] == "LEFT" and mk.rightTick.anchor[1] == "RIGHT"
