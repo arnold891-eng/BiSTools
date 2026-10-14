@@ -4358,6 +4358,74 @@ do
   ok(count == BG.KEEP and BG.Known().P1 and not BG.Known()["P" .. (BG.KEEP + 20)],
      "never more than " .. BG.KEEP .. " - the longest unseen go first")
   S("bg clear")
+  -- FOREVER: every number hidden mid-match (Arn's /bist bg raw, 14 Oct). Arn: "what about we can click
+  -- the top heals" - the game still SORTS by a hidden column; the names come back in that order.
+  do
+    local truth = {   -- what the sort sees; the addon never does
+      { name = "Heala",   g = "A", class = "PRIEST",  h = 90000,  k = 1 },
+      { name = "Shocka",  g = "B", class = "SHAMAN",  h = 60000,  k = 9 },
+      { name = "Mendy",   g = "C", class = "DRUID",   h = 30000,  k = 0 },
+      { name = "Bandaid", g = "D", class = "WARRIOR", h = 999999, k = 2 },  -- first-aid spam: not a healer class
+      { name = "Fourth",  g = "F", class = "PALADIN", h = 20000,  k = 0 },
+      { name = "Ourhealer", g = "E", class = "PRIEST", h = 200000, k = 20, ours = true },
+    }
+    local sorts = {}
+    local function fill()
+      for i, t in ipairs(truth) do
+        rows[i] = { name = t.name, guid = SECRET, faction = t.ours and 1 or 0, classToken = t.class,
+                    healingDone = SECRET, killingBlows = SECRET }
+      end
+    end
+    fill()
+    _G.SortBattlefieldScoreData = function(col)
+      sorts[#sorts + 1] = col
+      local key = col == "healing" and "h" or (col == "kills" and "k") or nil
+      table.sort(truth, function(a, b) if key then return a[key] > b[key] end return a.name < b.name end)
+      fill()
+    end
+    local run = 300000
+    _G.GetBattlefieldInstanceRunTime = function() return run end
+    W.now = (W.now or 0) + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(sorts[1] == "name" and sorts[2] == "healing" and sorts[3] == "kills",
+       "hidden numbers: sorted by name first (so healing never flips), then healing, then kills", table.concat(sorts, ","))
+    ok(BG.healers.Heala == 1 and BG.healers.Shocka == 2 and BG.healers.Mendy == 3 and BG.healers.Bandaid == nil,
+       "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
+    ok(BG.killer and BG.killer.name == "Shocka", "the red glow: the first enemy in kills order - never one of ours")
+    ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    ok(BG.Known().Heala and BG.Known().Shocka and BG.Known().Bandaid == nil, "and remembered (counts: once per battleground, already spent here)")
+    -- the sort fires its own score event: never read again inside B.ORDER_GAP
+    local n0 = #sorts
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == n0 and BG.healers.Heala == 1, "a score event right after a read: no re-sort, the last read stays")
+    -- Arn's scoreboard is open: never reshuffle what he is looking at
+    local board = CreateFrame("Frame", "PVPMatchScoreboard", UIParent)
+    _G.PVPMatchScoreboard = board
+    board:Show()
+    W.now = W.now + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == n0, "the scoreboard window is open: no sort")
+    -- the button on it does it on demand
+    local b = BG.button
+    ok(b and b:IsShown(), "\"BiS> mark\" sits on the open scoreboard")
+    local said = {}
+    local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+    b.scripts.OnClick(b)
+    DEFAULT_CHAT_FRAME.AddMessage = keepChat
+    ok(#sorts > n0 and table.concat(said, "\n"):find("healers Heala, Shocka, Mendy; killer Shocka", 1, true),
+       "pressed: sorts now and says who", table.concat(said, "\n"))
+    board:Hide() board.scripts.OnHide(board)   -- the client fires OnHide; this mock's Hide does not
+    ok(not b:IsShown(), "the window closes: the button goes with it")
+    -- the first moments of a match: everyone ties at 0, so nobody is marked
+    run = 30000
+    W.now = W.now + 60
+    BG.read = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(BG.read and BG.read.note and BG.read.note:find("only just started", 1, true), "inside the first 90 s: nothing new read, and why says so")
+    _G.SortBattlefieldScoreData, _G.GetBattlefieldInstanceRunTime, _G.PVPMatchScoreboard = nil, nil, nil
+    S("bg clear")
+  end
   -- off, and out
   R:SetEnabled("bg", false)
   ok(next(BG.marks) == nil and BG.ticker == nil, "switched off: marks down, ticker stopped")

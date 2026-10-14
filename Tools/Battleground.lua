@@ -114,6 +114,113 @@ function B.Pick(scores)
   return healers, killer
 end
 
+--- FOREVER HIDES THE NUMBERS (Arn's /bist bg raw, 14 Oct: only name, faction, class and race are
+--- plain mid-match). Arn's idea, same night - "what about we can click the top heals": the game can
+--- still SORT the board by a hidden column, and the names come back in that order. Proven in his
+--- match: sorted by kills, the names matched the board's killing blows. So: sort, read names.
+B.HEAL_CLASSES = { PRIEST = true, DRUID = true, SHAMAN = true, PALADIN = true }
+B.WARMUP = 90       -- s into a match before anyone is marked: until then everyone ties at 0, in no order
+B.ORDER_GAP = 5     -- s: a sort can itself fire UPDATE_BATTLEFIELD_SCORE - never read again inside this
+
+local function sortRead(col, myFaction)
+  if not pcall(SortBattlefieldScoreData, col) then return nil end
+  local n = yes(GetNumBattlefieldScores) or 0
+  local out = {}
+  for i = 1, type(n) == "number" and n or 0 do
+    local ok, info = pcall(C_PvP.GetScoreInfo, i)
+    if ok and type(info) == "table" then
+      local faction = field(info, "faction")
+      if type(faction) == "number" and myFaction ~= nil and faction ~= myFaction then
+        out[#out + 1] = { name = bare(field(info, "name")), class = field(info, "classToken") }
+      end
+    end
+  end
+  return out
+end
+
+--- The scoreboard window, if Blizzard's is open: we never re-sort what Arn is looking at.
+--- Second answer: the window that exists (shown or not), for the button to sit on.
+B.BOARDS = { "PVPMatchScoreboard", "WorldStateScoreFrame" }
+function B.Board()
+  local found
+  for _, n in ipairs(B.BOARDS) do
+    local f = _G[n]
+    if f and f.IsShown then
+      found = found or f
+      local ok, shown = pcall(f.IsShown, f)
+      if ok and plain(shown) == true then return f, f end
+    end
+  end
+  return nil, found
+end
+
+--- "BiS> mark" on the scoreboard (Arn: "add a button in scoreboard"): read the board's order now,
+--- even with the window open, mark, and say who. Our own button on UIParent, shown with the window
+--- (hooked), placed on its bottom-right; the window's own frames are never touched.
+function B.Button()
+  local _, board = B.Board()
+  if not board or B.button then return B.button end
+  local K = NS.Farm
+  local b = CreateFrame("Button", "BiSToolsBGMark", UIParent)
+  b:SetSize(84, 20)
+  b:SetFrameStrata("HIGH")
+  pcall(b.SetPoint, b, "BOTTOMRIGHT", board, "BOTTOMRIGHT", -24, 14)
+  K.tex(b, "BACKGROUND", "frame", 0.85)
+  b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  b.text:SetPoint("CENTER")
+  b.text:SetText(NS.T.text("accent", "BiS>") .. " mark")
+  b:SetScript("OnClick", function() B.Mark() end)
+  local function show(on) if on then b:Show() else b:Hide() end end
+  show(board:IsShown() and B.On())
+  board:HookScript("OnShow", function() show(B.On()) end)
+  board:HookScript("OnHide", function() b:Hide() end)
+  B.button = b
+  return b
+end
+
+function B.Mark()
+  if not B.On() then return NS.Print("bg: not in a battleground") end
+  if not B.ReadOrder(true) then return NS.Print("bg: %s", (B.read and B.read.note) or "the board could not be read") end
+  B.PaintAll()
+  local names = {}
+  for _, s in ipairs(B.read.heals or {}) do names[#names + 1] = s.name end
+  NS.Print("bg: healers %s; killer %s", #names > 0 and table.concat(names, ", ") or "none",
+    B.killer and B.killer.name or "none")
+end
+
+--- Top healers and killer by the board's order. `force` = the button: sort even with the window open.
+function B.ReadOrder(force)
+  if not (SortBattlefieldScoreData and C_PvP and C_PvP.GetScoreInfo) then return false end
+  if not force and B.Board() then return false end
+  local now = GetTime and GetTime() or 0
+  if not force and B.lastOrder and now - B.lastOrder < B.ORDER_GAP then return false end
+  local run = yes(GetBattlefieldInstanceRunTime)
+  if type(run) == "number" and run < B.WARMUP * 1000 then
+    B.read = { enemies = 0, heals = {}, wait = "the match has only just started - marked from " .. B.WARMUP .. " s" }
+    B.read.note = B.read.wait
+    return false
+  end
+  B.lastOrder = now
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  -- a different column first: sorting the same column twice flips it, and Arn may have clicked one
+  pcall(SortBattlefieldScoreData, "name")
+  local byHeal = sortRead("healing", myFaction) or {}
+  local byKill = sortRead("kills", myFaction) or {}
+  local heals, healers = {}, {}
+  for _, s in ipairs(byHeal) do
+    if s.name and B.HEAL_CLASSES[s.class or ""] and #heals < B.TOP_HEALERS then
+      heals[#heals + 1] = s
+      healers[s.name] = #heals
+    end
+  end
+  local killer = byKill[1] and byKill[1].name and byKill[1] or nil
+  B.healers, B.killer = healers, killer
+  B.read = { enemies = #byHeal, heals = heals, killer = killer, note = "numbers hidden - read by the board's order", byOrder = true }
+  B.Remember(heals, killer)
+  return true
+end
+
 ------------------------------------------------------------------- drawing --
 
 local function plateOf(u)
@@ -363,16 +470,26 @@ end
 function B.OnScores()
   if not B.On() then return end
   local scores, note = B.Scores()
-  B.healers, B.killer = B.Pick(scores)
-  B.read.note = note
   for _, sc in ipairs(scores) do
     if sc.enemy then
       if sc.guid then B.onBoard[sc.guid] = true end
       if sc.name then B.onBoard[sc.name] = true end
     end
   end
-  B.Remember(B.read.heals or {}, B.killer)
+  if note then
+    -- hidden numbers (Forever, mid-match): by the board's order instead; between reads the last stays
+    if not B.ReadOrder() and not (B.read and B.read.byOrder) then
+      B.healers, B.killer = {}, nil
+      local enemies = 0
+      for _, sc in ipairs(scores) do if sc.enemy then enemies = enemies + 1 end end
+      B.read = { enemies = enemies, heals = {}, note = (B.read and B.read.wait) or note }
+    end
+  else
+    B.healers, B.killer = B.Pick(scores)
+    B.Remember(B.read.heals or {}, B.killer)
+  end
   B.PaintAll()
+  B.Button()
   B.AtEnd()
 end
 
@@ -418,13 +535,14 @@ function B.Why()
   local heals = {}
   for i, s in ipairs(r.heals or {}) do
     if i > B.TOP_HEALERS then break end
-    heals[#heals + 1] = ("%s %s"):format(tostring(s.name or "?"), tostring(s.heal))
+    heals[#heals + 1] = ("%s %s"):format(tostring(s.name or "?"), s.heal and tostring(s.heal) or ("#" .. i))
   end
   DEFAULT_CHAT_FRAME:AddMessage("  enemies on the scoreboard: " .. tostring(r.enemies or 0)
     .. (r.note and ("  (" .. r.note .. ")") or ""))
   DEFAULT_CHAT_FRAME:AddMessage("  top healers (saber): " .. (#heals > 0 and table.concat(heals, ", ") or "none read"))
-  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red glow): " .. (r.killer and ("%s, %d killing blows"):format(
-    tostring(r.killer.name or "?"), r.killer.kb or 0) or "none read"))
+  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red glow): " .. (r.killer and (r.killer.kb
+    and ("%s, %d killing blows"):format(tostring(r.killer.name or "?"), r.killer.kb)
+    or (tostring(r.killer.name or "?") .. ", most killing blows")) or "none read"))
   local marked, recalled = 0, 0
   for _, f in pairs(B.marks) do marked = marked + 1 if f.remembered then recalled = recalled + 1 end end
   DEFAULT_CHAT_FRAME:AddMessage(("  marked on screen now: %d (%d remembered from earlier battlegrounds)"):format(marked, recalled))
@@ -475,6 +593,32 @@ function B.Raw()
   end
 end
 
+--- PROBE /bist bg sort [healing|kills|...]: Arn's idea, 14 Oct - "what about we can click the top
+--- heals". The numbers are hidden, the names are not: ask the game to SORT the board by a column,
+--- then read the names in row order. Printed now and again a second later, enemies marked "E".
+function B.SortProbe(col)
+  col = (col and col ~= "") and col or "healing"
+  if not SortBattlefieldScoreData then return NS.Print("bg sort: this client has no SortBattlefieldScoreData") end
+  local okS, err = pcall(SortBattlefieldScoreData, col)
+  if not okS then return NS.Print("bg sort: refused (%s)", tostring(err)) end
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  local function list(when)
+    local G = C_PvP and C_PvP.GetScoreInfo
+    local n = yes(GetNumBattlefieldScores) or 0
+    local out = {}
+    for i = 1, math.min(type(n) == "number" and n or 0, 10) do
+      local ok, row = pcall(G, i)
+      local name = ok and type(row) == "table" and plain(field(row, "name"))
+      local f = ok and type(row) == "table" and field(row, "faction")
+      out[#out + 1] = i .. "." .. tostring(name or "?") .. ((type(f) == "number" and f ~= myFaction) and " E" or "")
+    end
+    NS.Print("bg sort %s, %s: %s", col, when, table.concat(out, ", "))
+  end
+  list("now")
+  C_Timer.After(1, function() list("1 s later") end)
+end
+
 --- The memory, read out: how many healers and dangerous players it knows.
 function B.WhyKnown()
   local h, k, n = 0, 0, 0
@@ -508,6 +652,8 @@ R:Register({
       return NS.Print("bg: %s forgotten", key)
     end
     if args:lower() == "raw" then return B.Raw() end
+    local col = args:lower():match("^sort%s*(%S*)$")
+    if col then return B.SortProbe(col) end
     if args:lower() == "clear" then
       local db = R:DBFor(R:Get("bg"))
       db.known = {}
