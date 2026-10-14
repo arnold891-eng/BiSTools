@@ -2937,6 +2937,21 @@ do
     W.plates.nameplate9 = { name = "Hunting", guid = rivals["Hunting Moms"].guid }
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
     ok(RC.marks.nameplate9 and RC.marks.nameplate9.rival == "Hunting Moms", "the rival's own whole name and GUID: the crosshair")
+    -- A PAL IS NEVER A RIVAL (Arn: "there should be a check if its friendly target not a rival but a
+    -- pal - enemy hostile player rival")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
+    W.plates.nameplate9.hostile = false
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate9")
+    ok(RC.marks.nameplate9 == nil, "a friendly player, even by the rival's own name: no crosshair")
+    local keepT = W.target
+    W.target = { name = "Pal Guy", player = true, hostile = false, guid = "Player-1-PAL" }
+    RC.RivalFromTarget(rdb2)
+    ok(rivals["Pal Guy"] == nil, "a friendly target is never added as a rival")
+    local root = { lines = {} }
+    function root:CreateButton(t) self.lines[#self.lines + 1] = t end
+    RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
+    ok(#root.lines == 0 and RC.menuDecision:find("friendly", 1, true), "and the right-click menu offers no 'add rival' on them", RC.menuDecision)
+    W.target = keepT
     _G.GetUnitName = keepGUN
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate9")
     W.plates.nameplate9, plates.nameplate9 = nil, nil

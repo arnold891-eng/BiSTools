@@ -321,6 +321,7 @@ function RC.RivalFromTarget(db)
   if name == ask(UnitName, "player") then return NS.Print("that is you") end
   local r, key = RC.Find(db, name)
   if r then return RC.ToggleRival(db, { player = true, title = key }) end
+  if RC.Friendly("target") then return NS.Print("%s is friendly - rivals are enemy players", name) end
   local okC, _, class = pcall(UnitClass, "target")
   if not okC or hidden(class) or type(class) ~= "string" then class = nil end
   return RC.ToggleRival(db, { player = true, title = name, class = class, key = ask(UnitGUID, "target") })
@@ -1070,8 +1071,11 @@ function RC.MenuLines(db, root, ctx)
     local raw = field(ctx, "name")
     return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
   end
-  say("added for " .. name)
   local r, key = RC.Find(db, name)
+  -- a friend is never ADDED (Arn, 14 Oct: "there should be a check if its friendly target not a
+  -- rival but a pal - enemy hostile player rival"); one already on the list can still be taken off
+  if not r and type(unit) == "string" and RC.Friendly(unit) then return say(name .. " is friendly - rivals are enemies") end
+  say("added for " .. name)
   if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
     if r then
@@ -1148,6 +1152,15 @@ function RC.Find(db, name)
     if key:match("^(%S+)") == name or key == firstOf then return r, key end
   end
   return nil
+end
+
+--- A player you cannot attack: a pal, never a rival. True only on the game's plain "no" - a hidden
+--- or refused answer is not taken as friendly (nothing is blocked on a guess).
+function RC.Friendly(unit)
+  if type(UnitCanAttack) ~= "function" then return false end
+  local ok, can = pcall(UnitCanAttack, "player", unit)
+  if not ok or hidden(can) then return false end
+  return can ~= true
 end
 
 --- The rival a NAMEPLATE belongs to, or nil (Arn, 14 Oct: "terry daviss is marked as rival because
@@ -1241,6 +1254,7 @@ function RC.Spot(db, unit)
     return looked(unit, name, "a mob the RestedXP guide wants")
   end
   local r, full = RC.FindPlate(db, unit, name)
+  if r and RC.Friendly(unit) then r = nil end     -- a pal who shares a rival's name: never their crosshair
   if not (r and r.active) then
     local e, gfull = nil, nil
     if guild then e, gfull = RC.FindGuild(db, name) end
