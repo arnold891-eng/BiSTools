@@ -287,6 +287,24 @@ _G.CreateFrame = function(kind, name, parent, template)
     self.scripts[k] = prev and function(...) prev(...) return fn(...) end or fn
   end
   function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
+  -- a Line (the bg tool's crossed sabers): a texture with two ends and a thickness
+  function f:CreateLine()
+    local l = Texture()
+    function l:SetVertexColor(r, g, b, a)
+      if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then error("SetVertexColor wants r,g,b numbers") end
+      self.color = { r, g, b, a or 1 }
+    end
+    function l:SetThickness(w) if type(w) ~= "number" then error("SetThickness wants a number") end self.w = w end
+    function l:SetStartPoint(p, rel, x, y)
+      if type(p) ~= "string" or type(x) ~= "number" or type(y) ~= "number" then error("SetStartPoint(point, rel, x, y)") end
+      self.from = { x, y }
+    end
+    function l:SetEndPoint(p, rel, x, y)
+      if type(p) ~= "string" or type(x) ~= "number" or type(y) ~= "number" then error("SetEndPoint(point, rel, x, y)") end
+      self.to = { x, y }
+    end
+    return l
+  end
   function f:CreateFontString() local fs = FontString() fs.parent = self return fs end
   function f:SetSize(w, h) self.w, self.h = w, h end
   function f:SetHeight(h) self.h = h end
@@ -4277,16 +4295,20 @@ do
   ok(mark("E") == nil, "never one of ours, however much they heal")
   -- the saber's shape: a white-hot core in glow layers, a hilt, under the plate on the body, humming
   local s = mark("A")
-  ok(#s.parts == 3 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "a core in two glow layers")
+  ok(s.x and #s.parts == 6 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "two blades, each a core in two glow layers")
   local core = s.parts[3].color
   ok(core[1] > 0.9 and core[2] > 0.9 and core[3] == 1 and core[4] == 1, "the core neon white, solid")
   ok(s.parts[1].color[4] < s.parts[2].color[4], "the outer glow fainter than the inner")
-  ok(s.hilt and s.point and s.point[1] == "TOP" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
-     and s.h == BG.SABER_H, "on them, like the rival crosshair: upright under the plate, centred on the body")
+  local b1, b2 = s.parts[3], s.parts[6]
+  ok(b1.to[1] > 0 and b2.to[1] < 0 and b1.to[2] > 0 and b2.to[2] > 0 and b1.from[1] < 0 and b2.from[1] > 0,
+     "crossed: one blade leans right, the other left - an X")
+  ok(#s.hilts == 2, "a hilt on each")
+  ok(s.point and s.point[1] == "TOP" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
+     and s.h == BG.SABER_H, "on them, like the rival crosshair: under the plate, centred on the body")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
-  ok(g.kind == "killer" and g.parts and #g.parts > 0 and g.point and g.point[1] == "TOP" and g.point[3] == "BOTTOM"
-     and g.h == NS.Recap.MARK_H, "the killer: a red crosshair ON THEM, where a rival's stands")
+  ok(g.kind == "killer" and g.x and g.parts[3].color[1] == 1 and g.parts[3].color[2] < 0.2 and g.point and g.point[1] == "TOP",
+     "the killer: the same crossed sabers, red, on them")
   ok(g.pulse and g.pulse:IsPlaying(), "humming")
   -- a name the game hides on the plate: the GUID still matches
   W.plates[unitOf("C")].name = nil

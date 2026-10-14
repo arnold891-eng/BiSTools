@@ -343,40 +343,66 @@ local function pulse(f, low, dur)
   f.pulse = g
 end
 
---- THE SABER: a white-hot core in two soft glow layers, a dark hilt below it.
-function B.NewSaber()
-  local f = CreateFrame("Frame", nil, UIParent)
-  f:SetFrameStrata("BACKGROUND")
-  f.kind = "healer"
-  f.parts = {}
+--- CROSSED SABERS, an X, glowing (Arn, 14 Oct: "lets make them sabers X and glowing same for
+--- killer but red"): white on their healers, red on their killer. Each blade a white-hot core in two
+--- soft glow layers with a dark hilt, drawn as Lines (a solid texture's SetRotation turns only its
+--- image inside its box, so a thin bar cannot be tilted that way). A client without Lines: one
+--- upright blade, as before.
+B.X_W = 46                          -- the X's width; its height is B.SABER_H
+
+local function blade(f, c, x1, y1, x2, y2)
   local W = B.SABER_W
-  for _, layer in ipairs({ { W + 10, 0.12 }, { W + 4, 0.35 }, { W, 1 } }) do
-    local t = tex(f, "ARTWORK", B.WHITE, layer[2], true)
-    t:SetPoint("TOP", f, "TOP", 0, 0)
-    t:SetPoint("BOTTOM", f, "BOTTOM", 0, 7)
-    t:SetWidth(layer[1])
-    f.parts[#f.parts + 1] = t
+  local dx, dy = x2 - x1, y2 - y1
+  local hx, hy = x1 + dx * 0.16, y1 + dy * 0.16   -- the hilt: the lowest sixth
+  for _, layer in ipairs({ { W + 8, 0.14 }, { W + 3, 0.4 }, { W, 1 } }) do
+    local l = f:CreateLine(nil, "ARTWORK")
+    l:SetTexture("Interface\\Buttons\\WHITE8X8")
+    l:SetVertexColor(c[1], c[2], c[3], layer[2])
+    if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
+    l:SetThickness(layer[1])
+    l:SetStartPoint("CENTER", f, hx, hy)
+    l:SetEndPoint("CENTER", f, x2, y2)
+    l.w = layer[1]
+    f.parts[#f.parts + 1] = l
   end
-  local hilt = tex(f, "OVERLAY", { 0.18, 0.18, 0.2 }, 1)
-  hilt:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
-  hilt:SetSize(W + 4, 7)
-  local band = tex(f, "OVERLAY", { 0.7, 0.72, 0.75 }, 1)
-  band:SetPoint("BOTTOM", hilt, "TOP", 0, 0)
-  band:SetSize(W + 6, 1)
-  f.hilt = hilt
-  pulse(f, 0.75, 1.2)                             -- the slow hum of a lit blade
-  return f
+  local h = f:CreateLine(nil, "OVERLAY")
+  h:SetTexture("Interface\\Buttons\\WHITE8X8")
+  h:SetVertexColor(0.2, 0.2, 0.22, 1)
+  h:SetThickness(W + 3)
+  h:SetStartPoint("CENTER", f, x1, y1)
+  h:SetEndPoint("CENTER", f, hx, hy)
+  f.hilts[#f.hilts + 1] = h
 end
 
---- THE KILLER: a red crosshair ON THEM (Arn, 14 Oct: "the red killer one sucks has to be on them";
---- his first ask, 13 Oct: "red cross hairs glowing"). The rival tool's crosshair, in the style
---- picked there, its own deeper red, humming faster than a rival's.
-function B.NewKiller()
-  local RC = NS.Recap
-  RC.MARK_COLOUR.bgkiller = B.RED
-  local f = RC.NewMark("bgkiller")
-  f.kind = "killer"
-  if not f.pulse then pulse(f, 0.35, 0.45) end
+function B.NewSaber(kind)
+  kind = kind or "healer"
+  local c = kind == "killer" and B.RED or B.WHITE
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f.kind = kind
+  f.parts, f.hilts = {}, {}
+  if f.CreateLine and pcall(function()
+    local x, y = B.X_W / 2 - 3, B.SABER_H / 2 - 3
+    blade(f, c, -x, -y, x, y)       -- hilt bottom-left, tip top-right
+    blade(f, c, x, -y, -x, y)       -- and its mirror
+  end) then
+    f.x = true
+  else
+    f.parts, f.hilts = {}, {}
+    for _, layer in ipairs({ { B.SABER_W + 10, 0.12 }, { B.SABER_W + 4, 0.35 }, { B.SABER_W, 1 } }) do
+      local t = tex(f, "ARTWORK", c, layer[2], true)
+      t:SetPoint("TOP", f, "TOP", 0, 0)
+      t:SetPoint("BOTTOM", f, "BOTTOM", 0, 7)
+      t:SetWidth(layer[1])
+      f.parts[#f.parts + 1] = t
+    end
+    local hilt = tex(f, "OVERLAY", { 0.18, 0.18, 0.2 }, 1)
+    hilt:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+    hilt:SetSize(B.SABER_W + 4, 7)
+    f.hilts[1] = hilt
+  end
+  f.hilt = f.hilts[1]
+  if kind == "killer" then pulse(f, 0.45, 0.55) else pulse(f, 0.75, 1.2) end   -- the killer hums hotter
   return f
 end
 
@@ -398,22 +424,12 @@ function B.Draw(u, kind)
   local plate = plateOf(u)
   if not plate then return nil end
   B.pool[kind] = B.pool[kind] or {}
-  f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewKiller())
+  f = table.remove(B.pool[kind]) or B.NewSaber(kind)
   f:ClearAllPoints()
-  if kind == "healer" then
-    -- ON THEM, like the rival crosshair (Arn, 14 Oct: at the plate's left it sat on his nameplate
-    -- addon's buff timers - "on them... like crosshairs"): upright under the plate, centred on the body
-    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
-    f:SetSize(B.SABER_W + 10, B.SABER_H)
-  else
-    -- where the rival crosshair stands: under the plate, centred, half its width (RC.MarkPlate)
-    local RC = NS.Recap
-    local okW, pw = pcall(plate.GetWidth, plate)
-    pw = okW and plain(pw)
-    if type(pw) ~= "number" or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
-    f:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
-    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
-  end
+  -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
+  -- centred on the body
+  f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
+  f:SetSize(f.x and B.X_W or (B.SABER_W + 10), B.SABER_H)
   f:SetAlpha(1)
   f:Show()
   if f.pulse then f.pulse:Play() end
