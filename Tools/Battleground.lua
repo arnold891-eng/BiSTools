@@ -1,0 +1,458 @@
+--[[
+  BiSTools :: Tools/Battleground.lua - the "bg" tool: the enemy's healers and their top killer, marked.
+
+  Arn's cousin, 13 Oct 2026: "can it auto crosshair people that cast heals". Not from their casts:
+  Forever hides every other player's cast from addons in combat (measured on the beta; the cast bar
+  draws, nothing can read it). But the BATTLEGROUND SCOREBOARD lists each player's healing done and
+  killing blows, and its calls are on the Forever census. So, in a battleground:
+
+    HEALERS  the enemy's top three by healing done (Arn: "on their top three heals") wear a WHITE
+             NEON SABER - a white-hot core in soft glow layers, standing at the left of the plate,
+             with a dark hilt (Arn: "a white neon white saber looking thing")
+    KILLER   the enemy with the most killing blows wears a RED GLOW round the plate (Arn: "red cross
+             hairs glowing like the threat meter on their top killing blow person") - the threat
+             tool's glow, sides and bottom, open at the top so the name stays clear
+
+  The scoreboard is asked every T.EVERY seconds while you are in a battleground (RequestBattlefield-
+  ScoreData; the answer arrives as UPDATE_BATTLEFIELD_SCORE) and never outside one. Read through
+  C_PvP.GetScoreInfo - named fields, so no guessing at a return order that differs between clients.
+  Every field asked "hidden?" first. A player is matched to a nameplate by GUID, else by name.
+  UNVERIFIED on Forever: that the scoreboard's numbers come back unhidden mid-match - /bist bg why
+  prints what it read.
+
+  Our own frames, pinned beside the plate: nothing of the game's nameplate is touched, a plate the
+  client locks away gets nothing.
+]]
+local _, NS = ...
+local R = NS.Registry
+local RC = NS.Recap
+local F = NS.Farm
+
+local B = {}
+NS.BG = B
+
+B.EVERY = 10                       -- seconds between scoreboard reads, in a battleground only
+B.TOP_HEALERS = 3
+B.WHITE = { 0.92, 0.97, 1.00 }     -- a neon white, a breath of blue
+B.RED = { 1.00, 0.12, 0.12 }
+B.SABER_W, B.SABER_OVER = 2, 14    -- the core's width; how far the blade runs past the plate
+B.plates = {}                      -- nameplate units in sight
+B.marks, B.pool = {}, {}           -- unit -> frame, and spare frames per kind
+B.healers, B.killer = {}, nil      -- guid/name -> rank (1-3), and the top killer's key
+B.read = {}                        -- what the last scoreboard read saw, for why
+
+local plain = F.Plain
+
+local function yes(fn, ...)
+  if type(fn) ~= "function" then return nil end
+  local ok, v = pcall(fn, ...)
+  if not ok then return nil end
+  return plain(v)
+end
+
+local function field(t, k)
+  local ok, v = pcall(function() return t[k] end)
+  if not ok then return nil end
+  return plain(v)
+end
+
+--- A scoreboard name without its realm ("Grape-Realm" -> "Grape").
+local function bare(n)
+  if type(n) ~= "string" then return nil end
+  return (n:match("^([^%-]+)") or n)
+end
+
+------------------------------------------------------------------- reading --
+
+--- Every player on the scoreboard: name, guid, enemy?, healing done, killing blows. Hidden fields
+--- are left out (nil), never guessed.
+function B.Scores()
+  local out = {}
+  -- the fence's pair form: C_PvP's named table first; the old global (TBC) answers with a list in an
+  -- order that differs by client, so its rows are not tables and are skipped below - never guessed at
+  local G = (C_PvP and C_PvP.GetScoreInfo) or GetBattlefieldScore
+  local n = yes(GetNumBattlefieldScores) or 0
+  if not G or type(n) ~= "number" then return out, "no scoreboard on this client" end
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  local hidden = 0
+  -- cost: once per scoreboard update (every B.EVERY s, in a battleground only), one row per player
+  for i = 1, n do
+    local ok, info = pcall(G, i)
+    if ok and type(info) == "table" then
+      local name, guid = field(info, "name"), field(info, "guid")
+      local faction, heal, kb = field(info, "faction"), field(info, "healingDone"), field(info, "killingBlows")
+      if heal == nil or kb == nil then hidden = hidden + 1 end
+      out[#out + 1] = {
+        name = bare(name), guid = type(guid) == "string" and guid or nil,
+        enemy = (type(faction) == "number" and myFaction ~= nil) and faction ~= myFaction or nil,
+        heal = type(heal) == "number" and heal or nil, kb = type(kb) == "number" and kb or nil,
+      }
+    end
+  end
+  return out, hidden > 0 and (hidden .. " row(s) with the numbers hidden") or nil
+end
+
+--- The enemy's top three healers and their top killer, from a scoreboard read.
+function B.Pick(scores)
+  local enemies = {}
+  for _, s in ipairs(scores) do if s.enemy then enemies[#enemies + 1] = s end end
+  local heals = {}
+  for _, s in ipairs(enemies) do if (s.heal or 0) > 0 then heals[#heals + 1] = s end end
+  table.sort(heals, function(a, b) return a.heal > b.heal end)
+  local healers = {}
+  for i = 1, math.min(B.TOP_HEALERS, #heals) do
+    local s = heals[i]
+    if s.guid then healers[s.guid] = i end
+    if s.name then healers[s.name] = i end
+  end
+  local killer, best = nil, 0
+  for _, s in ipairs(enemies) do
+    if (s.kb or 0) > best then best, killer = s.kb, s end
+  end
+  B.read = { enemies = #enemies, heals = heals, killer = killer }
+  return healers, killer
+end
+
+------------------------------------------------------------------- drawing --
+
+local function plateOf(u)
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return nil end
+  local ok, plate = pcall(get, u)
+  if not ok or not plate then return nil end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return nil end
+  return plate
+end
+
+local function tex(f, layer, c, a, add)
+  local t = f:CreateTexture(nil, layer)
+  t:SetColorTexture(c[1], c[2], c[3], a or 1)
+  if add and t.SetBlendMode then pcall(t.SetBlendMode, t, "ADD") end
+  return t
+end
+
+local function pulse(f, low, dur)
+  if not f.CreateAnimationGroup then return end
+  local ok, g = pcall(f.CreateAnimationGroup, f)
+  if not (ok and g) then return end
+  local a = g:CreateAnimation("Alpha")
+  a:SetFromAlpha(1) a:SetToAlpha(low) a:SetDuration(dur)
+  if a.SetSmoothing then a:SetSmoothing("IN_OUT") end
+  g:SetLooping("BOUNCE")
+  f.pulse = g
+end
+
+--- THE SABER: a white-hot core in two soft glow layers, a dark hilt below it.
+function B.NewSaber()
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetFrameStrata("BACKGROUND")
+  f.kind = "healer"
+  f.parts = {}
+  local W = B.SABER_W
+  for _, layer in ipairs({ { W + 10, 0.12 }, { W + 4, 0.35 }, { W, 1 } }) do
+    local t = tex(f, "ARTWORK", B.WHITE, layer[2], true)
+    t:SetPoint("TOP", f, "TOP", 0, 0)
+    t:SetPoint("BOTTOM", f, "BOTTOM", 0, 7)
+    t:SetWidth(layer[1])
+    f.parts[#f.parts + 1] = t
+  end
+  local hilt = tex(f, "OVERLAY", { 0.18, 0.18, 0.2 }, 1)
+  hilt:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+  hilt:SetSize(W + 4, 7)
+  local band = tex(f, "OVERLAY", { 0.7, 0.72, 0.75 }, 1)
+  band:SetPoint("BOTTOM", hilt, "TOP", 0, 0)
+  band:SetSize(W + 6, 1)
+  f.hilt = hilt
+  pulse(f, 0.75, 1.2)                             -- the slow hum of a lit blade
+  return f
+end
+
+--- THE RED GLOW for the top killer: the threat tool's glow (sides and bottom, open at the top).
+function B.NewGlow()
+  local T = NS.Threat
+  local f = (T and T.NewIndicator) and T.NewIndicator("glow") or CreateFrame("Frame", nil, UIParent)
+  f.kind = "killer"
+  if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
+  if not f.pulse then pulse(f, 0.4, 0.6) end
+  return f
+end
+
+function B.Undraw(u)
+  local f = B.marks[u]
+  if not f then return end
+  if f.pulse then f.pulse:Stop() end
+  f:Hide()
+  f:ClearAllPoints()
+  B.marks[u] = nil
+  B.pool[f.kind] = B.pool[f.kind] or {}
+  table.insert(B.pool[f.kind], f)
+end
+
+function B.Draw(u, kind)
+  local f = B.marks[u]
+  if f and f.kind == kind then return f end
+  if f then B.Undraw(u) end
+  local plate = plateOf(u)
+  if not plate then return nil end
+  B.pool[kind] = B.pool[kind] or {}
+  f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewGlow())
+  f:ClearAllPoints()
+  if kind == "healer" then
+    -- upright at the plate's left, the blade running past it top and bottom
+    f:SetPoint("TOPRIGHT", plate, "TOPLEFT", -3, B.SABER_OVER)
+    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMLEFT", -3, -B.SABER_OVER)
+    f:SetWidth(B.SABER_W + 10)
+  else
+    f:SetPoint("TOPLEFT", plate, "TOPLEFT", -1, 1)
+    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMRIGHT", 1, -1)
+    if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
+  end
+  f:SetAlpha(1)
+  f:Show()
+  if f.pulse then f.pulse:Play() end
+  B.marks[u] = f
+  return f
+end
+
+------------------------------------------------------------------- memory --
+-- REMEMBERED ACROSS BATTLEGROUNDS (Arn, 13 Oct: "a data file that only keeps track of bgs so if we
+-- go into a new bg it knows these people are healers and this guy is dangerous"). An addon cannot
+-- write a file; its saved variables are the one it gets. So db.known[name] = { guid, healer = how
+-- many battlegrounds they were a top-three healer in, killer = how many they were the top killer
+-- in, last = when }. Counted once per battleground per player. In the next battleground a known
+-- player is marked the moment their plate appears - before the scoreboard has numbers - dimmer and
+-- steady, so "known from before" reads apart from "doing it right now". Not seen for B.FORGET_DAYS:
+-- dropped; never more than B.KEEP players.
+B.FORGET_DAYS = 30
+B.KEEP = 300
+B.counted = {}                     -- "name:h" / "name:k" already counted this battleground
+B.onBoard = {}                     -- guid/name of every enemy this battleground's scoreboard has read
+
+function B.Known()
+  local db = R:DBFor(R:Get("bg"))
+  db.known = type(db.known) == "table" and db.known or {}
+  return db.known
+end
+
+function B.Remember(heals, killer)
+  local known = B.Known()
+  local now = time and time() or 0
+  local function note(s, what)
+    if not (s and s.name) then return end
+    local rec = known[s.name] or { healer = 0, killer = 0 }
+    rec.guid = s.guid or rec.guid
+    rec.last = now
+    if not B.counted[s.name .. ":" .. what] then
+      B.counted[s.name .. ":" .. what] = true
+      rec[what == "h" and "healer" or "killer"] = (rec[what == "h" and "healer" or "killer"] or 0) + 1
+    end
+    known[s.name] = rec
+  end
+  for i = 1, math.min(B.TOP_HEALERS, #heals) do note(heals[i], "h") end
+  note(killer, "k")
+end
+
+--- Old entries out, and never more than B.KEEP (the longest unseen go first).
+function B.Prune()
+  local known = B.Known()
+  local now = time and time() or 0
+  local list = {}
+  for name, rec in pairs(known) do
+    if now - (rec.last or 0) > B.FORGET_DAYS * 86400 then known[name] = nil
+    else list[#list + 1] = { name = name, last = rec.last or 0 } end
+  end
+  if #list > B.KEEP then
+    table.sort(list, function(a, b) return a.last < b.last end)
+    for i = 1, #list - B.KEEP do known[list[i].name] = nil end
+  end
+end
+
+--- A remembered player on this plate: their record, or nil.
+function B.Recall(guid, name)
+  local known = B.Known()
+  if name and known[name] then return known[name] end
+  if guid then
+    for _, rec in pairs(known) do if rec.guid == guid then return rec end end
+  end
+  return nil
+end
+
+--- Who is on this plate: "killer", "healer" or nil - and whether that is remembered, not live.
+--- Live (this battleground's scoreboard) first; then what earlier battlegrounds taught.
+function B.Which(u)
+  local guid = yes(UnitGUID, u)
+  local name = F.Name(u)
+  local k = B.killer
+  if k and ((guid and k.guid == guid) or (name and k.name == name)) then return "killer" end
+  if (guid and B.healers[guid]) or (name and B.healers[name]) then return "healer" end
+  if not (guid or name) then return nil end
+  -- the memory is for players this battleground's scoreboard has not judged yet: once the live
+  -- scoreboard has them, IT decides (a healer who fell out of the top three loses the saber)
+  if (guid and B.onBoard[guid]) or (name and B.onBoard[name]) then return nil end
+  -- an enemy only: a remembered name on our own side is somebody we play with now
+  if yes(UnitCanAttack, "player", u) ~= true then return nil end
+  local rec = B.Recall(guid, name)
+  if rec then
+    if (rec.killer or 0) > 0 then return "killer", true end
+    if (rec.healer or 0) > 0 then return "healer", true end
+  end
+  return nil
+end
+
+function B.On() return R:Enabled("bg") and B.inBG end
+
+B.REMEMBERED_ALPHA = 0.55
+
+function B.Paint(u)
+  if not B.plates[u] then return end
+  local kind, remembered
+  if B.On() then kind, remembered = B.Which(u) end
+  if not kind then return B.Undraw(u) end
+  local f = B.Draw(u, kind)
+  if not f then return end
+  -- remembered: dimmer and steady; live: full and humming
+  if remembered then
+    if f.pulse then f.pulse:Stop() end
+    f:SetAlpha(B.REMEMBERED_ALPHA)
+  else
+    f:SetAlpha(1)
+    if f.pulse and not f.pulse:IsPlaying() then f.pulse:Play() end
+  end
+  f.remembered = remembered and true or false
+end
+
+function B.PaintAll() for u in pairs(B.plates) do B.Paint(u) end end
+
+function B.ClearAll()
+  for u in pairs(B.marks) do B.Undraw(u) end
+  B.healers, B.killer = {}, nil
+end
+
+------------------------------------------------------------------ the loop --
+
+--- In a battleground: ask for the scoreboard now and every B.EVERY seconds. Out of one: stop.
+function B.Watch()
+  local ok, inside, kind = pcall(IsInInstance)
+  local was = B.inBG
+  -- a battleground only: an arena is 2v2/3v3, nobody needs a scoreboard to find the healer there
+  B.inBG = ok and plain(inside) == true and plain(kind) == "pvp"
+  if B.inBG and not was then
+    B.counted = {}                    -- a new battleground: everyone may be counted once again
+    B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
+    B.onBoard = {}
+    B.Prune()
+  end
+  if B.On() then
+    if not B.ticker then
+      B.ticker = C_Timer.NewTicker(B.EVERY, function() B.Ask() end)
+    end
+    B.Ask()
+  else
+    if B.ticker then B.ticker:Cancel() B.ticker = nil end
+    B.ClearAll()
+  end
+end
+
+function B.Ask()
+  if RequestBattlefieldScoreData then pcall(RequestBattlefieldScoreData) end
+end
+
+function B.OnScores()
+  if not B.On() then return end
+  local scores, note = B.Scores()
+  B.healers, B.killer = B.Pick(scores)
+  B.read.note = note
+  for _, sc in ipairs(scores) do
+    if sc.enemy then
+      if sc.guid then B.onBoard[sc.guid] = true end
+      if sc.name then B.onBoard[sc.name] = true end
+    end
+  end
+  B.Remember(B.read.heals or {}, B.killer)
+  B.PaintAll()
+end
+
+function B.OnEvent(_, event, unit)
+  if event == "NAME_PLATE_UNIT_ADDED" then
+    if type(unit) == "string" and plain(unit) then B.plates[unit] = true B.Paint(unit) end
+  elseif event == "NAME_PLATE_UNIT_REMOVED" then
+    if type(unit) == "string" and plain(unit) then B.Undraw(unit) B.plates[unit] = nil end
+  elseif event == "UPDATE_BATTLEFIELD_SCORE" then
+    B.OnScores()
+  elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+    B.Watch()
+  end
+end
+
+-- registered at load, never from a timer; an event this client does not know is pcalled
+B.frame = CreateFrame("Frame")
+for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "UPDATE_BATTLEFIELD_SCORE",
+                     "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA" }) do
+  pcall(B.frame.RegisterEvent, B.frame, e)
+end
+B.frame:SetScript("OnEvent", B.OnEvent)
+
+function B.Why()
+  local r = B.read or {}
+  NS.Print("bg: %s; %s; scoreboard every %d s", R:Enabled("bg") and "on" or "off",
+    B.inBG and "in a battleground" or "not in a battleground - nothing is read", B.EVERY)
+  B.WhyKnown()
+  if not B.inBG then return end
+  local heals = {}
+  for i, s in ipairs(r.heals or {}) do
+    if i > B.TOP_HEALERS then break end
+    heals[#heals + 1] = ("%s %s"):format(tostring(s.name or "?"), tostring(s.heal))
+  end
+  DEFAULT_CHAT_FRAME:AddMessage("  enemies on the scoreboard: " .. tostring(r.enemies or 0)
+    .. (r.note and ("  (" .. r.note .. ")") or ""))
+  DEFAULT_CHAT_FRAME:AddMessage("  top healers (saber): " .. (#heals > 0 and table.concat(heals, ", ") or "none read"))
+  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red glow): " .. (r.killer and ("%s, %d killing blows"):format(
+    tostring(r.killer.name or "?"), r.killer.kb or 0) or "none read"))
+  local marked, recalled = 0, 0
+  for _, f in pairs(B.marks) do marked = marked + 1 if f.remembered then recalled = recalled + 1 end end
+  DEFAULT_CHAT_FRAME:AddMessage(("  marked on screen now: %d (%d remembered from earlier battlegrounds)"):format(marked, recalled))
+end
+
+--- The memory, read out: how many healers and dangerous players it knows.
+function B.WhyKnown()
+  local h, k, n = 0, 0, 0
+  for _, rec in pairs(B.Known()) do
+    n = n + 1
+    if (rec.healer or 0) > 0 then h = h + 1 end
+    if (rec.killer or 0) > 0 then k = k + 1 end
+  end
+  DEFAULT_CHAT_FRAME:AddMessage(("  remembered from earlier battlegrounds: %d players - %d healers, %d dangerous"):format(n, h, k))
+end
+
+R:Register({
+  name = "bg",
+  desc = "battlegrounds: a saber on their top 3 healers, a red glow on their top killer",
+  usage = "/bist bg [why | forget <name> | clear]",
+  defaults = { known = {} },
+  OnInit = function() end,
+  OnLogin = function() B.Watch() end,
+  OnEnable = function() B.Watch() end,
+  OnDisable = function() B.Watch() end,
+  OnSlash = function(_, _, args)
+    args = args or ""
+    local who = args:match("^forget%s+(.+)$")
+    if who then
+      local known = B.Known()
+      local key
+      for name in pairs(known) do if name:lower() == who:lower() then key = name end end
+      if not key then return NS.Print("bg: nobody called %s is remembered", who) end
+      known[key] = nil
+      B.PaintAll()
+      return NS.Print("bg: %s forgotten", key)
+    end
+    if args:lower() == "clear" then
+      local db = R:DBFor(R:Get("bg"))
+      db.known = {}
+      B.PaintAll()
+      return NS.Print("bg: everyone forgotten")
+    end
+    B.Why()
+  end,
+})
