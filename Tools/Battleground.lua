@@ -218,6 +218,52 @@ function B.BoardWhy()
   NS.Print("bg board: under the mouse: %s", #foci > 0 and table.concat(foci, " | ") or "nothing named")
 end
 
+--- In a battleground, asked live (the box may lay out before B.Watch has heard the same event).
+function B.InBG()
+  local ok, inside, kind = pcall(IsInInstance)
+  return ok and plain(inside) == true and plain(kind) == "pvp"
+end
+
+--- The same "mark" in the BiS> tools box (Arn, 14 Oct: "add that scoreboard button to the bis
+--- tools") - read the board mid-fight without opening it. Its face: a little lit saber.
+function B.BoxButton()
+  if B.bbtn then return B.bbtn end
+  local K = NS.Farm
+  local b = CreateFrame("Button", "BiSToolsBGMarkBox", UIParent)
+  b:SetSize(26, 26)
+  b:SetFrameStrata("MEDIUM")
+  b:RegisterForClicks("LeftButtonUp")
+  K.tex(b, "BACKGROUND", "field", 0.95)
+  b.edge = K.border(b, "accent", 1)
+  local function tex(f, layer, c, a, add)
+    local t = f:CreateTexture(nil, layer)
+    t:SetColorTexture(c[1], c[2], c[3], a or 1)
+    if add and t.SetBlendMode then pcall(t.SetBlendMode, t, "ADD") end
+    return t
+  end
+  for _, layer in ipairs({ { 7, 0.18 }, { 4, 0.45 }, { 2, 1 } }) do
+    local t = tex(b, "ARTWORK", B.WHITE, layer[2], true)
+    t:SetPoint("TOP", b, "TOP", 0, -4)
+    t:SetPoint("BOTTOM", b, "BOTTOM", 0, 9)
+    t:SetWidth(layer[1])
+  end
+  local hilt = tex(b, "OVERLAY", { 0.55, 0.57, 0.6 }, 1)
+  hilt:SetPoint("BOTTOM", b, "BOTTOM", 0, 4)
+  hilt:SetSize(4, 5)
+  b:SetScript("OnClick", function() B.Mark() end)
+  b:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("Mark their healers and killer")
+    GameTooltip:AddLine("Reads the scoreboard now: a white saber on their top three healers, a red glow on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+  b:Hide()
+  B.bbtn = b
+  return b
+end
+
 function B.Mark()
   if not B.On() then return NS.Print("bg: not in a battleground") end
   if not B.ReadOrder(true) then return NS.Print("bg: %s", (B.read and B.read.note) or "the board could not be read") end

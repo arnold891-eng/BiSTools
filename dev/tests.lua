@@ -4419,6 +4419,22 @@ do
        "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
     ok(BG.killer and BG.killer.name == "Shocka", "the red glow: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
+    -- the same "mark" in the BiS> tools box (Arn: "add that scoreboard button to the bis tools")
+    do
+      local function boxShows()
+        for _, e in ipairs(NS.Box.Buttons()) do if e.b == BG.bbtn then return e.show end end
+      end
+      ok(boxShows() == true, "in a battleground: the tools box carries the mark button")
+      inBG = false
+      ok(boxShows() == false, "out of one: it does not")
+      inBG = true
+      local n1 = #sorts
+      local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+      DEFAULT_CHAT_FRAME.AddMessage = function() end
+      BG.bbtn.scripts.OnClick(BG.bbtn)
+      DEFAULT_CHAT_FRAME.AddMessage = keepChat
+      ok(#sorts > n1 and BG.healers.Heala == 1, "pressed: reads the board now and marks")
+    end
     -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
     do
       local h, k = BG.healers, BG.killer
