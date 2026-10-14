@@ -1,13 +1,6 @@
 ## Unreleased
 
 - **"BiS: add rival" on more right-click menus**: a player's portrait menu can be filed as a target or focus menu (unit frame addons that open it through the game's secure menu do this), and the line was missing there. It is in those now - for players only, never on a mob - and any other player menu the game opens gets it from the next right-click. `/bist recap why` says which menu opened last and whether the line is in it.
-- **Threat marks** (new tool, `/bist threat` opens its window): what each mob's threat is doing, on its nameplate.
-  - **Tank:** purple on you, grey on another tank, red and flashing on a non-tank, orange as a groupmate closes in on a mob you hold. Yellow out of combat if you want it (off by default).
-  - **DPS and healers:** nothing until your threat on a mob reaches 60% of a pull, then it fades in yellow -> orange -> red; it flashes only from 95%, and when it turns on you.
-  - **Three looks:** a bar down the **left side** of the plate (default - readable when plates stack), a small **glow** down the sides and under it (open at the top, so the name stays clear), or your **crosshair**. Drawn beside the plate, so it works with any nameplate addon.
-  - **The window:** pick the look, tank or dps (or auto), switch each situation on or off, pick each colour from a palette, set where it starts showing and where it starts flashing, preview it on a fake plate, reset the colours.
-  - Ideas from the guild. A crowd-controlled mob cannot be shown: the game hides a mob's debuffs in combat.
-
 - **Farm a mob from its right-click menu**: right-click a mob's portrait and pick **BiS: track in farm** - no typing its name, no killing one first. On the mob you are already farming it says **BiS: stop farming**. Only on mobs you can attack, never on players.
 
 ## 0.5.1
