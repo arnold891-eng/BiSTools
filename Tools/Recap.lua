@@ -1129,7 +1129,11 @@ function RC.PaintPreview(pv)
   local style = RC.style or "rails"
   if style ~= "none" then
     local cross = get("cross" .. style, function() return newMark("own") end, L)
-    cross:SetSize(math.floor(64 * RC.MARK_WIDE + 0.5), RC.MARK_H)     -- the plate's width x MARK_WIDE, as RC.MarkPlate
+    -- the preview plate's width (the real plates' size, Battleground.lua B.SizePreviewPlates) x MARK_WIDE,
+    -- as RC.MarkPlate sizes a real one
+    local okW, pw = pcall(L.plate.GetWidth, L.plate)
+    pw = (okW and type(pw) == "number" and pw > 0) and pw or 64
+    cross:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
     cross:SetPoint("TOP", L.plate, "BOTTOM", 0, -2)
   end
   get("crown", newCrown, L):SetPoint("BOTTOM", L.plate, "TOP", 0, 12)

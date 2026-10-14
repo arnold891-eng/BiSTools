@@ -667,7 +667,44 @@ local function previewCell(pv, x, w, kind, h)
 end
 
 --- You, in the models: the live player; facing a little to the side, the way BiSGamba poses a seat.
+--- THE REAL NAMEPLATE'S SIZE, on screen (Arn, 14 Oct: the preview's rival crosshair "look squished
+--- cause name plates are smaller than in game ... the width is what's important" - and no drawing an
+--- EllesmereUI plate: "some people dont have that installed"). Whatever nameplates the player runs,
+--- the first plate seen is measured once, in screen pixels; the preview's fake plate takes that size.
+--- Until one is seen, B.PLATE_PX - a typical plate.
+B.PLATE_PX = { 150, 12 }
+function B.NotePlate(unit)
+  if B.platePx then return end
+  local plate = plateOf(unit)
+  if not plate then return end
+  local ok, w, h, s = pcall(function() return plate:GetWidth(), plate:GetHeight(), plate:GetEffectiveScale() end)
+  if not ok then return end
+  w = plain(w)
+  h = plain(h)
+  s = plain(s)
+  if type(w) == "number" and type(h) == "number" and type(s) == "number" and w > 20 then
+    B.platePx = { w * s, math.max(6, math.min(30, h * s)) }
+  end
+end
+
+--- The fake plate at the real one's size, in the preview's own units (it hangs off a scaled window).
+function B.SizePreviewPlates()
+  local pv = B.preview
+  if not pv then return end
+  local px = B.platePx or B.PLATE_PX
+  local okS, s = pcall(pv.GetEffectiveScale, pv)
+  s = (okS and type(s) == "number" and s > 0) and s or 1
+  local okU, us = pcall(function() return UIParent:GetEffectiveScale() end)
+  local base = B.platePx and 1 or ((okU and type(us) == "number" and us > 0) and us or 1)   -- the default is in UI units
+  local w, h = px[1] * base / s, px[2] * base / s
+  for _, cell in ipairs({ pv.cellH, pv.cellK }) do
+    local cw = cell.GetWidth and cell:GetWidth() or w
+    cell.plate:SetSize(math.min(w, (type(cw) == "number" and cw > 0) and cw - 8 or w), h)
+  end
+end
+
 function B.DressPreview()
+  B.SizePreviewPlates()
   local pv = B.preview
   if not pv then return end
   local me = yes(UnitName, "player")
@@ -1004,7 +1041,11 @@ end
 
 function B.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_ADDED" then
-    if type(unit) == "string" and plain(unit) then B.plates[unit] = true B.Paint(unit) end
+    if type(unit) == "string" and plain(unit) then
+      B.plates[unit] = true
+      B.Paint(unit)
+      B.NotePlate(unit)
+    end
   elseif event == "NAME_PLATE_UNIT_REMOVED" then
     if type(unit) == "string" and plain(unit) then B.Undraw(unit) B.plates[unit] = nil end
   elseif event == "UPDATE_BATTLEFIELD_SCORE" then

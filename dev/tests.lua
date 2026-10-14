@@ -1857,18 +1857,26 @@ do
   for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 6) end end
   ok(pv.marks.healer.tag and pv.marks.killer.tag, "a step in the options redraws the preview at once (the tag)")
   for _, o in ipairs(R:Get("bg").options) do if o.label == "mark look" then o.set(bdbP, 1) end end
+  -- THE REAL NAMEPLATE'S WIDTH (Arn: the preview's crosshair "look squished cause name plates are smaller
+  -- than in game ... the width is what's important")
+  local keepPx = BGt.platePx
+  BGt.platePx = { 180, 12 }               -- as measured off a real plate, in screen pixels
+  BGt.SizePreviewPlates()
+  ok(pv.cellH.plate.w == 180 and pv.cellK.plate.w == 180, "the preview's nameplates take the real ones' width", tostring(pv.cellH.plate.w))
   -- THE RIVALS & PALS PREVIEW (Arn: "need the preview for pals and rivals")
   local crossRow = find("crosshair")
   crossRow.scripts.OnEnter(crossRow)
   ok(pv:IsShown() and pv.mode == "rivals" and #pv.rmarks == 4, "hovering a rival setting: the rival and the pal, wearing their marks", #(pv.rmarks or {}))
   ok(pv.marks and next(pv.marks) == nil, "and the battleground marks are put away")
   ok(pv.cellH.word.text:find("rival", 1, true) and pv.cellK.word.text:find("pal", 1, true), "captions say which is which")
+  ok(pv.rmarks[1].w == math.floor(180 * NS.Recap.MARK_WIDE + 0.5), "the rival's crosshair as wide as on a real plate - not squished", tostring(pv.rmarks[1].w))
   local styleBefore = pv.rmarks[1].style
   for _, o in ipairs(R:Get("rivals").options) do if o.label == "crosshair" then o.set(nil, 4) end end
   ok(pv.rmarks[1].style ~= styleBefore and pv.rmarks[1].style == NS.Recap.STYLES[4], "a new crosshair style: the preview redraws in it", tostring(pv.rmarks[1].style))
   for _, o in ipairs(R:Get("rivals").options) do if o.label == "crosshair" then o.set(nil, 1) end end
   lookRow.scripts.OnEnter(lookRow)
   ok(pv.mode == "bg" and pv.marks.healer and not pv.rmarks[1]:IsShown(), "back on a bg setting: the battleground marks again")
+  BGt.platePx = keepPx
   find("spot radius").scripts.OnEnter(find("spot radius"))
   ok(not pv:IsShown(), "any other setting: the preview goes")
   local undocumented = {}
