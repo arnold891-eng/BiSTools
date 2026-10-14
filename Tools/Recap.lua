@@ -862,7 +862,18 @@ end
 -- is replaced or hooked. Read off Olympus 1.2.3 (MIT), which hands back the player's `name` and
 -- `surname` apart (Forever's), and which learned to stay OUT of the guild roster menus: a line there
 -- left the game's own promote / kick refused from tainted code. So those are never touched here.
-RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_ROSTER" }
+RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_ROSTER",
+  -- Arn, 13 Oct: "i cant see the add rival when i right click them". A unit frame that opens its
+  -- menu through the secure "togglemenu" action (EllesmereUI's do, to dodge 12.x's togglemenu gate)
+  -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
+  "TARGET", "FOCUS" }
+
+--- A guild roster menu is never touched (Olympus: a line there left promote/kick refused).
+function RC.MenuAllowed(tag)
+  if type(tag) ~= "string" then return false end
+  local up = tag:upper()
+  return not (up:find("GUILD", 1, true) or up:find("COMMUNIT", 1, true))
+end
 
 --- The full name a menu is about ("Dai Joubu"), or nil when it is nobody, hidden, or you.
 function RC.MenuName(ctx)
@@ -878,6 +889,13 @@ end
 --- The lines for one menu: add, or remove, this player as a rival.
 function RC.MenuLines(db, root, ctx)
   if not (R:Enabled("recap") and root and root.CreateButton) then return end
+  -- a menu about a UNIT must be about a player (TARGET and FOCUS also open on mobs); a menu with no
+  -- unit (a name in chat) is a player by where it came from
+  local unit = field(ctx, "unit")
+  if type(unit) == "string" then
+    local okP, isPlayer = pcall(UnitIsPlayer, unit)
+    if not okP or hidden(isPlayer) or isPlayer ~= true then return end
+  end
   local name = RC.MenuName(ctx)
   if not name then return end
   local r, key = RC.Find(db, name)
@@ -916,11 +934,27 @@ function RC.MenuLines(db, root, ctx)
   end
 end
 
+RC.tags = {}                       -- menu kinds the line is in
+
+function RC.HookTag(db, kind)
+  if RC.tags[kind] or not RC.MenuAllowed(kind) then return end
+  RC.tags[kind] = true
+  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+end
+
 function RC.HookMenus(db)
   if RC.menusHooked then return true end
   if not (Menu and type(Menu.ModifyMenu) == "function") then return false end
-  for _, kind in ipairs(RC.MENUS) do
-    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+  for _, kind in ipairs(RC.MENUS) do RC.HookTag(db, kind) end
+  -- AND EVERY MENU THE GAME OPENS: its kind is noted for /bist recap why, and a kind not seen
+  -- before gets the line from the next right-click on (the hook runs after the menu is built, so
+  -- the first open of a new kind is a miss). Guild roster menus never.
+  if type(UnitPopup_OpenMenu) == "function" and hooksecurefunc then
+    pcall(hooksecurefunc, "UnitPopup_OpenMenu", function(which)
+      if type(which) ~= "string" or hidden(which) then return end
+      RC.lastMenu = which
+      RC.HookTag(db, which)
+    end)
   end
   RC.menusHooked = true
   return true
@@ -1357,6 +1391,11 @@ function RC.Why(db)
     #gold > 0 and T.text("gold", table.concat(gold, ", ")) or T.text("warn", "nobody"))
   DEFAULT_CHAT_FRAME:AddMessage("  last look: " .. T.text("muted", ("%s - %s - %s"):format(
     tostring(RC.lookUnit or "none yet"), tostring(RC.lookName or "no name"), tostring(RC.lookWhy or "-"))))
+  -- the right-click menu: which kind the game opened last, and whether "add rival" is in it
+  local menu = RC.lastMenu
+  DEFAULT_CHAT_FRAME:AddMessage("  last right-click menu: " .. (menu and T.text("ink", menu) or T.text("muted", "none seen yet"))
+    .. (menu and (RC.tags[menu] and T.text("good", " - has the rival line") or
+        T.text("warn", RC.MenuAllowed(menu) and " - not yet (right-click again)" or " - a guild menu: never")) or ""))
   -- the target, read now, every way it can go wrong
   local ok, raw = pcall(UnitName, "target")
   local said

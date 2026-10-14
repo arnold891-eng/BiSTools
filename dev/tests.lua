@@ -141,6 +141,9 @@ _G.UnitIsDead = function(u) local x = unit(u) return x and x.dead or false end
 _G.UnitAffectingCombat = function(u) local x = unit(u) return x and x.combat or false end
 _G.UnitIsTapDenied = function(u) local x = unit(u) return x and x.tapped or false end
 _G.UnitCanAttack = function(_, u) local x = unit(u) return x and x.hostile ~= false end
+-- the client answers this for every unit (13 Oct 2026: the rival line became players-only; a mock
+-- without it refused every menu, which the client never does)
+_G.UnitIsPlayer = function(u) if u == "player" then return true end local x = unit(u) return x ~= nil and x.player == true end
 _G.SetRaidTarget = function(u, i)
   -- PROTECTED ON FOREVER (6 Oct 2026, Arn's BugGrabber: "AddOn 'BiSTools' tried to call the
   -- protected function 'SetRaidTarget()'", from the scanner's ticker). The client blames the addon
@@ -3182,7 +3185,8 @@ do
     function r:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.click = fn end
     return r
   end
-  local keepClass, keepGUID = _G.UnitClass, _G.UnitGUID
+  local keepClass, keepGUID, keepMenuTarget = _G.UnitClass, _G.UnitGUID, W.target
+  W.target = { name = "Dai", player = true, guid = "Player-4619-00DA1" }      -- an enemy player on target
   _G.UnitClass = function(u) if u == "target" then return "Rogue", "ROGUE" end return "Shaman", "SHAMAN" end
   _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
   local m = root()
@@ -3208,10 +3212,49 @@ do
   m = root() hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu" })
   ok(#m.lines == 0, "and none while the tool is off")
   R:SetEnabled("recap", true)
+  -- TARGET / FOCUS (Arn, 13 Oct: "i cant see the add rival when i right click them"): a unit frame
+  -- that opens its menu through the secure togglemenu (EllesmereUI's do) can file a player's menu
+  -- as TARGET - the line must be there too, and only for players
+  ok(hookedMenus.MENU_UNIT_TARGET and hookedMenus.MENU_UNIT_FOCUS, "the TARGET and FOCUS menus carry the line too")
+  m = root() hookedMenus.MENU_UNIT_TARGET(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
+  W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
+  m = root() hookedMenus.MENU_UNIT_FOCUS(nil, m, { name = "Defias Thug", unit = "target" })
+  ok(#m.lines == 0, "a MOB's menu: no rival line")
+  W.target = { name = "Dai", player = true, guid = "Player-4619-00DA1" }
+  -- a menu kind nobody listed: the game's own UnitPopup_OpenMenu is watched; a new kind is noted and
+  -- carries the line from the next right-click; a guild menu never
+  do
+    local opened = {}
+    _G.UnitPopup_OpenMenu = function(which) opened[#opened + 1] = which end
+    local keepHook = _G.hooksecurefunc
+    _G.hooksecurefunc = function(name, fn)                    -- the client's: theirs runs, then ours
+      local orig = _G[name]
+      _G[name] = function(...) orig(...) fn(...) end
+    end
+    RC.menusHooked, RC.tags = nil, {}
+    hookedMenus = {}
+    ok(RC.HookMenus(rdb2), "hooked again")
+    UnitPopup_OpenMenu("SOME_NEW_PLAYER_MENU", { unit = "target" })
+    ok(RC.lastMenu == "SOME_NEW_PLAYER_MENU" and hookedMenus.MENU_UNIT_SOME_NEW_PLAYER_MENU,
+       "a menu kind never listed is noted, and gets the line from the next right-click")
+    UnitPopup_OpenMenu("COMMUNITIES_GUILD_MEMBER", { unit = "target" })
+    ok(RC.lastMenu == "COMMUNITIES_GUILD_MEMBER" and not hookedMenus.MENU_UNIT_COMMUNITIES_GUILD_MEMBER,
+       "a guild roster menu is noted but NEVER gets the line")
+    local said = {}
+    local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+    RC.Why(rdb2)
+    DEFAULT_CHAT_FRAME.AddMessage = keepChat
+    local all = table.concat(said, "\n")
+    ok(all:find("last right-click menu", 1, true) and all:find("COMMUNITIES_GUILD_MEMBER", 1, true)
+       and all:find("a guild menu: never", 1, true), "/bist recap why says which menu opened last, and why no line")
+    _G.hooksecurefunc, _G.UnitPopup_OpenMenu = keepHook, nil
+  end
   _G.Menu = nil
   RC.menusHooked = nil
   ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
-  _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
+  _G.UnitClass, _G.UnitGUID, W.target = keepClass, keepGUID, keepMenuTarget
 
   -- "TRACK IN FARM" ON A MOB'S RIGHT-CLICK MENU (Arn, 13 Oct: "right click npc ... track in the farm
   -- module not just type their name or wait till you kill one")
@@ -3270,7 +3313,10 @@ do
      "the guild channel carries RIVAL: ADD, DEL, SEEN, ASK, LIST")
   local mg = root()
   _G.Menu = { ModifyMenu = function() end }
+  local keepT = W.target
+  W.target = { name = "Kill", player = true }                -- the menu is about a player on target
   RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
+  W.target = keepT
   ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
   _G.UnitClass = function() return "Mage", "MAGE" end
   mg.click()

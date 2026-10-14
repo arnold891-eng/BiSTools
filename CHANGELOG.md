@@ -1,5 +1,6 @@
 ## Unreleased
 
+- **"BiS: add rival" on more right-click menus**: a player's portrait menu can be filed as a target or focus menu (unit frame addons that open it through the game's secure menu do this), and the line was missing there. It is in those now - for players only, never on a mob - and any other player menu the game opens gets it from the next right-click. `/bist recap why` says which menu opened last and whether the line is in it.
 - **Threat marks** (new tool, `/bist threat` opens its window): what each mob's threat is doing, on its nameplate.
   - **Tank:** purple on you, grey on another tank, red and flashing on a non-tank, orange as a groupmate closes in on a mob you hold. Yellow out of combat if you want it (off by default).
   - **DPS and healers:** nothing until your threat on a mob reaches 60% of a pull, then it fades in yellow -> orange -> red; it flashes only from 95%, and when it turns on you.
