@@ -4288,6 +4288,27 @@ do
   DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
   ev("UPDATE_BATTLEFIELD_SCORE")
   S("bg why")
+  -- raw: one enemy row, every field as given - a hidden one says HIDDEN, never a guess
+  rows[1].healingDone = SECRET
+  local from = #said + 1
+  S("bg raw")
+  rows[1].healingDone = 90000
+  local rawText = table.concat(said, "\n", from)
+  ok(rawText:find("healingDone=HIDDEN", 1, true) and rawText:find("killingBlows=", 1, true)
+     and rawText:find("name=", 1, true), "/bist bg raw prints an enemy row's fields, hidden as HIDDEN", rawText)
+  -- the match-end probe: quiet while there is no winner, the raw row once when there is
+  local before = #said
+  _G.GetBattlefieldWinner = function() return nil end
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(#said == before, "no winner yet: the match-end probe stays quiet")
+  _G.GetBattlefieldWinner = function() return 1 end
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  local endText = table.concat(said, "\n", before + 1)
+  ok(endText:find("match is over", 1, true) and endText:find("healingDone=", 1, true), "a winner: the raw row prints by itself", endText)
+  local after = #said
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(#said == after, "once per battleground, not every scoreboard read")
+  _G.GetBattlefieldWinner = nil
   DEFAULT_CHAT_FRAME.AddMessage = keepChat
   local all = table.concat(said, "\n")
   ok(all:find("top healers (saber): Fourth 100000, Heala 90000, Shocka 60000", 1, true)

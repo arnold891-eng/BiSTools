@@ -342,6 +342,7 @@ function B.Watch()
     B.counted = {}                    -- a new battleground: everyone may be counted once again
     B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
     B.onBoard = {}
+    B.ended = nil
     B.Prune()
   end
   if B.On() then
@@ -372,6 +373,20 @@ function B.OnScores()
   end
   B.Remember(B.read.heals or {}, B.killer)
   B.PaintAll()
+  B.AtEnd()
+end
+
+--- PROBE (14 Oct): mid-match every number on the board is hidden from addons (Arn's /bist bg raw).
+--- Does the board unlock when the match is over? Once per battleground, the moment it has a
+--- winner, print the raw row by itself. If the numbers come plain, B.OnScores above has already
+--- written the top healers and killer into the memory - nothing else to build for that part.
+function B.AtEnd()
+  if B.ended or not GetBattlefieldWinner then return end
+  local ok, w = pcall(GetBattlefieldWinner)
+  if not ok or plain(w) == nil then return end
+  B.ended = true
+  NS.Print("bg: the match is over - the scoreboard as an addon reads it now:")
+  B.Raw()
 end
 
 function B.OnEvent(_, event, unit)
@@ -415,6 +430,51 @@ function B.Why()
   DEFAULT_CHAT_FRAME:AddMessage(("  marked on screen now: %d (%d remembered from earlier battlegrounds)"):format(marked, recalled))
 end
 
+--- /bist bg raw: ONE enemy row of the scoreboard, every field as the game hands it over - a value,
+--- or HIDDEN. Arn's first battleground, 14 Oct: "30 row(s) with the numbers hidden" - and a missing
+--- field (Forever naming it differently) and a hidden one read alike in B.Scores. This tells them
+--- apart, and shows what the old positional GetBattlefieldScore answers for the same row.
+function B.Raw()
+  local G = C_PvP and C_PvP.GetScoreInfo
+  local n = yes(GetNumBattlefieldScores) or 0
+  if not (G and type(n) == "number" and n > 0) then return NS.Print("bg raw: no scoreboard rows (in a battleground? /bist bg why)") end
+  local mine = yes(UnitFactionGroup, "player")
+  local myFaction = mine == "Horde" and 0 or (mine == "Alliance" and 1 or nil)
+  local pick, info
+  for i = 1, n do
+    local ok, row = pcall(G, i)
+    if ok and type(row) == "table" then
+      local f = field(row, "faction")
+      if pick == nil or (type(f) == "number" and f ~= myFaction) then pick, info = i, row end
+      if type(f) == "number" and f ~= myFaction then break end
+    end
+  end
+  if not info then return NS.Print("bg raw: C_PvP.GetScoreInfo gave no table for any of %d rows", n) end
+  local function show(v)
+    local okS, s = pcall(issecretvalue or function() return false end, v)
+    if not okS or s then return "HIDDEN" end
+    if type(v) == "table" then return "{table}" end
+    return tostring(v)
+  end
+  local keys = {}
+  local okP = pcall(function() for k in pairs(info) do keys[#keys + 1] = tostring(k) end end)
+  table.sort(keys)
+  NS.Print("bg raw: scoreboard row %d of %d, C_PvP.GetScoreInfo%s:", pick, n, okP and "" or " (its keys could not be listed)")
+  local line = {}
+  for _, k in ipairs(keys) do
+    local okV, v = pcall(function() return info[k] end)
+    line[#line + 1] = k .. "=" .. (okV and show(v) or "refused")
+    if #line == 6 then DEFAULT_CHAT_FRAME:AddMessage("  " .. table.concat(line, "  ")) line = {} end
+  end
+  if #line > 0 then DEFAULT_CHAT_FRAME:AddMessage("  " .. table.concat(line, "  ")) end
+  if GetBattlefieldScore then
+    local res = { pcall(GetBattlefieldScore, pick) }
+    local out = {}
+    for i = 2, math.min(#res, 17) do out[#out + 1] = (i - 1) .. ":" .. show(res[i]) end
+    DEFAULT_CHAT_FRAME:AddMessage("  GetBattlefieldScore(" .. pick .. "): " .. (res[1] and table.concat(out, " ") or "refused"))
+  end
+end
+
 --- The memory, read out: how many healers and dangerous players it knows.
 function B.WhyKnown()
   local h, k, n = 0, 0, 0
@@ -429,7 +489,7 @@ end
 R:Register({
   name = "bg",
   desc = "battlegrounds: a saber on their top 3 healers, a red glow on their top killer",
-  usage = "/bist bg [why | forget <name> | clear]",
+  usage = "/bist bg [why | raw | forget <name> | clear]",
   defaults = { known = {} },
   OnInit = function() end,
   OnLogin = function() B.Watch() end,
@@ -447,6 +507,7 @@ R:Register({
       B.PaintAll()
       return NS.Print("bg: %s forgotten", key)
     end
+    if args:lower() == "raw" then return B.Raw() end
     if args:lower() == "clear" then
       local db = R:DBFor(R:Get("bg"))
       db.known = {}
