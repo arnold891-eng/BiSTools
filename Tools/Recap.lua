@@ -861,6 +861,77 @@ function RC.TargetButton(db)
   return b
 end
 
+-- ---------------------------------------------------------------- the battleground "+ rival" button
+-- Arn, 13 Oct: "maybe a bg button that rivals someone so i dont have to type". The game's right-click
+-- menu cannot carry our line inside an instance (RC.MenuSafe), so in a battleground or arena the
+-- BiS> tools box gets a button: "+" - your target becomes a gold rival; "-" - they are one, a click
+-- takes them off; dim - your target is not an enemy player. A PLAIN button (nothing secure: it reads
+-- the target and writes our list), so its face may change mid-fight; the box lays it out only out of
+-- combat, on the way into the battleground.
+
+--- In a battleground or an arena?
+function RC.InPvP()
+  if not IsInInstance then return false end
+  local ok, inside, kind = pcall(IsInInstance)
+  if not ok or hidden(inside) or hidden(kind) then return false end
+  return inside == true and (kind == "pvp" or kind == "arena")
+end
+
+function RC.AddButton(db)
+  if RC.abtn then return RC.abtn end
+  local F = K()
+  local b = CreateFrame("Button", "BiSToolsRivalAdd", UIParent)
+  b:SetSize(26, 26)
+  b:SetFrameStrata("MEDIUM")
+  b:RegisterForClicks("LeftButtonUp")
+  F.tex(b, "BACKGROUND", "field", 0.95)
+  b.icon = b:CreateTexture(nil, "ARTWORK")
+  b.icon:SetPoint("TOPLEFT", 2, -2) b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+  b.icon:SetTexture("Interface\\Icons\\Ability_DualWield")       -- the rival button's swords
+  b.edge = F.border(b, "warn", 1)
+  b.sign = b:CreateFontString(nil, "OVERLAY")
+  b.sign:SetFont(STANDARD_TEXT_FONT, 18, "OUTLINE")
+  b.sign:SetPoint("CENTER", b, "CENTER", 0, 0)
+  b:SetScript("OnClick", function()
+    RC.RivalFromTarget(R:DBFor(R:Get("recap")))
+    RC.PaintAdd()
+  end)
+  b:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(self.state == "remove" and "Take your target off your rivals" or "Make your target a rival")
+    GameTooltip:AddLine("For battlegrounds and arenas, where the right-click menu cannot carry it. Same as /bist recap rival.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+  b:Hide()
+  RC.abtn = b
+  return b
+end
+
+--- The button's face for your current target: "+", "-", or dim. Text and alpha only - safe mid-fight.
+function RC.PaintAdd()
+  local b = RC.abtn
+  if not b then return end
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  local enemy = ask(UnitIsPlayer, "target") == true and ask(UnitCanAttack, "player", "target") == true
+  local name = enemy and (ask(UnitName, "target")) or nil
+  if not (enemy and type(name) == "string") then
+    b.state = "none"
+    b.sign:SetText("+")
+    b:SetAlpha(0.4)
+    return
+  end
+  local r = RC.Find(R:DBFor(R:Get("recap")), name)
+  b.state = r and "remove" or "add"
+  b.sign:SetText(r and "-" or "+")
+  b:SetAlpha(1)
+end
+
 --- Write the gold rivals into the button, show it when there is anyone to target, bind the key.
 --- In a fight: remembered, done when it ends.
 function RC.ApplyButton(db)
@@ -1635,6 +1706,7 @@ function RC.OnEvent(_, event, unit)
     if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
+    RC.PaintAdd()
     RC.Spot(db, "target") return
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
     RC.Spot(db, "mouseover") return

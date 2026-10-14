@@ -3725,6 +3725,55 @@ do
 end
 
 -- leaked globals
+-- ------------------------------------------------------------ the battleground "+ rival" button
+-- Arn, 13 Oct: "maybe a bg button that rivals someone so i dont have to type" - the right-click menu
+-- cannot carry the line inside an instance, so in a battleground the BiS> tools box gets a button.
+do
+  local RC, B = NS.Recap, NS.Box
+  local rdb = R:DBFor(R:Get("recap"))
+  local list = RC.Rivals(rdb)
+  local keepInst, keepT, keepCombat = _G.IsInInstance, W.target, W.combat
+  local kind = "none"
+  _G.IsInInstance = function() return kind ~= "none", kind end
+  W.combat = false
+  B.Refresh()
+  ok(not (RC.abtn and RC.abtn.shown), "out in the world: no + rival button (the menu has the line)")
+  kind = "pvp"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  local ab = RC.abtn
+  ok(ab and ab.shown and BiSToolsBox.shown, "into a battleground: the + rival button is in the box")
+  ok(ab.template == nil, "a plain button - nothing secure, so its face may change mid-fight")
+  -- no target / a mob: dim
+  W.target = nil
+  RC.PaintAdd()
+  ok(ab.alpha == 0.4 and ab.sign.text == "+", "no enemy player on target: dim")
+  W.target = { name = "Raging Gnoll", guid = "Creature-0-0-0-0-117-3", hostile = true }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(ab.alpha == 0.4, "a mob on target: dim")
+  -- an enemy player: +, click, -, click
+  W.target = { name = "Whacky", player = true, hostile = true, guid = "Player-4619-0BG07" }
+  local keepGUN = _G.GetUnitName
+  _G.GetUnitName = function(u) if u == "target" then return "Whacky Waqqy" end end
+  W.combat = true                                     -- mid-fight
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(ab.alpha == 1 and ab.sign.text == "+" and ab.state == "add", "an enemy player on target: + (even mid-fight)")
+  ab.scripts.OnClick(ab, "LeftButton")
+  ok(list["Whacky Waqqy"] and list["Whacky Waqqy"].active, "one click: Whacky Waqqy is a gold rival")
+  ok(ab.sign.text == "-" and ab.state == "remove", "and the button now offers to take them off")
+  ab.scripts.OnClick(ab, "LeftButton")
+  ok(list["Whacky Waqqy"] == nil and ab.sign.text == "+", "clicked again: off")
+  W.combat = false
+  -- an arena counts too; leaving takes it away
+  kind = "arena"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  ok(ab.shown, "an arena: the button too")
+  kind = "none"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  ok(not ab.shown, "back in the world: gone")
+  _G.IsInInstance, W.target, W.combat, _G.GetUnitName = keepInst, keepT, keepCombat, keepGUN
+  B.Refresh()
+end
+
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
   -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
