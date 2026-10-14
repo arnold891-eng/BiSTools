@@ -602,6 +602,11 @@ end
 
 function F.MenuLines(db, root, ctx)
   if not (NS.Registry:Enabled("farm") and root and root.CreateButton) then return end
+  -- never inside an instance: a line there taints the game's menu, whose frame rects are secret
+  -- there, and Blizzard's layout breaks (Arn's BugGrabber in a battleground, 13 Oct - Recap.lua
+  -- RC.MenuSafe has the whole story). The farm is an open-world tool anyway.
+  local RC = NS.Recap
+  if RC and RC.MenuSafe and not RC.MenuSafe() then return end
   local name = F.MenuMob(ctx)
   if not name then return end
   if root.CreateDivider then root:CreateDivider() end

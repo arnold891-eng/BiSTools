@@ -164,7 +164,7 @@ function H.BuildHub()
     local r = f:AddRow("Button", "BiSToolsHubRow" .. i)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     r.bg = K.tex(r, "BACKGROUND", "sunken", 0)
-    r.name = K.fs(r, tool.name, 9, "ink")
+    r.name = K.fs(r, tool.title or tool.name, 9, "ink")
     r.name:SetPoint("LEFT", 6, 0)
     r.state = K.fs(r, "", 8, "muted")
     r.state:SetPoint("RIGHT", -6, 0)
@@ -182,7 +182,7 @@ function H.BuildHub()
       self.bg:SetAlpha(0.9)
       if GameTooltip then
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine(self.tool.name)
+        GameTooltip:AddLine(self.tool.title or self.tool.name)
         GameTooltip:AddLine(self.tool.desc or "", 1, 1, 1, true)
         GameTooltip:AddLine("click: open (again: bring it to the middle)  |  shift-click: open in the middle  |  right-click: on/off", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
@@ -276,7 +276,7 @@ function H.BuildOptions()
   f:Section("tools")
   for _, opt in ipairs(H.OwnOptions()) do f:Row(opt, nil) end
   for key, tool in R:Each() do
-    f:Section(tool.name, {
+    f:Section(tool.title or tool.name, {
       get = function() return R:Enabled(key) end,
       set = function(on) R:SetEnabled(key, on) end,
     })

@@ -157,6 +157,15 @@ function B.Buttons()
     local db = R:DBFor(R:Get("recap"))
     out[#out + 1] = { b = RC.tbtn, show = (RC.tbtn.count or 0) > 0 and db.button ~= false and R:Enabled("recap") }
   end
+  -- the battleground "+ rival" button (Arn, 13 Oct: "a bg button that rivals someone"): only in a
+  -- battleground or arena, where the right-click menu cannot carry "add rival"
+  if RC and RC.AddButton then
+    local db = R:DBFor(R:Get("recap"))
+    local ab = RC.AddButton(db)
+    B.Colour(ab, RC.MARK_RED)
+    RC.PaintAdd()
+    out[#out + 1] = { b = ab, show = R:Enabled("recap") and RC.InPvP() and db.addButton ~= false }
+  end
   return out
 end
 
@@ -270,6 +279,8 @@ end
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+-- into or out of a battleground: the "+ rival" button comes or goes (the loading screen is out of combat)
+ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:SetScript("OnEvent", function(_, event)
   if event == "PLAYER_REGEN_ENABLED" and not B.dirty then return end
   B.Refresh()

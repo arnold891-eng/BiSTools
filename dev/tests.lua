@@ -141,6 +141,9 @@ _G.UnitIsDead = function(u) local x = unit(u) return x and x.dead or false end
 _G.UnitAffectingCombat = function(u) local x = unit(u) return x and x.combat or false end
 _G.UnitIsTapDenied = function(u) local x = unit(u) return x and x.tapped or false end
 _G.UnitCanAttack = function(_, u) local x = unit(u) return x and x.hostile ~= false end
+-- the client answers this for every unit (13 Oct 2026: the rival line became players-only; a mock
+-- without it refused every menu, which the client never does)
+_G.UnitIsPlayer = function(u) if u == "player" then return true end local x = unit(u) return x ~= nil and x.player == true end
 _G.SetRaidTarget = function(u, i)
   -- PROTECTED ON FOREVER (6 Oct 2026, Arn's BugGrabber: "AddOn 'BiSTools' tried to call the
   -- protected function 'SetRaidTarget()'", from the scanner's ticker). The client blames the addon
@@ -303,7 +306,9 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:ClearAllPoints() self.point = nil end
   function f:GetPoint() return "TOPLEFT", nil, "CENTER", 12, -34 end
   function f:SetFrameStrata() end
-  function f:SetFrameLevel() end
+  function f:SetFrameLevel(l) self.level = l end
+  function f:GetFrameLevel() return self.level or 1 end
+  function f:SetParent(p) self.parent = p end
   function f:GetCenter() return self.cx or 0, self.cy or 0 end
   function f:GetEffectiveScale() return 1 end
   function f:SetAlpha(a) self.alpha = a end
@@ -1748,7 +1753,9 @@ do
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social" and hub.rows[5].key == "threat", "rows in TOC order: farm, summon, recap, social, threat")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "5 of 5 on", "prompt slot counts the tools that are on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 5 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(not R:Enabled("threat") and hub.rows[5].name.text == "threat (beta)" and hub.rows[5].state.text:find("off", 1, true),
+     "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
   ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 5 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
@@ -1769,7 +1776,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "4 of 5 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 5 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1802,7 +1809,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "4 of 5 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 5 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -3180,7 +3187,8 @@ do
     function r:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.click = fn end
     return r
   end
-  local keepClass, keepGUID = _G.UnitClass, _G.UnitGUID
+  local keepClass, keepGUID, keepMenuTarget = _G.UnitClass, _G.UnitGUID, W.target
+  W.target = { name = "Dai", player = true, guid = "Player-4619-00DA1" }      -- an enemy player on target
   _G.UnitClass = function(u) if u == "target" then return "Rogue", "ROGUE" end return "Shaman", "SHAMAN" end
   _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
   local m = root()
@@ -3206,10 +3214,129 @@ do
   m = root() hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu" })
   ok(#m.lines == 0, "and none while the tool is off")
   R:SetEnabled("recap", true)
+  -- TARGET / FOCUS (Arn, 13 Oct: "i cant see the add rival when i right click them"): a unit frame
+  -- that opens its menu through the secure togglemenu (EllesmereUI's do) can file a player's menu
+  -- as TARGET - the line must be there too, and only for players
+  ok(hookedMenus.MENU_UNIT_TARGET and hookedMenus.MENU_UNIT_FOCUS, "the TARGET and FOCUS menus carry the line too")
+  m = root() hookedMenus.MENU_UNIT_TARGET(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
+  ok(m.lines[2] == "BiS: add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
+  -- A BATTLEGROUND MENU CARRIES NO NAME (Arn, 13 Oct: "the menu gave no name" on Grape Sprite's PLAYER
+  -- menu) - the unit answers instead: GetUnitName with the surname, else UnitName
+  do
+    local keepGUN, keepT = _G.GetUnitName, W.target
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
+    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape Sprite",
+       "a battleground menu with no name: the name comes from the unit, surname and all", RC.menuDecision)
+    m.click()
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active, "clicked: Grape Sprite is a gold rival")
+    rivals["Grape Sprite"] = nil
+    _G.GetUnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+    local keepIs = _G.issecretvalue
+    _G.issecretvalue = function(v) return type(v) == "table" end
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
+    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape",
+       "GetUnitName hidden: UnitName's plain name still does", RC.menuDecision)
+    m.click()
+    _G.issecretvalue = keepIs
+    ok(rivals["Grape"], "added as Grape")
+    ok(RC.Find(rdb2, "Grape Sprite") == rivals["Grape"],
+       "and the recap's 'Grape Sprite' finds the rival saved as plain 'Grape' - matching works both ways")
+    rivals["Grape"] = nil
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, {})
+    ok(#m.lines == 0 and RC.menuDecision == "the menu gave no name (hidden by the game, or none)",
+       "no name and no unit: nothing, and why says so")
+    _G.GetUnitName, W.target = keepGUN, keepT
+  end
+  -- INSIDE AN INSTANCE THE MENU BREAKS WITH AN ADDON LINE (Arn's BugGrabber in a battleground, 13 Oct:
+  -- FrameUtil.lua:223 arithmetic on a secret frameLeft, "while execution tainted by 'BiSTools'").
+  -- The mock menu is taught to break the same way: any line added inside an instance is an error.
+  do
+    local keepInst, keepT = _G.IsInInstance, W.target
+    local inside = true
+    _G.IsInInstance = function() return inside, inside and "pvp" or "none" end
+    local function strictRoot()
+      local r = { lines = {} }
+      function r:CreateDivider() if inside then error("menu tainted inside an instance (FrameUtil secret rect)") end end
+      function r:CreateButton(text, fn)
+        if inside then error("menu tainted inside an instance (FrameUtil secret rect)") end
+        self.lines[#self.lines + 1] = text self.click = fn
+      end
+      return r
+    end
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local okM, errM = pcall(hookedMenus.MENU_UNIT_PLAYER, nil, strictRoot(), { name = "Grape", unit = "target" })
+    ok(okM, "in a battleground the rival line never touches the game's menu", errM)
+    ok(RC.menuDecision:find("inside an instance", 1, true) and RC.menuDecision:find("/bist recap rival", 1, true),
+       "and why says so, with the way to add one there", RC.menuDecision)
+    -- the farm's line (TARGET on a mob) is guarded the same way
+    local F = NS.Farm
+    W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-9", hostile = true }
+    local okF, errF = pcall(F.MenuLines, F.db, strictRoot(), { unit = "target" })
+    ok(okF, "nor does the farm's line on a mob inside an instance", errF)
+    -- /bist recap rival: the battleground road, touching nothing of the game's
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local keepGUN = _G.GetUnitName
+    _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
+    S("recap rival")
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active and rivals["Grape Sprite"].guid == UnitGUID("target"),
+       "/bist recap rival: your target is a gold rival, surname, GUID and all")
+    S("recap rival")
+    ok(rivals["Grape Sprite"] == nil, "again: taken off")
+    W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-9", hostile = true }
+    S("recap rival")
+    ok(rivals["Defias Thug"] == nil, "a mob on target is never a rival")
+    W.target = nil
+    S("recap rival")
+    ok(next(rivals) == nil or rivals["Grape Sprite"] == nil, "no target: nothing added")
+    -- outside an instance the menu line works as before
+    inside = false
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    local mo = strictRoot()
+    hookedMenus.MENU_UNIT_PLAYER(nil, mo, { name = "Grape", unit = "target" })
+    ok(mo.lines[1] == "BiS: add rival", "out in the world: the menu line, as before")
+    _G.GetUnitName, _G.IsInInstance, W.target = keepGUN, keepInst, keepT
+  end
+  W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
+  m = root() hookedMenus.MENU_UNIT_FOCUS(nil, m, { name = "Defias Thug", unit = "target" })
+  ok(#m.lines == 0, "a MOB's menu: no rival line")
+  ok(RC.menuDecision == "target is not a player", "and the decision says why", RC.menuDecision)
+  W.target = { name = "Dai", player = true, guid = "Player-4619-00DA1" }
+  -- a menu kind nobody listed: the game's own UnitPopup_OpenMenu is watched; a new kind is noted and
+  -- carries the line from the next right-click; a guild menu never
+  do
+    local opened = {}
+    _G.UnitPopup_OpenMenu = function(which) opened[#opened + 1] = which end
+    local keepHook = _G.hooksecurefunc
+    _G.hooksecurefunc = function(name, fn)                    -- the client's: theirs runs, then ours
+      local orig = _G[name]
+      _G[name] = function(...) orig(...) fn(...) end
+    end
+    RC.menusHooked, RC.tags = nil, {}
+    hookedMenus = {}
+    ok(RC.HookMenus(rdb2), "hooked again")
+    UnitPopup_OpenMenu("SOME_NEW_PLAYER_MENU", { unit = "target" })
+    ok(RC.lastMenu == "SOME_NEW_PLAYER_MENU" and hookedMenus.MENU_UNIT_SOME_NEW_PLAYER_MENU,
+       "a menu kind never listed is noted, and gets the line from the next right-click")
+    UnitPopup_OpenMenu("COMMUNITIES_GUILD_MEMBER", { unit = "target" })
+    ok(RC.lastMenu == "COMMUNITIES_GUILD_MEMBER" and not hookedMenus.MENU_UNIT_COMMUNITIES_GUILD_MEMBER,
+       "a guild roster menu is noted but NEVER gets the line")
+    local said = {}
+    local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+    RC.Why(rdb2)
+    DEFAULT_CHAT_FRAME.AddMessage = keepChat
+    local all = table.concat(said, "\n")
+    ok(all:find("last right-click menu", 1, true) and all:find("COMMUNITIES_GUILD_MEMBER", 1, true)
+       and all:find("a guild menu: never", 1, true), "/bist recap why says which menu opened last, and why no line")
+    ok(all:find("the rival line, last time:", 1, true), "and what the rival line decided the last time a menu asked")
+    _G.hooksecurefunc, _G.UnitPopup_OpenMenu = keepHook, nil
+  end
   _G.Menu = nil
   RC.menusHooked = nil
   ok(RC.HookMenus(rdb2) == false, "a client without Menu.ModifyMenu: no lines, no error")
-  _G.UnitClass, _G.UnitGUID = keepClass, keepGUID
+  _G.UnitClass, _G.UnitGUID, W.target = keepClass, keepGUID, keepMenuTarget
 
   -- "TRACK IN FARM" ON A MOB'S RIGHT-CLICK MENU (Arn, 13 Oct: "right click npc ... track in the farm
   -- module not just type their name or wait till you kill one")
@@ -3268,7 +3395,10 @@ do
      "the guild channel carries RIVAL: ADD, DEL, SEEN, ASK, LIST")
   local mg = root()
   _G.Menu = { ModifyMenu = function() end }
+  local keepT = W.target
+  W.target = { name = "Kill", player = true }                -- the menu is about a player on target
   RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
+  W.target = keepT
   ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
   _G.UnitClass = function() return "Mage", "MAGE" end
   mg.click()
@@ -3597,6 +3727,56 @@ do
 end
 
 -- leaked globals
+-- ------------------------------------------------------------ the battleground "+ rival" button
+-- Arn, 13 Oct: "maybe a bg button that rivals someone so i dont have to type" - the right-click menu
+-- cannot carry the line inside an instance, so in a battleground the BiS> tools box gets a button.
+do
+  local RC, B = NS.Recap, NS.Box
+  local rdb = R:DBFor(R:Get("recap"))
+  local list = RC.Rivals(rdb)
+  local keepInst, keepT, keepCombat = _G.IsInInstance, W.target, W.combat
+  local kind = "none"
+  _G.IsInInstance = function() return kind ~= "none", kind end
+  W.combat = false
+  B.Refresh()
+  ok(not (RC.abtn and RC.abtn.shown), "out in the world: no + rival button (the menu has the line)")
+  kind = "pvp"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  local ab = RC.abtn
+  ok(ab and ab.shown and BiSToolsBox.shown, "into a battleground: the + rival button is in the box")
+  ok(ab.template == nil, "a plain button - nothing secure, so its face may change mid-fight")
+  ok(ab.icon == nil and ab.sign, "just a red + - no crossed swords (Arn: they looked the same as the target button)")
+  -- no target / a mob: dim
+  W.target = nil
+  RC.PaintAdd()
+  ok(ab.alpha == 0.4 and ab.sign.text == "+", "no enemy player on target: dim")
+  W.target = { name = "Raging Gnoll", guid = "Creature-0-0-0-0-117-3", hostile = true }
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(ab.alpha == 0.4, "a mob on target: dim")
+  -- an enemy player: +, click, -, click
+  W.target = { name = "Whacky", player = true, hostile = true, guid = "Player-4619-0BG07" }
+  local keepGUN = _G.GetUnitName
+  _G.GetUnitName = function(u) if u == "target" then return "Whacky Waqqy" end end
+  W.combat = true                                     -- mid-fight
+  RC.frame.scripts.OnEvent(RC.frame, "PLAYER_TARGET_CHANGED")
+  ok(ab.alpha == 1 and ab.sign.text == "+" and ab.state == "add", "an enemy player on target: + (even mid-fight)")
+  ab.scripts.OnClick(ab, "LeftButton")
+  ok(list["Whacky Waqqy"] and list["Whacky Waqqy"].active, "one click: Whacky Waqqy is a gold rival")
+  ok(ab.sign.text == "-" and ab.state == "remove", "and the button now offers to take them off")
+  ab.scripts.OnClick(ab, "LeftButton")
+  ok(list["Whacky Waqqy"] == nil and ab.sign.text == "+", "clicked again: off")
+  W.combat = false
+  -- an arena counts too; leaving takes it away
+  kind = "arena"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  ok(ab.shown, "an arena: the button too")
+  kind = "none"
+  B.events.scripts.OnEvent(B.events, "PLAYER_ENTERING_WORLD")
+  ok(not ab.shown, "back in the world: gone")
+  _G.IsInInstance, W.target, W.combat, _G.GetUnitName = keepInst, keepT, keepCombat, keepGUN
+  B.Refresh()
+end
+
 -- ------------------------------------------------------------ the threat tool
 -- A BiS Tools user, through Arn (13 Oct): a tank sees what is NOT on them; a dps sees nothing until
 -- they pull threat. Then Arn: a CURVE - barely visible at 60% of a pull, stronger to 100%, yellow
@@ -3605,7 +3785,11 @@ end
 do
   local RC, Th = NS.Recap, NS.Threat
   ok(Th and R:Get("threat"), "the threat tool is registered")
+  ok(not R:Enabled("threat"), "a beta: off until someone turns it on")
+  S("on threat")
+  ok(R:Enabled("threat") and NS.DB().enabled.threat == true, "/bist on threat turns it on - and it is remembered as on")
   local tdb = R:DBFor(R:Get("threat"))
+  tdb.look = "crosshair"                       -- these checks are about the crosshair look; the others below
   local plates, det, role = {}, { player = {} }, "DAMAGER"
   local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, UnitDetailedThreatSituation = _G.UnitDetailedThreatSituation,
     UnitGroupRolesAssigned = _G.UnitGroupRolesAssigned, IsInGroup = _G.IsInGroup, IsInInstance = _G.IsInInstance,
@@ -3710,7 +3894,8 @@ do
   det.party1, det.party2 = {}, {}
   Th.scan = {}
   ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
-  ok(mk("nameplate21") == nil, "tank, safely on you, nobody close: nothing")
+  ok(mk("nameplate21") and mk("nameplate21").parts[1].color[3] == 1 and not mk("nameplate21").flashing,
+     "tank, safely on you, nobody close: purple, steady (Ariarie: purple = on me)")
   ev("PLAYER_REGEN_ENABLED")
   grouped = false
   ev("PLAYER_REGEN_DISABLED")
@@ -3770,6 +3955,248 @@ do
   _G.IsInGroup, _G.IsInInstance, _G.issecretvalue = keep.IsInGroup, keep.IsInInstance, keep.issecretvalue
   _G.IsInRaid, _G.GetNumGroupMembers = keep.IsInRaid, keep.GetNumGroupMembers
   RC.style = keep.style
+end
+
+-- ------------------------------------------------------------ threat: situations, looks, the window
+-- The guild (Ariarie, 13 Oct): "purple on me ... grey another tank ... red a non-tank ... orange
+-- nearing threat of another tank ... yellow out of combat", "customizable colors would be peak";
+-- Gnomerpills: "left side of enemy bar", "the old DBM glow, miniaturized". Arn: "a customization window".
+do
+  local RC, Th, U = NS.Recap, NS.Threat, NS.Threat.UI
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look, tdb.colours, tdb.on, tdb.role = "marker", {}, {}, "auto"
+  local plates, det, roles = {}, { player = {} }, { player = "TANK" }
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, D = _G.UnitDetailedThreatSituation,
+    Role = _G.UnitGroupRolesAssigned, IsInGroup = _G.IsInGroup, IsInInstance = _G.IsInInstance,
+    IsInRaid = _G.IsInRaid, N = _G.GetNumGroupMembers, style = RC.style }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function(who, u)
+    local d = det[who] and det[who][u]
+    if not d then return end
+    return d[1], d[1] and 3 or 0, d[2], d[2], 1000
+  end
+  _G.UnitGroupRolesAssigned = function(u) return roles[u] or "NONE" end
+  _G.IsInGroup = function() return true end
+  _G.IsInInstance = function() return true, "party" end
+  _G.IsInRaid = function() return false end
+  _G.GetNumGroupMembers = function() return 3 end
+  RC.style = "rails"
+  Th.scan = {}
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  for i = 31, 33 do
+    local u = "nameplate" .. i
+    plates[u] = CreateFrame("Frame", nil, nil)
+    plates[u]:SetSize(120, 20)
+    W.plates[u] = { name = "Defias Pillager", guid = "Creature-0-0-0-0-589-" .. i, hostile = true, combat = true }
+    ev("NAME_PLATE_UNIT_ADDED", u)
+  end
+  local function ind(u) return Th.ind[u] end
+  local function rgb(f) local c = f.parts[1].color return c[1], c[2], c[3] end
+
+  -- Ariarie's tank situations, on the left marker (the default look)
+  roles.party1, roles.party2 = "TANK", "DAMAGER"
+  det.player = { nameplate31 = { true, 100 } }
+  det.party1 = { nameplate32 = { true, 100 } }
+  det.party2 = { nameplate33 = { true, 100 } }
+  ev("PLAYER_REGEN_DISABLED")
+  local m31, m32, m33 = ind("nameplate31"), ind("nameplate32"), ind("nameplate33")
+  ok(m31 and m31.key == "mine" and m32 and m32.key == "otherTank" and m33 and m33.key == "nonTank",
+     "tank: on me / on another tank / on a non-tank - three situations told apart")
+  local r, g, b = rgb(m31)
+  ok(r < 0.8 and b == 1, "on me: purple")
+  r, g, b = rgb(m32)
+  ok(math.abs(r - g) < 0.05 and r > 0.5 and r < 0.7, "on another tank: grey")
+  r, g = rgb(m33)
+  ok(r == 1 and g < 0.2 and m33.flashing, "on a non-tank: red, flashing")
+  ok(not m31.flashing and not m32.flashing, "the calm ones are steady")
+  ok(RC.marks.nameplate31 == nil, "the marker is not the crosshair: the plate's own mark is free")
+  ok(m31.look == "marker" and m31.point and m31.point[1] == "BOTTOMRIGHT" and m31.point[2] == plates.nameplate31
+     and m31.point[3] == "BOTTOMLEFT" and m31.w == Th.MARK_W,
+     "the marker runs down the plate's LEFT side (Gnomerpills: readable when plates stack)")
+
+  -- the situations follow the fight
+  det.player.nameplate32 = { false, 80 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate32")
+  ok(ind("nameplate32").key == "otherTank", "still on the other tank")
+  det.player.nameplate31 = { true, 100 }
+  det.party2.nameplate31 = { false, 90 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate31")
+  ok(ind("nameplate31").key == "slipping" and not ind("nameplate31").flashing,
+     "on me, a groupmate at 90%: nearly losing it - orange, steady")
+  det.party2.nameplate31 = { false, 97 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate31")
+  ok(ind("nameplate31").flashing, "at 97% it flashes")
+  det.party2.nameplate31 = nil
+
+  -- the window: colours, on/off, the look, the steppers
+  if U.frame then U.frame:Hide() end            -- the Hub's "reset positions" test opened it earlier
+  S("threat")
+  local win = BiSToolsThreat
+  ok(win and win:IsShown(), "/bist threat opens the window")
+  ok(#U.rows == #Th.STATES, "a row for every situation")
+  local ar, ag = NS.Farm.color("accent")
+  ok(U.look.btns[2].value == "marker" and U.look.btns[2].edge.top.color[1] == ar and U.look.btns[2].edge.top.color[2] == ag
+     and U.look.btns[1].edge.top.color[1] ~= ar, "the look in use is lit, the others not")
+  -- pick a colour for "on me"
+  local mineRow
+  for _, row in ipairs(U.rows) do if row.key == "mine" then mineRow = row end end
+  mineRow.swatches[1].scripts.OnClick(mineRow.swatches[1])
+  ok(U.pal and U.pal.shown and U.pal.target == mineRow.swatches[1], "a swatch opens the 16-colour palette")
+  ok(#U.pal.cells == 16, "16 colours")
+  U.pal.cells[6].scripts.OnClick(U.pal.cells[6])                    -- the green
+  ok(not U.pal.shown, "picking one closes it")
+  local c = Th.ColourOf(tdb, "mine")
+  ok(c[2] > 0.8 and c[1] < 0.4, "on me is green now", c[1])
+  local live = ind("nameplate31")
+  ok(live and live.key == "mine" and select(2, rgb(live)) > 0.8, "and the plate on screen turned green at once")
+  ok(mineRow.swatches[1].fill.color[2] > 0.8, "and so did the swatch")
+  -- switch a situation off
+  local nonRow
+  for _, row in ipairs(U.rows) do if row.key == "nonTank" then nonRow = row end end
+  nonRow.check.scripts.OnClick(nonRow.check)
+  ok(Th.IsOn(tdb, "nonTank") == false and ind("nameplate33") == nil, "a box unticked: that situation draws nothing")
+  ok(nonRow.check.mark.text == "", "and the box shows it")
+  nonRow.check.scripts.OnClick(nonRow.check)
+  ok(ind("nameplate33") and ind("nameplate33").key == "nonTank", "ticked again: back")
+  -- the glow
+  U.look.btns[3].scripts.OnClick(U.look.btns[3])
+  ok(tdb.look == "glow" and ind("nameplate31") and ind("nameplate31").look == "glow", "the glow look")
+  ok(#ind("nameplate31").parts == 6, "two rings, sides and bottom only - open at the top, off the name (Arn)")
+  do
+    -- the horizontal edges are the ones given a height: exactly two (one per ring), both the bottom
+    local across, bottoms = 0, 0
+    for _, t in ipairs(ind("nameplate31").parts) do
+      if t.h == Th.GLOW then
+        across = across + 1
+        if t.anchor and t.anchor[1] == "BOTTOMRIGHT" then bottoms = bottoms + 1 end
+      end
+    end
+    ok(across == 2 and bottoms == 2, "the only edges across are the bottoms: no edge along the top", across .. "/" .. bottoms)
+  end
+  ok(ind("nameplate31").parts[4].ringAlpha < ind("nameplate31").parts[1].ringAlpha, "the outer ring fainter")
+  -- the crosshair look
+  U.look.btns[1].scripts.OnClick(U.look.btns[1])
+  ok(ind("nameplate31") == nil and RC.marks.nameplate31 and RC.marks.nameplate31.kind == "threat",
+     "the crosshair look: the recap's crosshair, no marker")
+  U.look.btns[2].scripts.OnClick(U.look.btns[2])
+  ok(RC.marks.nameplate31 == nil and ind("nameplate31"), "and back to the marker")
+  -- steppers
+  U.from.plus.scripts.OnClick(U.from.plus)
+  ok(tdb.from == 65 and U.from.val.text == "65%", "show from: +5")
+  for _ = 1, 10 do U.from.plus.scripts.OnClick(U.from.plus) end
+  ok(tdb.from == 90, "never past 90")
+  tdb.from = 60
+  U.flash.minus.scripts.OnClick(U.flash.minus)
+  ok(tdb.flashAt == 90, "flash from: -5")
+  tdb.flashAt = 95
+  -- reset colours
+  U.resetBtn.scripts.OnClick(U.resetBtn)
+  r, g, b = rgb(ind("nameplate31"))
+  ok(b == 1 and r < 0.8, "reset colours: on me is purple again")
+  -- preview
+  U.previewBtn.scripts.OnClick(U.previewBtn)
+  ok(U.previewing and U.mark and U.mark.shown and U.previewText.text ~= "", "preview: a situation on a fake plate")
+  local first = U.previewText.text
+  win.scripts.OnUpdate(win, U.PREVIEW_STEP + 0.01)
+  ok(U.previewText.text ~= first, "it steps on to the next situation")
+  win:Hide() win.scripts.OnHide(win)
+  ok(not U.previewing and not U.mark.shown, "closing the window ends the preview")
+  -- labels fit before the swatches
+  for _, row in ipairs(U.rows) do
+    ok(26 + row.label:GetStringWidth() <= 170 - 4, "row label fits before its swatch: " .. row.label.text)
+  end
+  -- out of combat: the idle colour, only when ticked
+  ev("PLAYER_REGEN_ENABLED")
+  ok(ind("nameplate31") == nil, "the fight ends: marks go")
+  for i = 31, 33 do W.plates["nameplate" .. i].combat = false end
+  Th.SetOn(tdb, "idle", true)
+  ok(ind("nameplate31") and ind("nameplate31").key == "idle", "out of combat, ticked: yellow on enemy plates")
+  Th.SetOn(tdb, "idle", false)
+  ok(ind("nameplate31") == nil, "unticked (the default): nothing out of combat")
+
+  -- COST of the marker look: 300 threat updates across three mobs, a tank holding all three with
+  -- two groupmates (the group look cached per mob). Measured below; budget a little above it.
+  -- issecretvalue is in place, as on the client: without it the count is kinder than the game.
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function() return false end
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  for i = 31, 33 do W.plates["nameplate" .. i].combat = true end
+  det.player = { nameplate31 = { true, 100 }, nameplate32 = { true, 100 }, nameplate33 = { true, 100 } }
+  det.party1, det.party2 = {}, {}
+  ev("PLAYER_REGEN_DISABLED")
+  local n, by = Cost.Count(function()
+    for k = 1, 300 do ev("UNIT_THREAT_LIST_UPDATE", "nameplate" .. (31 + k % 3)) end
+  end)
+  ok(n <= 1950, "marker look: 300 threat updates ask at most 1950 things (measured 1800): " .. n .. " " .. Cost.Top(by, 5))
+  _G.issecretvalue = keepIs
+  ev("PLAYER_REGEN_ENABLED")
+
+  for i = 31, 33 do ev("NAME_PLATE_UNIT_REMOVED", "nameplate" .. i) W.plates["nameplate" .. i] = nil end
+  tdb.look, tdb.colours, tdb.on = "marker", {}, {}
+  _G.C_NamePlate.GetNamePlateForUnit = keep.get
+  _G.UnitDetailedThreatSituation, _G.UnitGroupRolesAssigned = keep.D, keep.Role
+  _G.IsInGroup, _G.IsInInstance, _G.IsInRaid, _G.GetNumGroupMembers = keep.IsInGroup, keep.IsInInstance, keep.IsInRaid, keep.N
+  RC.style = keep.style
+end
+
+-- ------------------------------------------------------------ threat: when the detailed read is hidden
+-- Arn, 13 Oct: "ever since the threat custom window I don't think it's working". The window's build
+-- moved to UnitDetailedThreatSituation; if a fight hides it, the simple UnitThreatSituation is used.
+do
+  local Th = NS.Threat
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look, tdb.colours, tdb.on, tdb.role = "marker", {}, {}, "dps"
+  local SECRET = setmetatable({}, {})
+  local plates, simple = {}, {}
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, D = _G.UnitDetailedThreatSituation,
+    S = _G.UnitThreatSituation, is = _G.issecretvalue, ex = _G.UnitExists, target = W.target }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function() return SECRET, SECRET, SECRET, SECRET, SECRET end
+  _G.UnitThreatSituation = function(_, u) return simple[u] end
+  _G.issecretvalue = function(v) return rawequal(v, SECRET) end
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  plates.nameplate41 = CreateFrame("Frame", nil, nil)
+  plates.nameplate41:SetSize(120, 20)
+  W.plates.nameplate41 = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true, combat = true }
+  ev("NAME_PLATE_UNIT_ADDED", "nameplate41")
+  ev("PLAYER_REGEN_DISABLED")
+  simple.nameplate41 = 0
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "simple", "detailed hidden, below the tank: the simple read, nothing drawn")
+  simple.nameplate41 = 1
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 and Th.ind.nameplate41.key == "climb" and Th.ind.nameplate41.flashing,
+     "above the tank: the climb, flashing - it is about to turn")
+  simple.nameplate41 = 3
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41.key == "onMe", "on you: on me")
+  simple.nameplate41 = SECRET
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "hidden", "both hidden: nothing - never a guess")
+  tdb.role = "tank"
+  Th.Refresh()
+  ev("PLAYER_REGEN_DISABLED")
+  ok(Th.ind.nameplate41 == nil, "both hidden, as a tank: nothing either (not a red 'lost')")
+  -- /bist threat why shows the raw reads for the target
+  W.target = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true }
+  simple.target = 2
+  local said = {}
+  local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+  Th.Why(tdb)
+  DEFAULT_CHAT_FRAME.AddMessage = keepChat
+  local all = table.concat(said, "\n")
+  ok(all:find("detailed: tanking HIDDEN, status HIDDEN, % of a pull HIDDEN", 1, true)
+     and all:find("simple: 2", 1, true), "/bist threat why shows what the game hands over, hidden or not", all)
+  ev("PLAYER_REGEN_ENABLED")
+  ev("NAME_PLATE_UNIT_REMOVED", "nameplate41")
+  W.plates.nameplate41 = nil
+  tdb.role = "auto"
+  _G.C_NamePlate.GetNamePlateForUnit, _G.UnitDetailedThreatSituation = keep.get, keep.D
+  _G.UnitThreatSituation, _G.issecretvalue, W.target = keep.S, keep.is, keep.target
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,

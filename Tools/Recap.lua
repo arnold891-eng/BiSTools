@@ -301,6 +301,31 @@ function RC.Rivals(db)
 end
 
 --- Add a player to your rivals, or take them off. Answers true when they are a rival now.
+--- /bist recap rival: your target added as a rival (or, already one, taken off). The battleground
+--- road (13 Oct): the right-click menu cannot carry our line inside an instance (RC.MenuSafe), and
+--- this touches nothing of the game's - it reads the target and writes our own list. Works in a
+--- macro on a button.
+function RC.RivalFromTarget(db)
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  if ask(UnitExists, "target") ~= true then return NS.Print("target a player first") end
+  if ask(UnitIsPlayer, "target") ~= true then return NS.Print("your target is not a player") end
+  local name = ask(GetUnitName, "target", false)
+  if type(name) ~= "string" or name == "" or name == (UNKNOWNOBJECT or "Unknown") then name = ask(UnitName, "target") end
+  if type(name) ~= "string" or name == "" or name == (UNKNOWNOBJECT or "Unknown") then
+    return NS.Print("the game is not giving your target's name right now")
+  end
+  if name == ask(UnitName, "player") then return NS.Print("that is you") end
+  local r, key = RC.Find(db, name)
+  if r then return RC.ToggleRival(db, { player = true, title = key }) end
+  local okC, _, class = pcall(UnitClass, "target")
+  if not okC or hidden(class) or type(class) ~= "string" then class = nil end
+  return RC.ToggleRival(db, { player = true, title = name, class = class, key = ask(UnitGUID, "target") })
+end
+
 function RC.ToggleRival(db, a)
   if not (a and a.player and type(a.title) == "string") then return nil end
   local list = RC.Rivals(db)
@@ -526,6 +551,9 @@ local function newMark(kind)
   end
   return f
 end
+
+-- a crosshair frame of a kind, outside the plate system: the threat window's preview draws one
+RC.NewMark = newMark
 
 --- Put the crosshair on this nameplate unit for that rival. Answers true when it stands.
 function RC.MarkPlate(unit, rival, kind)
@@ -836,6 +864,78 @@ function RC.TargetButton(db)
   return b
 end
 
+-- ---------------------------------------------------------------- the battleground "+ rival" button
+-- Arn, 13 Oct: "maybe a bg button that rivals someone so i dont have to type". The game's right-click
+-- menu cannot carry our line inside an instance (RC.MenuSafe), so in a battleground or arena the
+-- BiS> tools box gets a button: "+" - your target becomes a gold rival; "-" - they are one, a click
+-- takes them off; dim - your target is not an enemy player. A PLAIN button (nothing secure: it reads
+-- the target and writes our list), so its face may change mid-fight; the box lays it out only out of
+-- combat, on the way into the battleground.
+
+--- In a battleground or an arena?
+function RC.InPvP()
+  if not IsInInstance then return false end
+  local ok, inside, kind = pcall(IsInInstance)
+  if not ok or hidden(inside) or hidden(kind) then return false end
+  return inside == true and (kind == "pvp" or kind == "arena")
+end
+
+function RC.AddButton(db)
+  if RC.abtn then return RC.abtn end
+  local F = K()
+  local b = CreateFrame("Button", "BiSToolsRivalAdd", UIParent)
+  b:SetSize(26, 26)
+  b:SetFrameStrata("MEDIUM")
+  b:RegisterForClicks("LeftButtonUp")
+  F.tex(b, "BACKGROUND", "field", 0.95)
+  -- JUST A RED "+" (Arn, 13 Oct, seeing it beside the rival target button: both wore the crossed
+  -- swords and looked the same - "just keep it a red +"). No icon: the sign is the face.
+  b.edge = F.border(b, "warn", 1)
+  b.sign = b:CreateFontString(nil, "OVERLAY")
+  b.sign:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
+  b.sign:SetPoint("CENTER", b, "CENTER", 0, 1)
+  local mr = RC.MARK_RED
+  b.sign:SetTextColor(mr[1], mr[2], mr[3])
+  b:SetScript("OnClick", function()
+    RC.RivalFromTarget(R:DBFor(R:Get("recap")))
+    RC.PaintAdd()
+  end)
+  b:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(self.state == "remove" and "Take your target off your rivals" or "Make your target a rival")
+    GameTooltip:AddLine("For battlegrounds and arenas, where the right-click menu cannot carry it. Same as /bist recap rival.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+  b:Hide()
+  RC.abtn = b
+  return b
+end
+
+--- The button's face for your current target: "+", "-", or dim. Text and alpha only - safe mid-fight.
+function RC.PaintAdd()
+  local b = RC.abtn
+  if not b then return end
+  local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if ok and not hidden(v) then return v end
+  end
+  local enemy = ask(UnitIsPlayer, "target") == true and ask(UnitCanAttack, "player", "target") == true
+  local name = enemy and (ask(UnitName, "target")) or nil
+  if not (enemy and type(name) == "string") then
+    b.state = "none"
+    b.sign:SetText("+")
+    b:SetAlpha(0.4)
+    return
+  end
+  local r = RC.Find(R:DBFor(R:Get("recap")), name)
+  b.state = r and "remove" or "add"
+  b.sign:SetText(r and "-" or "+")
+  b:SetAlpha(1)
+end
+
 --- Write the gold rivals into the button, show it when there is anyone to target, bind the key.
 --- In a fight: remembered, done when it ends.
 function RC.ApplyButton(db)
@@ -859,13 +959,53 @@ end
 -- is replaced or hooked. Read off Olympus 1.2.3 (MIT), which hands back the player's `name` and
 -- `surname` apart (Forever's), and which learned to stay OUT of the guild roster menus: a line there
 -- left the game's own promote / kick refused from tainted code. So those are never touched here.
-RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_ROSTER" }
+RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_ROSTER",
+  -- Arn, 13 Oct: "i cant see the add rival when i right click them". A unit frame that opens its
+  -- menu through the secure "togglemenu" action (EllesmereUI's do, to dodge 12.x's togglemenu gate)
+  -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
+  "TARGET", "FOCUS" }
+
+--- CAN A LINE GO INTO THE GAME'S RIGHT-CLICK MENU HERE? Not inside an instance. Arn's BugGrabber
+--- in a battleground, 13 Oct: "FrameUtil.lua:223: attempt to perform arithmetic on local 'frameLeft'
+--- (a secret number value, while execution tainted by 'BiSTools')" - inside an instance the
+--- menu's own frame rects are secret, and once an addon has put a line in the menu, Blizzard's
+--- layout runs tainted and may not do sums on them: the menu breaks (no Report Player, no Copy
+--- Name). Outside, the rects are plain and the line is fine. So inside: no line, ever - and
+--- /bist recap rival adds your target instead, with nothing of the game's touched.
+function RC.MenuSafe()
+  if not IsInInstance then return true end
+  local ok, inside = pcall(IsInInstance)
+  if not ok or hidden(inside) then return false end
+  return inside ~= true
+end
+
+--- A guild roster menu is never touched (Olympus: a line there left promote/kick refused).
+function RC.MenuAllowed(tag)
+  if type(tag) ~= "string" then return false end
+  local up = tag:upper()
+  return not (up:find("GUILD", 1, true) or up:find("COMMUNIT", 1, true))
+end
 
 --- The full name a menu is about ("Dai Joubu"), or nil when it is nobody, hidden, or you.
 function RC.MenuName(ctx)
   if type(ctx) ~= "table" then return nil end
   local first, sur = field(ctx, "name"), field(ctx, "surname")
-  if type(first) ~= "string" or first == "" then return nil end
+  -- IN A BATTLEGROUND THE MENU CARRIES NO NAME (Arn, 13 Oct, /bist recap why on Grape Sprite's
+  -- PLAYER menu: "the menu gave no name") - while the game still names the unit itself. So the
+  -- menu's unit answers: GetUnitName first (it has Forever's surname; UnitName can leave it off)
+  if type(first) ~= "string" or first == "" then
+    local unit = field(ctx, "unit")
+    if type(unit) ~= "string" then return nil end
+    for _, fn in ipairs({ function() return GetUnitName and GetUnitName(unit, false) end,
+                          function() return UnitName(unit) end }) do
+      local ok, n = pcall(fn)
+      if ok and type(n) == "string" and not hidden(n) and n ~= "" and n ~= (UNKNOWNOBJECT or "Unknown") then
+        first, sur = n, nil
+        break
+      end
+    end
+    if type(first) ~= "string" or first == "" then return nil end
+  end
   local me = UnitName and UnitName("player")
   if not hidden(me) and me == first then return nil end
   if type(sur) == "string" and sur ~= "" then return first .. " " .. sur end
@@ -874,9 +1014,29 @@ end
 
 --- The lines for one menu: add, or remove, this player as a rival.
 function RC.MenuLines(db, root, ctx)
-  if not (R:Enabled("recap") and root and root.CreateButton) then return end
+  -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
+  -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
+  local function say(why) RC.menuDecision = why end
+  if not R:Enabled("recap") then return say("the recap tool is off") end
+  if not RC.MenuSafe() then
+    return say("inside an instance (a battleground): the game's menu breaks with an addon line there - /bist recap rival adds your target")
+  end
+  if not (root and root.CreateButton) then return say("the menu would not take a line") end
+  -- a menu about a UNIT must be about a player (TARGET and FOCUS also open on mobs); a menu with no
+  -- unit (a name in chat) is a player by where it came from
+  local unit = field(ctx, "unit")
+  if type(unit) == "string" then
+    local okP, isPlayer = pcall(UnitIsPlayer, unit)
+    if not okP then return say("the game refused 'is this a player?' for " .. unit) end
+    if hidden(isPlayer) then return say("the game HID whether " .. unit .. " is a player") end
+    if isPlayer ~= true then return say(unit .. " is not a player") end
+  end
   local name = RC.MenuName(ctx)
-  if not name then return end
+  if not name then
+    local raw = field(ctx, "name")
+    return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
+  end
+  say("added for " .. name)
   local r, key = RC.Find(db, name)
   if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
@@ -913,11 +1073,27 @@ function RC.MenuLines(db, root, ctx)
   end
 end
 
+RC.tags = {}                       -- menu kinds the line is in
+
+function RC.HookTag(db, kind)
+  if RC.tags[kind] or not RC.MenuAllowed(kind) then return end
+  RC.tags[kind] = true
+  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+end
+
 function RC.HookMenus(db)
   if RC.menusHooked then return true end
   if not (Menu and type(Menu.ModifyMenu) == "function") then return false end
-  for _, kind in ipairs(RC.MENUS) do
-    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+  for _, kind in ipairs(RC.MENUS) do RC.HookTag(db, kind) end
+  -- AND EVERY MENU THE GAME OPENS: its kind is noted for /bist recap why, and a kind not seen
+  -- before gets the line from the next right-click on (the hook runs after the menu is built, so
+  -- the first open of a new kind is a miss). Guild roster menus never.
+  if type(UnitPopup_OpenMenu) == "function" and hooksecurefunc then
+    pcall(hooksecurefunc, "UnitPopup_OpenMenu", function(which)
+      if type(which) ~= "string" or hidden(which) then return end
+      RC.lastMenu = which
+      RC.HookTag(db, which)
+    end)
   end
   RC.menusHooked = true
   return true
@@ -931,8 +1107,11 @@ function RC.Find(db, name)
   if type(name) ~= "string" then return nil end
   local list = RC.Rivals(db)
   if list[name] then return list[name], name end
+  -- both ways round: "Hunting" finds the rival "Hunting Moms", and "Grape Sprite" (the recap's
+  -- name for a killer) finds a rival added as plain "Grape" (from a battleground menu, 13 Oct)
+  local firstOf = name:match("^(%S+)")
   for key, r in pairs(list) do
-    if key:match("^(%S+)") == name then return r, key end
+    if key:match("^(%S+)") == name or key == firstOf then return r, key end
   end
   return nil
 end
@@ -1354,6 +1533,12 @@ function RC.Why(db)
     #gold > 0 and T.text("gold", table.concat(gold, ", ")) or T.text("warn", "nobody"))
   DEFAULT_CHAT_FRAME:AddMessage("  last look: " .. T.text("muted", ("%s - %s - %s"):format(
     tostring(RC.lookUnit or "none yet"), tostring(RC.lookName or "no name"), tostring(RC.lookWhy or "-"))))
+  -- the right-click menu: which kind the game opened last, and whether "add rival" is in it
+  local menu = RC.lastMenu
+  DEFAULT_CHAT_FRAME:AddMessage("  last right-click menu: " .. (menu and T.text("ink", menu) or T.text("muted", "none seen yet"))
+    .. (menu and (RC.tags[menu] and T.text("good", " - has the rival line") or
+        T.text("warn", RC.MenuAllowed(menu) and " - not yet (right-click again)" or " - a guild menu: never")) or ""))
+  DEFAULT_CHAT_FRAME:AddMessage("  the rival line, last time: " .. T.text("ink", RC.menuDecision or "no menu with it opened yet"))
   -- the target, read now, every way it can go wrong
   local ok, raw = pcall(UnitName, "target")
   local said
@@ -1525,6 +1710,7 @@ function RC.OnEvent(_, event, unit)
     if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
     return
   elseif event == "PLAYER_TARGET_CHANGED" then
+    RC.PaintAdd()
     RC.Spot(db, "target") return
   elseif event == "UPDATE_MOUSEOVER_UNIT" then
     RC.Spot(db, "mouseover") return
@@ -1588,7 +1774,7 @@ RC.frame:SetScript("OnEvent", RC.OnEvent)
 NS.Registry:Register({
   name = "recap",
   desc = "what killed you, and how",
-  usage = "/bist recap [rivals | forget <name> | key <key> | style <name> | why | raw]",
+  usage = "/bist recap [rival | rivals | forget <name> | key <key> | style <name> | why | raw]",
   defaults = { popup = true, pos = { "CENTER", 0, 140, "CENTER" } },
   options = {
     { kind = "toggle", label = "open when you die", get = function(db) return db.popup ~= false end,
@@ -1632,6 +1818,7 @@ NS.Registry:Register({
   OnLogin = function(_, db) RC.style = db.style RC.ApplyButton(db) RC.HookMenus(db) RC.HookGuild(db) end,
   OnSlash = function(_, db, args)
     if args == "why" then return RC.Why(db) end
+    if args == "rival" then return RC.RivalFromTarget(db) end
     local style = args:match("^style%s*(%S*)$")
     if style then
       if RC.SetStyle(db, (style == "l" or style == "L") and "L" or style:lower()) then return NS.Print("crosshair: %s", db.style) end
