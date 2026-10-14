@@ -28,8 +28,14 @@ function R:Get(name)
 end
 
 function R:Enabled(name)
-  local en = NS.DB().enabled[name:lower()]
-  if en == nil then return true end
+  local key = name:lower()
+  local en = NS.DB().enabled[key]
+  -- a tool marked defaultOff (a beta: Arn, 13 Oct, the threat tool "in releases, off") is off until
+  -- someone turns it on; every other tool is on until someone turns it off
+  if en == nil then
+    local t = self.tools[key]
+    return not (t and t.defaultOff)
+  end
   return en
 end
 
@@ -37,7 +43,9 @@ function R:SetEnabled(name, on)
   local key = name:lower()
   local was = self:Enabled(key)
   -- not "on and nil or false": that is false both ways (Lua's and/or with nil)
-  if on then NS.DB().enabled[key] = nil else NS.DB().enabled[key] = false end
+  -- on = "nothing saved" for a normal tool; a defaultOff tool must REMEMBER it was turned on
+  local t = self.tools[key]
+  if on then NS.DB().enabled[key] = (t and t.defaultOff) and true or nil else NS.DB().enabled[key] = false end
   local tool = self.tools[key]
   if tool and was ~= (on and true or false) then
     local h = on and tool.OnEnable or tool.OnDisable

@@ -1749,14 +1749,16 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 4, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 5, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social", "rows in TOC order: farm, summon, recap, social")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social" and hub.rows[5].key == "threat", "rows in TOC order: farm, summon, recap, social, threat")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 4 on", "prompt slot counts the tools that are on")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 5 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(not R:Enabled("threat") and hub.rows[5].name.text == "threat (beta)" and hub.rows[5].state.text:find("off", 1, true),
+     "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 4 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 5 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1774,7 +1776,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 4 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 5 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1797,8 +1799,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2) -> 5 headers + 24 rows
-  ok(#opt.rows == 5 + 3 + 5 + 7 + 7 + 2, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2) -> 6 headers + 26 rows
+  ok(#opt.rows == 6 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -1807,7 +1809,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 4 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 5 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -3743,6 +3745,7 @@ do
   local ab = RC.abtn
   ok(ab and ab.shown and BiSToolsBox.shown, "into a battleground: the + rival button is in the box")
   ok(ab.template == nil, "a plain button - nothing secure, so its face may change mid-fight")
+  ok(ab.icon == nil and ab.sign, "just a red + - no crossed swords (Arn: they looked the same as the target button)")
   -- no target / a mob: dim
   W.target = nil
   RC.PaintAdd()
@@ -3772,6 +3775,428 @@ do
   ok(not ab.shown, "back in the world: gone")
   _G.IsInInstance, W.target, W.combat, _G.GetUnitName = keepInst, keepT, keepCombat, keepGUN
   B.Refresh()
+end
+
+-- ------------------------------------------------------------ the threat tool
+-- A BiS Tools user, through Arn (13 Oct): a tank sees what is NOT on them; a dps sees nothing until
+-- they pull threat. Then Arn: a CURVE - barely visible at 60% of a pull, stronger to 100%, yellow
+-- to red, and flashing only near the top ("dps like to cut it close"). UnitDetailedThreatSituation
+-- (who, mob): isTanking, status, scaledPercentage (100 = pulls it), ... - nothing when not listed.
+do
+  local RC, Th = NS.Recap, NS.Threat
+  ok(Th and R:Get("threat"), "the threat tool is registered")
+  ok(not R:Enabled("threat"), "a beta: off until someone turns it on")
+  S("on threat")
+  ok(R:Enabled("threat") and NS.DB().enabled.threat == true, "/bist on threat turns it on - and it is remembered as on")
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look = "crosshair"                       -- these checks are about the crosshair look; the others below
+  local plates, det, role = {}, { player = {} }, "DAMAGER"
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, UnitDetailedThreatSituation = _G.UnitDetailedThreatSituation,
+    UnitGroupRolesAssigned = _G.UnitGroupRolesAssigned, IsInGroup = _G.IsInGroup, IsInInstance = _G.IsInInstance,
+    IsInRaid = _G.IsInRaid, GetNumGroupMembers = _G.GetNumGroupMembers, issecretvalue = _G.issecretvalue, style = RC.style }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function(who, u)
+    local d = det[who] and det[who][u]
+    if not d then return end
+    return d[1], d[2] or (d[1] and 3 or 0), d[3], d[3], 1000
+  end
+  _G.UnitGroupRolesAssigned = function() return role end
+  local grouped = true
+  _G.IsInGroup = function() return grouped end
+  _G.IsInInstance = function() return grouped, grouped and "party" or "none" end
+  _G.IsInRaid = function() return false end
+  _G.GetNumGroupMembers = function() return grouped and 3 or 0 end
+  local SECRET = setmetatable({}, {})
+  _G.issecretvalue = function(v) return rawequal(v, SECRET) end
+  RC.style = "rails"
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  for i = 21, 23 do
+    local u = "nameplate" .. i
+    plates[u] = CreateFrame("Frame", nil, nil)
+    plates[u]:SetSize(120, 20)
+    W.plates[u] = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-" .. i, hostile = true, combat = true }
+    ev("NAME_PLATE_UNIT_ADDED", u)
+  end
+  local function mk(u) return RC.marks[u] end
+  local function me(u, tanking, pct) det.player[u] = { tanking, nil, pct } ev("UNIT_THREAT_LIST_UPDATE", u) end
+
+  me("nameplate21", false, 85)
+  ok(mk("nameplate21") == nil, "out of combat: no threat crosshairs")
+  ev("PLAYER_REGEN_DISABLED")
+  ok(mk("nameplate21") and mk("nameplate21").kind == "threat", "a fight starts: the crosshair is there")
+
+  me("nameplate21", false, 50)
+  ok(mk("nameplate21") == nil, "dps at 50% of a pull: nothing")
+  me("nameplate21", false, 60)
+  ok(mk("nameplate21") == nil, "at 60% exactly: still nothing")
+  me("nameplate21", false, 61)
+  local m = mk("nameplate21")
+  ok(m and m.alpha < 0.06 and not m.flashing, "61%: barely visible (Arn: 'like 1%'), steady", m and m.alpha)
+  local c61 = m.parts[1].color
+  ok(c61[1] == 1 and c61[2] > 0.8, "and yellow")
+  local a = {}
+  for _, pct in ipairs({ 70, 80, 90 }) do me("nameplate21", false, pct) a[pct] = mk("nameplate21").alpha end
+  ok(a[70] < a[80] and a[80] < a[90], "70, 80, 90: stronger each step", a[70] .. " " .. a[80] .. " " .. a[90])
+  me("nameplate21", false, 80)
+  local c80 = mk("nameplate21").parts[1].color
+  ok(c80[2] > 0.35 and c80[2] < 0.55, "80%: orange", c80[2])
+  me("nameplate21", false, 90)
+  ok(not mk("nameplate21").flashing and not mk("nameplate21").pulse:IsPlaying(),
+     "90%: cutting it close is STEADY, not flashing (Arn: 'we don't want something flashing all the time')")
+  local c90 = mk("nameplate21").parts[1].color
+  ok(c90[2] < c80[2], "and redder")
+  me("nameplate21", false, 96)
+  ok(mk("nameplate21").flashing and mk("nameplate21").pulse:IsPlaying(), "96%: it flashes")
+  me("nameplate21", true, 100)
+  local cOn = mk("nameplate21").parts[1].color
+  ok(mk("nameplate21").flashing and cOn[2] < 0.2, "it turns on you: red, flashing")
+  me("nameplate21", false, 40)
+  ok(mk("nameplate21") == nil, "the tank takes it back: gone")
+  ok(mk("nameplate22") == nil, "a mob you are not on the list of: nothing for a dps")
+
+  S("threat from 80")
+  ok(tdb.from == 80, "/bist threat from 80")
+  me("nameplate21", false, 75)
+  ok(mk("nameplate21") == nil, "now 75% is still nothing")
+  me("nameplate21", false, 81)
+  ok(mk("nameplate21") and mk("nameplate21").alpha < 0.06, "and 81% is barely visible")
+  S("threat from 60")
+  me("nameplate21", false, 0)
+
+  det.player.nameplate22 = { SECRET, SECRET, SECRET }
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate22")
+  ok(mk("nameplate22") == nil, "a threat answer the game hides: nothing, no error")
+  ev("PLAYER_REGEN_ENABLED")
+  ok(mk("nameplate21") == nil and mk("nameplate22") == nil, "the fight ends: every threat crosshair goes")
+
+  -- TANK: on you - the closest groupmate's % drives it; off you - red, flashing
+  role = "TANK"
+  det.player = { nameplate21 = { true, 3, 100 }, nameplate22 = { false, 0, 40 } }
+  det.party1 = { nameplate21 = { false, 0, 50 } }
+  det.party2 = { nameplate21 = { false, 0, 85 } }
+  ev("PLAYER_REGEN_DISABLED")
+  local t21 = mk("nameplate21")
+  ok(t21 and not t21.flashing and t21.alpha > 0.3 and t21.alpha < 0.5,
+     "tank, on you, a dps at 85%: an orange warning, steady", t21 and t21.alpha)
+  ok(mk("nameplate22") and mk("nameplate22").flashing and mk("nameplate22").parts[1].color[2] < 0.2,
+     "tank, a mob that is NOT on you: red, flashing")
+  ok(mk("nameplate23") and mk("nameplate23").flashing,
+     "tank, a mob fighting the group you never touched (in a dungeon): red, flashing")
+  det.party2.nameplate21 = { false, 0, 97 }
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
+  ok(not mk("nameplate21").flashing, "the group is looked at no more than every half second per mob")
+  local keepTime = _G.GetTime
+  local tnow = keepTime() + Th.SCAN + 0.1
+  _G.GetTime = function() return tnow end
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
+  ok(mk("nameplate21").flashing, "half a second on: the dps at 97% makes it flash")
+  _G.GetTime = keepTime
+  det.party1, det.party2 = {}, {}
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate21")
+  ok(mk("nameplate21") and mk("nameplate21").parts[1].color[3] == 1 and not mk("nameplate21").flashing,
+     "tank, safely on you, nobody close: purple, steady (Ariarie: purple = on me)")
+  ev("PLAYER_REGEN_ENABLED")
+  grouped = false
+  ev("PLAYER_REGEN_DISABLED")
+  ok(mk("nameplate23") == nil, "tank alone in the world: somebody else's fight is not yours")
+  ev("PLAYER_REGEN_ENABLED")
+  grouped = true
+
+  RC.MarkPlate("nameplate22", "Defias Thug", "farm")
+  ev("PLAYER_REGEN_DISABLED")
+  ok(mk("nameplate22").kind == "farm", "the farm's crosshair (or a rival's) is never covered")
+  ev("PLAYER_REGEN_ENABLED")
+  RC.UnmarkUnit("nameplate22")
+
+  S("threat dps")
+  ok(tdb.role == "dps", "/bist threat dps: watch as a dps whatever the group role says")
+  S("threat auto")
+  ok(tdb.role == "auto", "/bist threat auto: back to the group role")
+  ev("PLAYER_REGEN_DISABLED")
+  R:SetEnabled("threat", false)
+  ok(not mk("nameplate22"), "switching the tool off takes them down")
+  me("nameplate22", false, 99)
+  ok(not mk("nameplate22"), "and nothing more is drawn while it is off")
+  R:SetEnabled("threat", true)
+  ev("PLAYER_REGEN_ENABLED")
+
+  -- COST. A dps: 300 list updates across three mobs, in a fight. A tank: the same, holding all
+  -- three, with two groupmates to look at - throttled to one look per mob per T.SCAN. Measured: dps
+  -- 1542 (~5 an update: the read and a "secret?" for the unit and each answer), tank 1800 (the group
+  -- look cached, plus the clock for the throttle). Budgets 1650 and 1950.
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  role = "DAMAGER"
+  det.player = {}
+  ev("PLAYER_REGEN_DISABLED")
+  local n, by = Cost.Count(function()
+    for k = 1, 300 do
+      local u = "nameplate" .. (21 + k % 3)
+      det.player[u] = { false, 0, 55 + k % 45 }
+      ev("UNIT_THREAT_LIST_UPDATE", u)
+    end
+  end)
+  ok(n <= 1650, "dps: 300 threat updates ask at most 1650 things: " .. n .. " " .. Cost.Top(by, 5))
+  ev("PLAYER_REGEN_ENABLED")
+  role = "TANK"
+  det.player = { nameplate21 = { true, 3, 100 }, nameplate22 = { true, 3, 100 }, nameplate23 = { true, 3, 100 } }
+  det.party1 = { nameplate21 = { false, 0, 70 }, nameplate22 = { false, 0, 70 }, nameplate23 = { false, 0, 70 } }
+  det.party2 = det.party1
+  ev("PLAYER_REGEN_DISABLED")
+  n, by = Cost.Count(function()
+    for k = 1, 300 do ev("UNIT_THREAT_LIST_UPDATE", "nameplate" .. (21 + k % 3)) end
+  end)
+  ok(n <= 1950, "tank: 300 threat updates ask at most 1950 things: " .. n .. " " .. Cost.Top(by, 5))
+  ev("PLAYER_REGEN_ENABLED")
+
+  for i = 21, 23 do ev("NAME_PLATE_UNIT_REMOVED", "nameplate" .. i) W.plates["nameplate" .. i] = nil end
+  _G.C_NamePlate.GetNamePlateForUnit = keep.get
+  _G.UnitDetailedThreatSituation, _G.UnitGroupRolesAssigned = keep.UnitDetailedThreatSituation, keep.UnitGroupRolesAssigned
+  _G.IsInGroup, _G.IsInInstance, _G.issecretvalue = keep.IsInGroup, keep.IsInInstance, keep.issecretvalue
+  _G.IsInRaid, _G.GetNumGroupMembers = keep.IsInRaid, keep.GetNumGroupMembers
+  RC.style = keep.style
+end
+
+-- ------------------------------------------------------------ threat: situations, looks, the window
+-- The guild (Ariarie, 13 Oct): "purple on me ... grey another tank ... red a non-tank ... orange
+-- nearing threat of another tank ... yellow out of combat", "customizable colors would be peak";
+-- Gnomerpills: "left side of enemy bar", "the old DBM glow, miniaturized". Arn: "a customization window".
+do
+  local RC, Th, U = NS.Recap, NS.Threat, NS.Threat.UI
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look, tdb.colours, tdb.on, tdb.role = "marker", {}, {}, "auto"
+  local plates, det, roles = {}, { player = {} }, { player = "TANK" }
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, D = _G.UnitDetailedThreatSituation,
+    Role = _G.UnitGroupRolesAssigned, IsInGroup = _G.IsInGroup, IsInInstance = _G.IsInInstance,
+    IsInRaid = _G.IsInRaid, N = _G.GetNumGroupMembers, style = RC.style }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function(who, u)
+    local d = det[who] and det[who][u]
+    if not d then return end
+    return d[1], d[1] and 3 or 0, d[2], d[2], 1000
+  end
+  _G.UnitGroupRolesAssigned = function(u) return roles[u] or "NONE" end
+  _G.IsInGroup = function() return true end
+  _G.IsInInstance = function() return true, "party" end
+  _G.IsInRaid = function() return false end
+  _G.GetNumGroupMembers = function() return 3 end
+  RC.style = "rails"
+  Th.scan = {}
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  for i = 31, 33 do
+    local u = "nameplate" .. i
+    plates[u] = CreateFrame("Frame", nil, nil)
+    plates[u]:SetSize(120, 20)
+    W.plates[u] = { name = "Defias Pillager", guid = "Creature-0-0-0-0-589-" .. i, hostile = true, combat = true }
+    ev("NAME_PLATE_UNIT_ADDED", u)
+  end
+  local function ind(u) return Th.ind[u] end
+  local function rgb(f) local c = f.parts[1].color return c[1], c[2], c[3] end
+
+  -- Ariarie's tank situations, on the left marker (the default look)
+  roles.party1, roles.party2 = "TANK", "DAMAGER"
+  det.player = { nameplate31 = { true, 100 } }
+  det.party1 = { nameplate32 = { true, 100 } }
+  det.party2 = { nameplate33 = { true, 100 } }
+  ev("PLAYER_REGEN_DISABLED")
+  local m31, m32, m33 = ind("nameplate31"), ind("nameplate32"), ind("nameplate33")
+  ok(m31 and m31.key == "mine" and m32 and m32.key == "otherTank" and m33 and m33.key == "nonTank",
+     "tank: on me / on another tank / on a non-tank - three situations told apart")
+  local r, g, b = rgb(m31)
+  ok(r < 0.8 and b == 1, "on me: purple")
+  r, g, b = rgb(m32)
+  ok(math.abs(r - g) < 0.05 and r > 0.5 and r < 0.7, "on another tank: grey")
+  r, g = rgb(m33)
+  ok(r == 1 and g < 0.2 and m33.flashing, "on a non-tank: red, flashing")
+  ok(not m31.flashing and not m32.flashing, "the calm ones are steady")
+  ok(RC.marks.nameplate31 == nil, "the marker is not the crosshair: the plate's own mark is free")
+  ok(m31.look == "marker" and m31.point and m31.point[1] == "BOTTOMRIGHT" and m31.point[2] == plates.nameplate31
+     and m31.point[3] == "BOTTOMLEFT" and m31.w == Th.MARK_W,
+     "the marker runs down the plate's LEFT side (Gnomerpills: readable when plates stack)")
+
+  -- the situations follow the fight
+  det.player.nameplate32 = { false, 80 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate32")
+  ok(ind("nameplate32").key == "otherTank", "still on the other tank")
+  det.player.nameplate31 = { true, 100 }
+  det.party2.nameplate31 = { false, 90 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate31")
+  ok(ind("nameplate31").key == "slipping" and not ind("nameplate31").flashing,
+     "on me, a groupmate at 90%: nearly losing it - orange, steady")
+  det.party2.nameplate31 = { false, 97 }
+  Th.scan = {}
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate31")
+  ok(ind("nameplate31").flashing, "at 97% it flashes")
+  det.party2.nameplate31 = nil
+
+  -- the window: colours, on/off, the look, the steppers
+  if U.frame then U.frame:Hide() end            -- the Hub's "reset positions" test opened it earlier
+  S("threat")
+  local win = BiSToolsThreat
+  ok(win and win:IsShown(), "/bist threat opens the window")
+  ok(#U.rows == #Th.STATES, "a row for every situation")
+  local ar, ag = NS.Farm.color("accent")
+  ok(U.look.btns[2].value == "marker" and U.look.btns[2].edge.top.color[1] == ar and U.look.btns[2].edge.top.color[2] == ag
+     and U.look.btns[1].edge.top.color[1] ~= ar, "the look in use is lit, the others not")
+  -- pick a colour for "on me"
+  local mineRow
+  for _, row in ipairs(U.rows) do if row.key == "mine" then mineRow = row end end
+  mineRow.swatches[1].scripts.OnClick(mineRow.swatches[1])
+  ok(U.pal and U.pal.shown and U.pal.target == mineRow.swatches[1], "a swatch opens the 16-colour palette")
+  ok(#U.pal.cells == 16, "16 colours")
+  U.pal.cells[6].scripts.OnClick(U.pal.cells[6])                    -- the green
+  ok(not U.pal.shown, "picking one closes it")
+  local c = Th.ColourOf(tdb, "mine")
+  ok(c[2] > 0.8 and c[1] < 0.4, "on me is green now", c[1])
+  local live = ind("nameplate31")
+  ok(live and live.key == "mine" and select(2, rgb(live)) > 0.8, "and the plate on screen turned green at once")
+  ok(mineRow.swatches[1].fill.color[2] > 0.8, "and so did the swatch")
+  -- switch a situation off
+  local nonRow
+  for _, row in ipairs(U.rows) do if row.key == "nonTank" then nonRow = row end end
+  nonRow.check.scripts.OnClick(nonRow.check)
+  ok(Th.IsOn(tdb, "nonTank") == false and ind("nameplate33") == nil, "a box unticked: that situation draws nothing")
+  ok(nonRow.check.mark.text == "", "and the box shows it")
+  nonRow.check.scripts.OnClick(nonRow.check)
+  ok(ind("nameplate33") and ind("nameplate33").key == "nonTank", "ticked again: back")
+  -- the glow
+  U.look.btns[3].scripts.OnClick(U.look.btns[3])
+  ok(tdb.look == "glow" and ind("nameplate31") and ind("nameplate31").look == "glow", "the glow look")
+  ok(#ind("nameplate31").parts == 6, "two rings, sides and bottom only - open at the top, off the name (Arn)")
+  do
+    -- the horizontal edges are the ones given a height: exactly two (one per ring), both the bottom
+    local across, bottoms = 0, 0
+    for _, t in ipairs(ind("nameplate31").parts) do
+      if t.h == Th.GLOW then
+        across = across + 1
+        if t.anchor and t.anchor[1] == "BOTTOMRIGHT" then bottoms = bottoms + 1 end
+      end
+    end
+    ok(across == 2 and bottoms == 2, "the only edges across are the bottoms: no edge along the top", across .. "/" .. bottoms)
+  end
+  ok(ind("nameplate31").parts[4].ringAlpha < ind("nameplate31").parts[1].ringAlpha, "the outer ring fainter")
+  -- the crosshair look
+  U.look.btns[1].scripts.OnClick(U.look.btns[1])
+  ok(ind("nameplate31") == nil and RC.marks.nameplate31 and RC.marks.nameplate31.kind == "threat",
+     "the crosshair look: the recap's crosshair, no marker")
+  U.look.btns[2].scripts.OnClick(U.look.btns[2])
+  ok(RC.marks.nameplate31 == nil and ind("nameplate31"), "and back to the marker")
+  -- steppers
+  U.from.plus.scripts.OnClick(U.from.plus)
+  ok(tdb.from == 65 and U.from.val.text == "65%", "show from: +5")
+  for _ = 1, 10 do U.from.plus.scripts.OnClick(U.from.plus) end
+  ok(tdb.from == 90, "never past 90")
+  tdb.from = 60
+  U.flash.minus.scripts.OnClick(U.flash.minus)
+  ok(tdb.flashAt == 90, "flash from: -5")
+  tdb.flashAt = 95
+  -- reset colours
+  U.resetBtn.scripts.OnClick(U.resetBtn)
+  r, g, b = rgb(ind("nameplate31"))
+  ok(b == 1 and r < 0.8, "reset colours: on me is purple again")
+  -- preview
+  U.previewBtn.scripts.OnClick(U.previewBtn)
+  ok(U.previewing and U.mark and U.mark.shown and U.previewText.text ~= "", "preview: a situation on a fake plate")
+  local first = U.previewText.text
+  win.scripts.OnUpdate(win, U.PREVIEW_STEP + 0.01)
+  ok(U.previewText.text ~= first, "it steps on to the next situation")
+  win:Hide() win.scripts.OnHide(win)
+  ok(not U.previewing and not U.mark.shown, "closing the window ends the preview")
+  -- labels fit before the swatches
+  for _, row in ipairs(U.rows) do
+    ok(26 + row.label:GetStringWidth() <= 170 - 4, "row label fits before its swatch: " .. row.label.text)
+  end
+  -- out of combat: the idle colour, only when ticked
+  ev("PLAYER_REGEN_ENABLED")
+  ok(ind("nameplate31") == nil, "the fight ends: marks go")
+  for i = 31, 33 do W.plates["nameplate" .. i].combat = false end
+  Th.SetOn(tdb, "idle", true)
+  ok(ind("nameplate31") and ind("nameplate31").key == "idle", "out of combat, ticked: yellow on enemy plates")
+  Th.SetOn(tdb, "idle", false)
+  ok(ind("nameplate31") == nil, "unticked (the default): nothing out of combat")
+
+  -- COST of the marker look: 300 threat updates across three mobs, a tank holding all three with
+  -- two groupmates (the group look cached per mob). Measured below; budget a little above it.
+  -- issecretvalue is in place, as on the client: without it the count is kinder than the game.
+  local keepIs = _G.issecretvalue
+  _G.issecretvalue = function() return false end
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  for i = 31, 33 do W.plates["nameplate" .. i].combat = true end
+  det.player = { nameplate31 = { true, 100 }, nameplate32 = { true, 100 }, nameplate33 = { true, 100 } }
+  det.party1, det.party2 = {}, {}
+  ev("PLAYER_REGEN_DISABLED")
+  local n, by = Cost.Count(function()
+    for k = 1, 300 do ev("UNIT_THREAT_LIST_UPDATE", "nameplate" .. (31 + k % 3)) end
+  end)
+  ok(n <= 1950, "marker look: 300 threat updates ask at most 1950 things (measured 1800): " .. n .. " " .. Cost.Top(by, 5))
+  _G.issecretvalue = keepIs
+  ev("PLAYER_REGEN_ENABLED")
+
+  for i = 31, 33 do ev("NAME_PLATE_UNIT_REMOVED", "nameplate" .. i) W.plates["nameplate" .. i] = nil end
+  tdb.look, tdb.colours, tdb.on = "marker", {}, {}
+  _G.C_NamePlate.GetNamePlateForUnit = keep.get
+  _G.UnitDetailedThreatSituation, _G.UnitGroupRolesAssigned = keep.D, keep.Role
+  _G.IsInGroup, _G.IsInInstance, _G.IsInRaid, _G.GetNumGroupMembers = keep.IsInGroup, keep.IsInInstance, keep.IsInRaid, keep.N
+  RC.style = keep.style
+end
+
+-- ------------------------------------------------------------ threat: when the detailed read is hidden
+-- Arn, 13 Oct: "ever since the threat custom window I don't think it's working". The window's build
+-- moved to UnitDetailedThreatSituation; if a fight hides it, the simple UnitThreatSituation is used.
+do
+  local Th = NS.Threat
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look, tdb.colours, tdb.on, tdb.role = "marker", {}, {}, "dps"
+  local SECRET = setmetatable({}, {})
+  local plates, simple = {}, {}
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, D = _G.UnitDetailedThreatSituation,
+    S = _G.UnitThreatSituation, is = _G.issecretvalue, ex = _G.UnitExists, target = W.target }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function() return SECRET, SECRET, SECRET, SECRET, SECRET end
+  _G.UnitThreatSituation = function(_, u) return simple[u] end
+  _G.issecretvalue = function(v) return rawequal(v, SECRET) end
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  plates.nameplate41 = CreateFrame("Frame", nil, nil)
+  plates.nameplate41:SetSize(120, 20)
+  W.plates.nameplate41 = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true, combat = true }
+  ev("NAME_PLATE_UNIT_ADDED", "nameplate41")
+  ev("PLAYER_REGEN_DISABLED")
+  simple.nameplate41 = 0
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "simple", "detailed hidden, below the tank: the simple read, nothing drawn")
+  simple.nameplate41 = 1
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 and Th.ind.nameplate41.key == "climb" and Th.ind.nameplate41.flashing,
+     "above the tank: the climb, flashing - it is about to turn")
+  simple.nameplate41 = 3
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41.key == "onMe", "on you: on me")
+  simple.nameplate41 = SECRET
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "hidden", "both hidden: nothing - never a guess")
+  tdb.role = "tank"
+  Th.Refresh()
+  ev("PLAYER_REGEN_DISABLED")
+  ok(Th.ind.nameplate41 == nil, "both hidden, as a tank: nothing either (not a red 'lost')")
+  -- /bist threat why shows the raw reads for the target
+  W.target = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true }
+  simple.target = 2
+  local said = {}
+  local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+  Th.Why(tdb)
+  DEFAULT_CHAT_FRAME.AddMessage = keepChat
+  local all = table.concat(said, "\n")
+  ok(all:find("detailed: tanking HIDDEN, status HIDDEN, % of a pull HIDDEN", 1, true)
+     and all:find("simple: 2", 1, true), "/bist threat why shows what the game hands over, hidden or not", all)
+  ev("PLAYER_REGEN_ENABLED")
+  ev("NAME_PLATE_UNIT_REMOVED", "nameplate41")
+  W.plates.nameplate41 = nil
+  tdb.role = "auto"
+  _G.C_NamePlate.GetNamePlateForUnit, _G.UnitDetailedThreatSituation = keep.get, keep.D
+  _G.UnitThreatSituation, _G.issecretvalue, W.target = keep.S, keep.is, keep.target
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,

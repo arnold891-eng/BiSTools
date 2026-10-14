@@ -552,6 +552,9 @@ local function newMark(kind)
   return f
 end
 
+-- a crosshair frame of a kind, outside the plate system: the threat window's preview draws one
+RC.NewMark = newMark
+
 --- Put the crosshair on this nameplate unit for that rival. Answers true when it stands.
 function RC.MarkPlate(unit, rival, kind)
   kind = kind or "own"
@@ -885,13 +888,14 @@ function RC.AddButton(db)
   b:SetFrameStrata("MEDIUM")
   b:RegisterForClicks("LeftButtonUp")
   F.tex(b, "BACKGROUND", "field", 0.95)
-  b.icon = b:CreateTexture(nil, "ARTWORK")
-  b.icon:SetPoint("TOPLEFT", 2, -2) b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
-  b.icon:SetTexture("Interface\\Icons\\Ability_DualWield")       -- the rival button's swords
+  -- JUST A RED "+" (Arn, 13 Oct, seeing it beside the rival target button: both wore the crossed
+  -- swords and looked the same - "just keep it a red +"). No icon: the sign is the face.
   b.edge = F.border(b, "warn", 1)
   b.sign = b:CreateFontString(nil, "OVERLAY")
-  b.sign:SetFont(STANDARD_TEXT_FONT, 18, "OUTLINE")
-  b.sign:SetPoint("CENTER", b, "CENTER", 0, 0)
+  b.sign:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
+  b.sign:SetPoint("CENTER", b, "CENTER", 0, 1)
+  local mr = RC.MARK_RED
+  b.sign:SetTextColor(mr[1], mr[2], mr[3])
   b:SetScript("OnClick", function()
     RC.RivalFromTarget(R:DBFor(R:Get("recap")))
     RC.PaintAdd()
