@@ -163,8 +163,14 @@ function B.Button()
   local K = NS.Farm
   local b = CreateFrame("Button", "BiSToolsBGMark", UIParent)
   b:SetSize(84, 20)
-  b:SetFrameStrata("HIGH")
-  pcall(b.SetPoint, b, "BOTTOMRIGHT", board, "BOTTOMRIGHT", -24, 14)
+  -- above the window, whatever layer it lives on (HIGH alone left it underneath, 14 Oct)
+  local okS, strata = pcall(board.GetFrameStrata, board)
+  b:SetFrameStrata(okS and plain(strata) or "DIALOG")
+  local okL, level = pcall(board.GetFrameLevel, board)
+  b:SetFrameLevel((okL and type(plain(level)) == "number" and plain(level) or 1) + 50)
+  if not pcall(b.SetPoint, b, "BOTTOMRIGHT", board, "BOTTOMRIGHT", -24, 14) then
+    b:SetPoint("TOP", UIParent, "TOP", 0, -120)
+  end
   K.tex(b, "BACKGROUND", "frame", 0.85)
   b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   b.text:SetPoint("CENTER")
@@ -176,6 +182,34 @@ function B.Button()
   board:HookScript("OnHide", function() b:Hide() end)
   B.button = b
   return b
+end
+
+--- /bist bg board: why no button - which scoreboard windows exist, and what is under the mouse.
+--- Hover the scoreboard, type it: the window's real name on Forever, if B.BOARDS has it wrong.
+function B.BoardWhy()
+  for _, n in ipairs(B.BOARDS) do
+    local f = _G[n]
+    local okS, shown = pcall(function() return f and f:IsShown() end)
+    local okT, strata = pcall(function() return f and f:GetFrameStrata() end)
+    NS.Print("bg board: %s %s%s", n, f and "exists" or "missing",
+      f and ((okS and plain(shown) and ", shown" or ", hidden") .. ", " .. tostring(okT and plain(strata) or "?")) or "")
+  end
+  local b = B.button
+  NS.Print("bg board: button %s", b and ((b:IsShown() and "shown" or "hidden") .. ", " .. tostring(b:GetFrameStrata())) or "not made yet")
+  local foci = {}
+  local okM, list = pcall(function() return GetMouseFoci and GetMouseFoci() end)
+  for _, f in ipairs(okM and type(list) == "table" and list or {}) do
+    local chain, cur = {}, f
+    for _ = 1, 8 do
+      if not cur then break end
+      local okN, nm = pcall(cur.GetName, cur)
+      chain[#chain + 1] = tostring(okN and plain(nm) or "?")
+      local okP, par = pcall(cur.GetParent, cur)
+      cur = okP and par or nil
+    end
+    foci[#foci + 1] = table.concat(chain, " < ")
+  end
+  NS.Print("bg board: under the mouse: %s", #foci > 0 and table.concat(foci, " | ") or "nothing named")
 end
 
 function B.Mark()
@@ -652,6 +686,7 @@ R:Register({
       return NS.Print("bg: %s forgotten", key)
     end
     if args:lower() == "raw" then return B.Raw() end
+    if args:lower() == "board" then return B.BoardWhy() end
     local col = args:lower():match("^sort%s*(%S*)$")
     if col then return B.SortProbe(col) end
     if args:lower() == "clear" then
