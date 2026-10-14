@@ -143,14 +143,44 @@ end
 
 --- One unit's threat on a mob: tanking (true/false) and how close to pulling it (0-100+); nil when
 --- the game hides it; notListed = a plain "not on its list".
+-- WHEN THE DETAILED NUMBERS ARE HIDDEN (Arn, 13 Oct: "ever since the threat custom window I don't
+-- think it's working" - the window's build moved to the detailed read, and nothing on screen said
+-- whether the game hands it over in a fight): fall back to the simple situation - 0 below the
+-- tank (draws nothing for a dps), 1 above the tank (it is about to turn: 95%, flashing), 2/3 on you.
+-- No smooth curve that way, but every situation still shows. T.how says which read was used.
+T.SIMPLE = { [0] = 0, [1] = 95 }
+
 function T.Read(who, u)
   local res = { pcall(UnitDetailedThreatSituation, who, u) }
-  if not res[1] then return nil end
-  local tanking, status, scaled = res[2], res[3], res[4]
-  -- "secret?" BEFORE any comparison - on Forever even `== nil` on a secret counts against us
-  if secret(tanking) or secret(status) or secret(scaled) then return nil end
-  if tanking == nil and status == nil then return nil, nil, true end
-  return tanking == true, type(scaled) == "number" and scaled or 0
+  if res[1] then
+    local tanking, status, scaled = res[2], res[3], res[4]
+    -- "secret?" BEFORE any comparison - on Forever even `== nil` on a secret counts against us
+    if not (secret(tanking) or secret(status) or secret(scaled)) then
+      T.how = "detailed"
+      if tanking == nil and status == nil then return nil, nil, true end
+      return tanking == true, type(scaled) == "number" and scaled or 0
+    end
+  end
+  local ok, s = pcall(UnitThreatSituation, who, u)
+  if not ok or secret(s) then T.how = "hidden" return nil end
+  T.how = "simple"
+  if s == nil then return nil, nil, true end
+  if type(s) ~= "number" then return nil end
+  return s >= 2, T.SIMPLE[s] or 0
+end
+
+--- Each read of one unit on a mob, as the game hands it over: a value, "nil", "HIDDEN" or "refused".
+function T.Raw(who, u)
+  local function show(v)
+    if secret(v) then return "HIDDEN" end
+    if v == nil then return "nil" end
+    return tostring(v)
+  end
+  local d = { pcall(UnitDetailedThreatSituation, who, u) }
+  local det = d[1] and ("tanking " .. show(d[2]) .. ", status " .. show(d[3]) .. ", % of a pull " .. show(d[4])) or "refused"
+  local s = { pcall(UnitThreatSituation, who, u) }
+  local simple = s[1] and show(s[2]) or "refused"
+  return det, simple
 end
 
 --- 0-1 from `from`% to 100%.
@@ -463,6 +493,14 @@ function T.Why(db)
   NS.Print("threat: %s, as %s (%s), look %s; shows from %d%%, flashes from %d%%; %d nameplate(s) in sight, %d marked%s",
     R:Enabled("threat") and "on" or "off", T.Role(db), db.role or "auto", T.Look(db), T.From(db),
     T.FlashAt(db), plates, marked, T.fighting and "" or " - out of combat")
+  -- what the game hands over for your target, read now - run it IN a fight to see the real answer
+  if yes(UnitExists, "target") == true then
+    local det, simple = T.Raw("player", "target")
+    DEFAULT_CHAT_FRAME:AddMessage("  your target, detailed: " .. det)
+    DEFAULT_CHAT_FRAME:AddMessage("  your target, simple: " .. simple .. "   (last read used: " .. tostring(T.how or "none yet") .. ")")
+  else
+    DEFAULT_CHAT_FRAME:AddMessage("  target a mob in a fight and ask again: it shows what the game hands over")
+  end
 end
 
 R:Register({

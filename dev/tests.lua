@@ -4007,6 +4007,63 @@ do
   RC.style = keep.style
 end
 
+-- ------------------------------------------------------------ threat: when the detailed read is hidden
+-- Arn, 13 Oct: "ever since the threat custom window I don't think it's working". The window's build
+-- moved to UnitDetailedThreatSituation; if a fight hides it, the simple UnitThreatSituation is used.
+do
+  local Th = NS.Threat
+  local tdb = R:DBFor(R:Get("threat"))
+  tdb.look, tdb.colours, tdb.on, tdb.role = "marker", {}, {}, "dps"
+  local SECRET = setmetatable({}, {})
+  local plates, simple = {}, {}
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, D = _G.UnitDetailedThreatSituation,
+    S = _G.UnitThreatSituation, is = _G.issecretvalue, ex = _G.UnitExists, target = W.target }
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.UnitDetailedThreatSituation = function() return SECRET, SECRET, SECRET, SECRET, SECRET end
+  _G.UnitThreatSituation = function(_, u) return simple[u] end
+  _G.issecretvalue = function(v) return rawequal(v, SECRET) end
+  local function ev(e, u) Th.frame.scripts.OnEvent(Th.frame, e, u) end
+  plates.nameplate41 = CreateFrame("Frame", nil, nil)
+  plates.nameplate41:SetSize(120, 20)
+  W.plates.nameplate41 = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true, combat = true }
+  ev("NAME_PLATE_UNIT_ADDED", "nameplate41")
+  ev("PLAYER_REGEN_DISABLED")
+  simple.nameplate41 = 0
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "simple", "detailed hidden, below the tank: the simple read, nothing drawn")
+  simple.nameplate41 = 1
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 and Th.ind.nameplate41.key == "climb" and Th.ind.nameplate41.flashing,
+     "above the tank: the climb, flashing - it is about to turn")
+  simple.nameplate41 = 3
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41.key == "onMe", "on you: on me")
+  simple.nameplate41 = SECRET
+  ev("UNIT_THREAT_LIST_UPDATE", "nameplate41")
+  ok(Th.ind.nameplate41 == nil and Th.how == "hidden", "both hidden: nothing - never a guess")
+  tdb.role = "tank"
+  Th.Refresh()
+  ev("PLAYER_REGEN_DISABLED")
+  ok(Th.ind.nameplate41 == nil, "both hidden, as a tank: nothing either (not a red 'lost')")
+  -- /bist threat why shows the raw reads for the target
+  W.target = { name = "Riverpaw Gnoll", guid = "Creature-0-0-0-0-117-1", hostile = true }
+  simple.target = 2
+  local said = {}
+  local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+  Th.Why(tdb)
+  DEFAULT_CHAT_FRAME.AddMessage = keepChat
+  local all = table.concat(said, "\n")
+  ok(all:find("detailed: tanking HIDDEN, status HIDDEN, % of a pull HIDDEN", 1, true)
+     and all:find("simple: 2", 1, true), "/bist threat why shows what the game hands over, hidden or not", all)
+  ev("PLAYER_REGEN_ENABLED")
+  ev("NAME_PLATE_UNIT_REMOVED", "nameplate41")
+  W.plates.nameplate41 = nil
+  tdb.role = "auto"
+  _G.C_NamePlate.GetNamePlateForUnit, _G.UnitDetailedThreatSituation = keep.get, keep.D
+  _G.UnitThreatSituation, _G.issecretvalue, W.target = keep.S, keep.is, keep.target
+end
+
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
   -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
