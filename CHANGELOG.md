@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Battlegrounds: their healers and their top killer, marked** (new tool `bg`, on by default, battlegrounds only). Every 10 seconds the scoreboard is read: the enemy's **top three healers** wear a **white neon saber** at the left of their nameplate, and their player with the **most killing blows** wears a **red glow**. It works from the scoreboard because the game hides other players' casts from addons. **It remembers:** a player who was one of their top healers or their top killer is marked the moment they show up in your next battleground - dimmer until the live scoreboard confirms it. Forgotten after 30 days unseen; `/bist bg forget <name>`, `/bist bg clear`, `/bist bg why`.
+
 ## 0.6.0
 
 - **Adding a rival in a battleground: a "+" button** appears in the BiS> tools box in battlegrounds and arenas - target an enemy player and click it ("-" takes them off again). `/bist recap rival` does the same from a macro. Inside battlegrounds and dungeons the game's right-click menu breaks if an addon adds a line to it, so BiS Tools no longer adds one there; out in the world "BiS: add rival" is still on the menu, now on target and focus menus too (players only). A rival saved as just "Grape" is still found as "Grape Sprite". `/bist recap why` says which menu opened last and what the rival line decided.

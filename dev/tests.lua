@@ -1749,16 +1749,16 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 5, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 6, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
-  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social" and hub.rows[5].key == "threat", "rows in TOC order: farm, summon, recap, social, threat")
+  ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "social" and hub.rows[5].key == "threat" and hub.rows[6].key == "bg", "rows in TOC order: farm, summon, recap, social, threat, bg")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "4 of 5 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "5 of 6 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
   ok(not R:Enabled("threat") and hub.rows[5].name.text == "threat (beta)" and hub.rows[5].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 5 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 6 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1776,7 +1776,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "3 of 5 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "4 of 6 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1799,8 +1799,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2) -> 6 headers + 26 rows
-  ok(#opt.rows == 6 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (0) -> 7 headers + 26 rows
+  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -1809,7 +1809,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "3 of 5 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "4 of 6 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -4197,6 +4197,157 @@ do
   tdb.role = "auto"
   _G.C_NamePlate.GetNamePlateForUnit, _G.UnitDetailedThreatSituation = keep.get, keep.D
   _G.UnitThreatSituation, _G.issecretvalue, W.target = keep.S, keep.is, keep.target
+end
+
+-- ------------------------------------------------------------ the bg tool: their healers and their killer
+-- Arn's cousin: "can it auto crosshair people that cast heals" - casts are hidden, the battleground
+-- SCOREBOARD is not. Arn: a white neon saber on "their top three heals", a red glow "on their top
+-- killing blow person".
+do
+  local BG = NS.BG
+  ok(BG and R:Get("bg") and R:Enabled("bg"), "the bg tool is registered, and on")
+  local SECRET = setmetatable({}, {})
+  local plates, rows, asked = {}, {}, 0
+  local keep = { get = _G.C_NamePlate.GetNamePlateForUnit, inst = _G.IsInInstance, score = _G.C_PvP,
+    n = _G.GetNumBattlefieldScores, req = _G.RequestBattlefieldScoreData, fac = _G.UnitFactionGroup,
+    is = _G.issecretvalue }
+  local inBG = false
+  _G.IsInInstance = function() return inBG, inBG and "pvp" or "none" end
+  _G.C_NamePlate.GetNamePlateForUnit = function(u) return plates[u] end
+  _G.C_PvP = { GetScoreInfo = function(i) return rows[i] end }
+  _G.GetNumBattlefieldScores = function() return #rows end
+  _G.RequestBattlefieldScoreData = function() asked = asked + 1 end
+  _G.UnitFactionGroup = function() return "Alliance", "Alliance" end
+  _G.issecretvalue = function(v) return rawequal(v, SECRET) end
+  local function ev(e, u) BG.frame.scripts.OnEvent(BG.frame, e, u) end
+  -- the scoreboard: Horde = faction 0 (the enemy), Alliance = 1 (us)
+  rows = {
+    { name = "Heala-Realm", guid = "Player-1-A", faction = 0, healingDone = 90000, killingBlows = 1 },
+    { name = "Shocka",      guid = "Player-1-B", faction = 0, healingDone = 60000, killingBlows = 9 },
+    { name = "Mendy",       guid = "Player-1-C", faction = 0, healingDone = 30000, killingBlows = 0 },
+    { name = "Bandaid",     guid = "Player-1-D", faction = 0, healingDone = 5000,  killingBlows = 2 },
+    { name = "Fourth",      guid = "Player-1-F", faction = 0, healingDone = 20000, killingBlows = 0 },
+    { name = "Ourhealer",   guid = "Player-1-E", faction = 1, healingDone = 200000, killingBlows = 20 },
+  }
+  local who = { A = "Heala", B = "Shocka", C = "Mendy", D = "Bandaid", F = "Fourth", E = "Ourhealer" }
+  for k, n in pairs(who) do
+    local u = "nameplate" .. (50 + k:byte() - 64)
+    plates[u] = CreateFrame("Frame", nil, nil)
+    plates[u]:SetSize(120, 20)
+    W.plates[u] = { name = n, guid = "Player-1-" .. k, player = true, hostile = k ~= "E" }
+    ev("NAME_PLATE_UNIT_ADDED", u)
+  end
+  local function unitOf(k) return "nameplate" .. (50 + k:byte() - 64) end
+  local function mark(k) return BG.marks[unitOf(k)] end
+
+  -- out in the world: nothing read, nothing drawn
+  ev("PLAYER_ENTERING_WORLD")
+  ok(not BG.inBG and BG.ticker == nil and asked == 0, "out in the world: the scoreboard is never asked")
+  -- into a battleground
+  inBG = true
+  ev("PLAYER_ENTERING_WORLD")
+  ok(BG.inBG and BG.ticker and BG.ticker.iv == BG.EVERY and asked == 1,
+     "into a battleground: the scoreboard asked now, and every " .. BG.EVERY .. " s")
+  W.tick()
+  ok(asked == 2, "the ticker asks again")
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(mark("B") and mark("B").kind == "killer", "their top killer (9 killing blows): the red glow")
+  ok(mark("A") and mark("A").kind == "healer" and mark("C") and mark("C").kind == "healer",
+     "their top healers: the saber")
+  ok(mark("F") == nil and mark("D") == nil, "only the top three heals count (Shocka is #2 and the killer - the glow wins)")
+  ok(mark("E") == nil, "never one of ours, however much they heal")
+  -- the saber's shape: a white-hot core in glow layers, a hilt, at the plate's left, humming
+  local s = mark("A")
+  ok(#s.parts == 3 and s.parts[3].w == BG.SABER_W and s.parts[1].w > s.parts[2].w, "a core in two glow layers")
+  local core = s.parts[3].color
+  ok(core[1] > 0.9 and core[2] > 0.9 and core[3] == 1 and core[4] == 1, "the core neon white, solid")
+  ok(s.parts[1].color[4] < s.parts[2].color[4], "the outer glow fainter than the inner")
+  ok(s.hilt and s.point and s.point[1] == "BOTTOMRIGHT" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOMLEFT",
+     "upright at the plate's left")
+  ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
+  local g = mark("B")
+  ok(g.parts and #g.parts == 6 and g.parts[1].color[1] == 1 and g.parts[1].color[2] < 0.2,
+     "the killer's glow: red, the threat glow's U - sides and bottom, open at the top")
+  -- a name the game hides on the plate: the GUID still matches
+  W.plates[unitOf("C")].name = nil
+  BG.Undraw(unitOf("C"))
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(mark("C") and mark("C").kind == "healer", "no name on the plate: matched by GUID")
+  -- the order changes: marks follow
+  rows[5].healingDone = 100000
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(mark("F") and mark("F").kind == "healer" and mark("C") == nil, "a new top-three healer takes the saber off the fourth")
+  -- hidden numbers are left out, never guessed
+  rows[1].healingDone = SECRET
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(mark("A") == nil and BG.read.note and BG.read.note:find("hidden", 1, true), "a hidden healing number: no saber, and why says so")
+  rows[1].healingDone = 90000
+  -- why
+  local said = {}
+  local keepChat = DEFAULT_CHAT_FRAME.AddMessage
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, msg) said[#said + 1] = tostring(msg) end
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  S("bg why")
+  DEFAULT_CHAT_FRAME.AddMessage = keepChat
+  local all = table.concat(said, "\n")
+  ok(all:find("top healers (saber): Fourth 100000, Heala 90000, Shocka 60000", 1, true)
+     and all:find("top killer (red glow): Shocka, 9 killing blows", 1, true), "/bist bg why reads out what it saw", all)
+  -- COST: one scoreboard update, six players, six plates. Measured 64 (~10 a player: the row, a
+  -- "hidden?" for each field, and the plate's GUID and name). A full 40-player battleground is ~400
+  -- every 10 s - about 40 a second. Budget 80.
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() ev("UPDATE_BATTLEFIELD_SCORE") end)
+  ok(n <= 80, "one scoreboard update (6 players, 6 plates) asks at most 80 things: " .. n .. " " .. Cost.Top(by, 5))
+  -- REMEMBERED ACROSS BATTLEGROUNDS (Arn: "a data file that only keeps track of bgs so if we go into
+  -- a new bg it knows these people are healers and this guy is dangerous")
+  local known = BG.Known()
+  ok(known.Heala and known.Heala.healer == 1 and known.Shocka and known.Shocka.killer == 1,
+     "this battleground's top healers and top killer are written down")
+  ok(known.Bandaid == nil and known.Ourhealer == nil, "nobody else - and never one of ours")
+  ev("UPDATE_BATTLEFIELD_SCORE") ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(known.Heala.healer == 1, "counted once per battleground, not per scoreboard read")
+  -- out, and into a NEW battleground: no scoreboard numbers yet
+  inBG = false
+  ev("PLAYER_ENTERING_WORLD")
+  inBG = true
+  known.Ghost = { healer = 2, killer = 0, last = (time and time() or 0) - 40 * 86400 }
+  ev("PLAYER_ENTERING_WORLD")
+  ok(known.Ghost == nil, "somebody not seen for 30 days is forgotten on the way in")
+  ok(next(BG.healers) == nil and BG.killer == nil, "nothing live yet in the new battleground")
+  for k in pairs(who) do ev("NAME_PLATE_UNIT_REMOVED", unitOf(k)) ev("NAME_PLATE_UNIT_ADDED", unitOf(k)) end
+  ok(mark("A") and mark("A").kind == "healer" and mark("A").remembered and mark("A").alpha == BG.REMEMBERED_ALPHA
+     and not mark("A").pulse:IsPlaying(), "a known healer is marked the moment their plate appears - dimmer, steady")
+  ok(mark("B") and mark("B").kind == "killer" and mark("B").remembered, "and the known dangerous one wears the red glow")
+  ok(mark("D") == nil and mark("E") == nil, "not the unknown, not ours")
+  ev("UPDATE_BATTLEFIELD_SCORE")
+  ok(mark("A") and not mark("A").remembered and mark("A").alpha == 1 and mark("A").pulse:IsPlaying(),
+     "the live scoreboard takes over: full and humming")
+  ok(known.Heala.healer == 2, "and this battleground counts them once more")
+  -- forget one, then everyone
+  S("bg forget heala")
+  ok(BG.Known().Heala == nil, "/bist bg forget <name>")
+  S("bg clear")
+  ok(next(BG.Known()) == nil, "/bist bg clear forgets everyone")
+  -- never more than B.KEEP
+  local now = time and time() or 0
+  for i = 1, BG.KEEP + 20 do BG.Known()["P" .. i] = { healer = 1, killer = 0, last = now - i } end
+  BG.Prune()
+  local count = 0
+  for _ in pairs(BG.Known()) do count = count + 1 end
+  ok(count == BG.KEEP and BG.Known().P1 and not BG.Known()["P" .. (BG.KEEP + 20)],
+     "never more than " .. BG.KEEP .. " - the longest unseen go first")
+  S("bg clear")
+  -- off, and out
+  R:SetEnabled("bg", false)
+  ok(next(BG.marks) == nil and BG.ticker == nil, "switched off: marks down, ticker stopped")
+  R:SetEnabled("bg", true)
+  inBG = false
+  ev("PLAYER_ENTERING_WORLD")
+  ok(next(BG.marks) == nil and BG.ticker == nil, "out of the battleground: marks down, ticker stopped")
+  for k in pairs(who) do ev("NAME_PLATE_UNIT_REMOVED", unitOf(k)) W.plates[unitOf(k)] = nil end
+  _G.C_NamePlate.GetNamePlateForUnit, _G.IsInInstance, _G.C_PvP = keep.get, keep.inst, keep.score
+  _G.GetNumBattlefieldScores, _G.RequestBattlefieldScoreData, _G.UnitFactionGroup = keep.n, keep.req, keep.fac
+  _G.issecretvalue = keep.is
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,

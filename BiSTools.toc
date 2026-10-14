@@ -30,4 +30,5 @@ Tools\Box.lua
 Tools\Social.lua
 Tools\Threat.lua
 Tools\ThreatWindow.lua
+Tools\Battleground.lua
 Tools\Hub.lua
