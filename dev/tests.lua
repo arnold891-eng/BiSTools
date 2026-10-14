@@ -4270,7 +4270,7 @@ do
   W.tick()
   ok(asked == 2, "the ticker asks again")
   ev("UPDATE_BATTLEFIELD_SCORE")
-  ok(mark("B") and mark("B").kind == "killer", "their top killer (9 killing blows): the red glow")
+  ok(mark("B") and mark("B").kind == "killer", "their top killer (9 killing blows): the red crosshair")
   ok(mark("A") and mark("A").kind == "healer" and mark("C") and mark("C").kind == "healer",
      "their top healers: the saber")
   ok(mark("F") == nil and mark("D") == nil, "only the top three heals count (Shocka is #2 and the killer - the glow wins)")
@@ -4285,8 +4285,9 @@ do
      and s.h == BG.SABER_H, "on them, like the rival crosshair: upright under the plate, centred on the body")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
-  ok(g.parts and #g.parts == 6 and g.parts[1].color[1] == 1 and g.parts[1].color[2] < 0.2,
-     "the killer's glow: red, the threat glow's U - sides and bottom, open at the top")
+  ok(g.kind == "killer" and g.parts and #g.parts > 0 and g.point and g.point[1] == "TOP" and g.point[3] == "BOTTOM"
+     and g.h == NS.Recap.MARK_H, "the killer: a red crosshair ON THEM, where a rival's stands")
+  ok(g.pulse and g.pulse:IsPlaying(), "humming")
   -- a name the game hides on the plate: the GUID still matches
   W.plates[unitOf("C")].name = nil
   BG.Undraw(unitOf("C"))
@@ -4331,7 +4332,7 @@ do
   DEFAULT_CHAT_FRAME.AddMessage = keepChat
   local all = table.concat(said, "\n")
   ok(all:find("top healers (saber): Fourth 100000, Heala 90000, Shocka 60000", 1, true)
-     and all:find("top killer (red glow): Shocka, 9 killing blows", 1, true), "/bist bg why reads out what it saw", all)
+     and all:find("top killer (red crosshair): Shocka, 9 killing blows", 1, true), "/bist bg why reads out what it saw", all)
   -- COST: one scoreboard update, six players, six plates. Measured 64 (~10 a player: the row, a
   -- "hidden?" for each field, and the plate's GUID and name). A full 40-player battleground is ~400
   -- every 10 s - about 40 a second. Budget 80.
@@ -4357,7 +4358,7 @@ do
   for k in pairs(who) do ev("NAME_PLATE_UNIT_REMOVED", unitOf(k)) ev("NAME_PLATE_UNIT_ADDED", unitOf(k)) end
   ok(mark("A") and mark("A").kind == "healer" and mark("A").remembered and mark("A").alpha == BG.REMEMBERED_ALPHA
      and not mark("A").pulse:IsPlaying(), "a known healer is marked the moment their plate appears - dimmer, steady")
-  ok(mark("B") and mark("B").kind == "killer" and mark("B").remembered, "and the known dangerous one wears the red glow")
+  ok(mark("B") and mark("B").kind == "killer" and mark("B").remembered, "and the known dangerous one wears the red crosshair")
   ok(mark("D") == nil and mark("E") == nil, "not the unknown, not ours")
   ev("UPDATE_BATTLEFIELD_SCORE")
   ok(mark("A") and not mark("A").remembered and mark("A").alpha == 1 and mark("A").pulse:IsPlaying(),
@@ -4417,7 +4418,7 @@ do
        "hidden numbers: sorted by name first (so healing never flips), then healing, then kills", table.concat(sorts, ","))
     ok(BG.healers.Heala == 1 and BG.healers.Shocka == 2 and BG.healers.Mendy == 3 and BG.healers.Bandaid == nil,
        "the saber: the first three healing-class enemies in healing order - first-aid warriors skipped")
-    ok(BG.killer and BG.killer.name == "Shocka", "the red glow: the first enemy in kills order - never one of ours")
+    ok(BG.killer and BG.killer.name == "Shocka", "the red crosshair: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
     -- the same "mark" in the BiS> tools box (Arn: "add that scoreboard button to the bis tools")
     do

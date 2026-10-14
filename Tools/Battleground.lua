@@ -255,7 +255,7 @@ function B.BoxButton()
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:AddLine("Mark their healers and killer")
-    GameTooltip:AddLine("Reads the scoreboard now: a white saber on their top three healers, a red glow on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
+    GameTooltip:AddLine("Reads the scoreboard now: a white saber on their top three healers, a red crosshair on their top killer. Same as /bist bg mark.", 1, 1, 1, true)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -368,13 +368,15 @@ function B.NewSaber()
   return f
 end
 
---- THE RED GLOW for the top killer: the threat tool's glow (sides and bottom, open at the top).
-function B.NewGlow()
-  local T = NS.Threat
-  local f = (T and T.NewIndicator) and T.NewIndicator("glow") or CreateFrame("Frame", nil, UIParent)
+--- THE KILLER: a red crosshair ON THEM (Arn, 14 Oct: "the red killer one sucks has to be on them";
+--- his first ask, 13 Oct: "red cross hairs glowing"). The rival tool's crosshair, in the style
+--- picked there, its own deeper red, humming faster than a rival's.
+function B.NewKiller()
+  local RC = NS.Recap
+  RC.MARK_COLOUR.bgkiller = B.RED
+  local f = RC.NewMark("bgkiller")
   f.kind = "killer"
-  if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
-  if not f.pulse then pulse(f, 0.4, 0.6) end
+  if not f.pulse then pulse(f, 0.35, 0.45) end
   return f
 end
 
@@ -396,7 +398,7 @@ function B.Draw(u, kind)
   local plate = plateOf(u)
   if not plate then return nil end
   B.pool[kind] = B.pool[kind] or {}
-  f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewGlow())
+  f = table.remove(B.pool[kind]) or (kind == "healer" and B.NewSaber() or B.NewKiller())
   f:ClearAllPoints()
   if kind == "healer" then
     -- ON THEM, like the rival crosshair (Arn, 14 Oct: at the plate's left it sat on his nameplate
@@ -404,9 +406,13 @@ function B.Draw(u, kind)
     f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
     f:SetSize(B.SABER_W + 10, B.SABER_H)
   else
-    f:SetPoint("TOPLEFT", plate, "TOPLEFT", -1, 1)
-    f:SetPoint("BOTTOMRIGHT", plate, "BOTTOMRIGHT", 1, -1)
-    if f.Paint then f.Paint(B.RED[1], B.RED[2], B.RED[3]) end
+    -- where the rival crosshair stands: under the plate, centred, half its width (RC.MarkPlate)
+    local RC = NS.Recap
+    local okW, pw = pcall(plate.GetWidth, plate)
+    pw = okW and plain(pw)
+    if type(pw) ~= "number" or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
+    f:SetSize(math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H)
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
   end
   f:SetAlpha(1)
   f:Show()
@@ -678,7 +684,7 @@ function B.Why()
   DEFAULT_CHAT_FRAME:AddMessage("  enemies on the scoreboard: " .. tostring(r.enemies or 0)
     .. (r.note and ("  (" .. r.note .. ")") or ""))
   DEFAULT_CHAT_FRAME:AddMessage("  top healers (saber): " .. (#heals > 0 and table.concat(heals, ", ") or "none read"))
-  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red glow): " .. (r.killer and (r.killer.kb
+  DEFAULT_CHAT_FRAME:AddMessage("  top killer (red crosshair): " .. (r.killer and (r.killer.kb
     and ("%s, %d killing blows"):format(tostring(r.killer.name or "?"), r.killer.kb)
     or (tostring(r.killer.name or "?") .. ", most killing blows")) or "none read"))
   local marked, recalled = 0, 0
@@ -775,7 +781,7 @@ end
 
 R:Register({
   name = "bg",
-  desc = "battlegrounds: a saber on their top 3 healers, a red glow on their top killer",
+  desc = "battlegrounds: a saber on their top 3 healers, a red crosshair on their top killer",
   usage = "/bist bg [why | mark | forget <name> | clear]",
   defaults = { known = {} },
   OnInit = function() end,
