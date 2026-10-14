@@ -1819,7 +1819,8 @@ do
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
   -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (3) -> 7 headers + 29 rows
   ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
-  ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
+  -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
+  ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
   for _, r in ipairs(opt.rows) do if r.name then ok(r.name:GetStringWidth() <= H.OPT_W - 12 - 110, "option label fits: " .. tostring(r.name.text)) end end
