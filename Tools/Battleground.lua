@@ -400,10 +400,31 @@ end
 B.X_W = 46                          -- the X's width before a plate sizes it; its height is B.SABER_H
 B.X_SIZE = { 30, 35 }               -- BiS Healing's tank X (FN.TANK_W, FN.TANK_H): the same X
 
+--- THE LOOKS (Arn, 14 Oct: "i also wanted different disigns not all want x"). Strokes in a box
+--- from -1 to 1 each way, scaled to the size stepper; the X and the saber wear hilts. The same five,
+--- in the same order, as BiS Healing's tank mark (Now.lua FN.LOOKS).
+B.LOOKS = {
+  { key = "x", word = "X", hilts = true, strokes = { { -1, -1, 1, 1 }, { 1, -1, -1, 1 } } },
+  { key = "saber", word = "saber", hilts = true, strokes = { { 0, -1, 0, 1 } } },
+  { key = "arrow", word = "arrow", strokes = { { -1, 1, 0, -0.3 }, { 1, 1, 0, -0.3 } } },
+  { key = "diamond", word = "diamond", strokes = { { 0, 1, 1, 0 }, { 1, 0, 0, -1 }, { 0, -1, -1, 0 }, { -1, 0, 0, 1 } } },
+  { key = "corners", word = "corners", strokes = {
+    { -1, 1, -0.45, 1 }, { -1, 1, -1, 0.45 }, { 1, 1, 0.45, 1 }, { 1, 1, 1, 0.45 },
+    { -1, -1, -0.45, -1 }, { -1, -1, -1, -0.45 }, { 1, -1, 0.45, -1 }, { 1, -1, 1, -0.45 } } },
+}
+
+--- The chosen look's place in B.LOOKS (the stepper's number), 1 = X.
+function B.LookIndex(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.look)
+  v = v and math.floor(v) or 1
+  return (v >= 1 and v <= #B.LOOKS) and v or 1
+end
+
 -- slim (Arn, 14 Oct, the X in the crosshair: "50% smaller"): half the glow it first had
-local function blade(f, c, sign)
+local function blade(f, c, stroke, hilted)
   local W = B.SABER_W
-  local bl = { sign = sign, lines = {} }
+  local bl = { stroke = stroke, lines = {} }
   for _, layer in ipairs({ { W + 4, 0.16 }, { W + 1.5, 0.45 }, { W, 1 } }) do
     local l = f:CreateLine(nil, "ARTWORK")
     l:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -414,42 +435,49 @@ local function blade(f, c, sign)
     f.parts[#f.parts + 1] = l
     bl.lines[#bl.lines + 1] = l
   end
-  local h = f:CreateLine(nil, "OVERLAY")
-  h:SetTexture("Interface\\Buttons\\WHITE8X8")
-  h:SetVertexColor(0.2, 0.2, 0.22, 1)
-  h:SetThickness(W + 2)
-  bl.hilt = h
-  f.hilts[#f.hilts + 1] = h
+  if hilted then
+    local h = f:CreateLine(nil, "OVERLAY")
+    h:SetTexture("Interface\\Buttons\\WHITE8X8")
+    h:SetVertexColor(0.2, 0.2, 0.22, 1)
+    h:SetThickness(W + 2)
+    bl.hilt = h
+    f.hilts[#f.hilts + 1] = h
+  end
   f.blades[#f.blades + 1] = bl
 end
 
---- The X to a box: its four tips in the four corners (Arn: "like the tips of the x on the corners of
---- the red cross hairs"). sign 1 = hilt bottom-left, tip top-right; -1 its mirror.
+--- The strokes to a box (Arn: "like the tips of the x on the corners of the red cross hairs"). A
+--- hilted stroke runs hilt-first: its lowest sixth is the hilt, the rest the blade.
 local function fit(f, w, h)
   local x, y = w / 2 - 2, h / 2 - 2
   for _, bl in ipairs(f.blades) do
-    local x1, y1, x2, y2 = -x * bl.sign, -y, x * bl.sign, y
-    local hx, hy = x1 + (x2 - x1) * 0.16, y1 + (y2 - y1) * 0.16   -- the hilt: the lowest sixth
+    local s = bl.stroke
+    local x1, y1, x2, y2 = s[1] * x, s[2] * y, s[3] * x, s[4] * y
+    local hx, hy = x1, y1
+    if bl.hilt then
+      hx, hy = x1 + (x2 - x1) * 0.16, y1 + (y2 - y1) * 0.16
+      bl.hilt:SetStartPoint("CENTER", f, x1, y1)
+      bl.hilt:SetEndPoint("CENTER", f, hx, hy)
+    end
     for _, l in ipairs(bl.lines) do
       l:SetStartPoint("CENTER", f, hx, hy)
       l:SetEndPoint("CENTER", f, x2, y2)
     end
-    bl.hilt:SetStartPoint("CENTER", f, x1, y1)
-    bl.hilt:SetEndPoint("CENTER", f, hx, hy)
   end
 end
 
-function B.NewSaber(kind)
+function B.NewSaber(kind, look)
   kind = kind or "healer"
+  look = look or 1
   local c = kind == "killer" and B.RED or B.WHITE
   local f = CreateFrame("Frame", nil, UIParent)
   f:SetFrameStrata("BACKGROUND")
-  f.kind = kind
+  f.kind, f.look = kind, look
   f.parts, f.hilts = {}, {}
   f.blades = {}
   if f.CreateLine and pcall(function()
-    blade(f, c, 1)
-    blade(f, c, -1)
+    local L = B.LOOKS[look]
+    for _, st in ipairs(L.strokes) do blade(f, c, st, L.hilts) end
     fit(f, B.X_W, B.SABER_H)
   end) then
     f.x = true
@@ -482,8 +510,9 @@ function B.Undraw(u)
   f:Hide()
   f:ClearAllPoints()
   B.marks[u] = nil
-  B.pool[f.kind] = B.pool[f.kind] or {}
-  table.insert(B.pool[f.kind], f)
+  local pk = f.kind .. (f.look or 1)                -- pooled by kind AND look
+  B.pool[pk] = B.pool[pk] or {}
+  table.insert(B.pool[pk], f)
 end
 
 function B.Draw(u, kind)
@@ -492,8 +521,10 @@ function B.Draw(u, kind)
   if f then B.Undraw(u) end
   local plate = plateOf(u)
   if not plate then return nil end
-  B.pool[kind] = B.pool[kind] or {}
-  f = table.remove(B.pool[kind]) or B.NewSaber(kind)
+  local look = B.LookIndex()
+  local pk = kind .. look
+  B.pool[pk] = B.pool[pk] or {}
+  f = table.remove(B.pool[pk]) or B.NewSaber(kind, look)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
@@ -904,6 +935,11 @@ R:Register({
   defaults = { known = {} },
   -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
   options = {
+    -- a stepper through names (Arn: "not all want x")
+    { kind = "step", label = "mark look", min = 1, max = #B.LOOKS, step = 1,
+      get = function(db) return B.LookIndex(db) end,
+      set = function(db, v) db.look = v B.Redraw() end,
+      show = function(db) return B.LOOKS[B.LookIndex(db)].word end },
     { kind = "step", label = "mark size", min = 50, max = 200, step = 10,
       get = function(db) return B.Size(db) end,
       set = function(db, v) db.size = v B.Redraw() end,

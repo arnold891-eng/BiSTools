@@ -1817,8 +1817,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (2) -> 7 headers + 28 rows
-  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 2, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (3) -> 7 headers + 29 rows
+  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -4492,7 +4492,19 @@ do
       bdb.size, bdb.lift = 999, -999
       ok(BG.Size(bdb) == 200 and BG.Lift(bdb) == -40, "out-of-range settings are held to the stepper's ends")
       bdb.size, bdb.lift = nil, nil
+      -- the looks (Arn: "not all want x"): each its own strokes, hilts on the X and the saber
+      for i, look in ipairs(BG.LOOKS) do
+        bdb.look = i
+        BG.Redraw()
+        local m = mark("A")
+        ok(m and m.look == i and #m.parts == #look.strokes * 3 and #m.hilts == (look.hilts and #look.strokes or 0),
+           "mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+      end
+      bdb.look = 99
+      ok(BG.LookIndex(bdb) == 1, "an unknown look falls back to the X")
+      bdb.look = nil
       BG.Redraw()
+      ok(BG.Look({ ["Heala Moon"] = 1 }, "Heala") == 1, "the name lookup is still the name lookup")
     end
     -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
     do
