@@ -3025,8 +3025,7 @@ do
     RC.palSeenAt = {}
     RC.UnmarkPal("nameplate10")
     RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
-    local noted = table.concat(saidP, "
-")
+    local noted = table.concat(saidP, " | ")
     ok(noted:find("Pal Guy", 1, true) and noted:find("is nearby", 1, true), "a pal in view: a small green line in chat", noted)
     local n1 = #saidP
     RC.UnmarkPal("nameplate10")
