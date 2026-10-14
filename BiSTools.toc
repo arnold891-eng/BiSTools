@@ -3,7 +3,7 @@
 ## Category: |cffb980ffBiS>|rAddons
 ## Notes: Death recap, rivals and a farm tracker for WoW Forever. /bist for the tools.
 ## Author: Arn
-## Version: 0.5.1
+## Version: 0.6.0
 ## OptionalDeps: BiSTheme, FojjiCore
 ## SavedVariables: BiSToolsDB
 ## X-Curse-Project-ID: 1686340

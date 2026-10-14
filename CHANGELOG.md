@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.0
 
 - **Adding a rival in a battleground: a "+" button** appears in the BiS> tools box in battlegrounds and arenas - target an enemy player and click it ("-" takes them off again). `/bist recap rival` does the same from a macro. Inside battlegrounds and dungeons the game's right-click menu breaks if an addon adds a line to it, so BiS Tools no longer adds one there; out in the world "BiS: add rival" is still on the menu, now on target and focus menus too (players only). A rival saved as just "Grape" is still found as "Grape Sprite". `/bist recap why` says which menu opened last and what the rival line decided.
 - **Threat marks - BETA, off by default** (new tool; turn it on with `/bist on threat`, then `/bist threat` opens its window): what each mob's threat is doing, on its nameplate.
