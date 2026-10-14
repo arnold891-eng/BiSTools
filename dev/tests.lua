@@ -4385,6 +4385,13 @@ do
     end
     local run = 300000
     _G.GetBattlefieldInstanceRunTime = function() return run end
+    -- no scoreboard window found: we cannot know it is closed, so no sort on our own
+    W.now = (W.now or 0) + 60
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(#sorts == 0 and BG.read.note:find("not found", 1, true), "the window cannot be found: never sorts on its own, and why says so")
+    local board = CreateFrame("Frame", "PVPMatchScoreboard", UIParent)
+    _G.PVPMatchScoreboard = board
+    board:Hide()
     W.now = (W.now or 0) + 60
     ev("UPDATE_BATTLEFIELD_SCORE")
     ok(sorts[1] == "name" and sorts[2] == "healing" and sorts[3] == "kills",
@@ -4399,9 +4406,7 @@ do
     ev("UPDATE_BATTLEFIELD_SCORE")
     ok(#sorts == n0 and BG.healers.Heala == 1, "a score event right after a read: no re-sort, the last read stays")
     -- Arn's scoreboard is open: never reshuffle what he is looking at
-    local board = CreateFrame("Frame", "PVPMatchScoreboard", UIParent)
-    _G.PVPMatchScoreboard = board
-    board:Show()
+    board:Show() if board.scripts.OnShow then board.scripts.OnShow(board) end
     W.now = W.now + 60
     ev("UPDATE_BATTLEFIELD_SCORE")
     ok(#sorts == n0, "the scoreboard window is open: no sort")

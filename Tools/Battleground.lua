@@ -225,7 +225,13 @@ end
 --- Top healers and killer by the board's order. `force` = the button: sort even with the window open.
 function B.ReadOrder(force)
   if not (SortBattlefieldScoreData and C_PvP and C_PvP.GetScoreInfo) then return false end
-  if not force and B.Board() then return false end
+  -- never sort what Arn may be looking at: the window open, OR not found at all - then we cannot
+  -- know it is closed (14 Oct: the name was wrong, it sorted every 10 s under his eyes - "annoying")
+  local open, exists = B.Board()
+  if not force and (open or not exists) then
+    if not exists then B.read = B.read or { enemies = 0, heals = {} } B.read.wait = "the scoreboard window was not found - /bist bg mark reads it, /bist bg board says why" B.read.note = B.read.wait end
+    return false
+  end
   local now = GetTime and GetTime() or 0
   if not force and B.lastOrder and now - B.lastOrder < B.ORDER_GAP then return false end
   local run = yes(GetBattlefieldInstanceRunTime)
@@ -667,7 +673,7 @@ end
 R:Register({
   name = "bg",
   desc = "battlegrounds: a saber on their top 3 healers, a red glow on their top killer",
-  usage = "/bist bg [why | raw | forget <name> | clear]",
+  usage = "/bist bg [why | mark | forget <name> | clear]",
   defaults = { known = {} },
   OnInit = function() end,
   OnLogin = function() B.Watch() end,
@@ -687,6 +693,7 @@ R:Register({
     end
     if args:lower() == "raw" then return B.Raw() end
     if args:lower() == "board" then return B.BoardWhy() end
+    if args:lower() == "mark" then return B.Mark() end
     local col = args:lower():match("^sort%s*(%S*)$")
     if col then return B.SortProbe(col) end
     if args:lower() == "clear" then
