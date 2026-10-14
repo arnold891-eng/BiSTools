@@ -398,7 +398,7 @@ end
 --- image inside its box, so a thin bar cannot be tilted that way). A client without Lines: one
 --- upright blade, as before.
 B.X_W = 46                          -- the X's width before a plate sizes it; its height is B.SABER_H
-B.X_SCALE = 0.5                     -- of the rival crosshair's box
+B.X_SIZE = { 30, 35 }               -- BiS Healing's tank X (FN.TANK_W, FN.TANK_H): the same X
 
 -- slim (Arn, 14 Oct, the X in the crosshair: "50% smaller"): half the glow it first had
 local function blade(f, c, sign)
@@ -498,16 +498,13 @@ function B.Draw(u, kind)
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
   if f.x then
-    -- the rival crosshair's own box (RC.MarkPlate: half the plate wide, RC.MARK_H tall), at
-    -- B.X_SCALE of it and centred on its middle (Arn, 14 Oct, seeing it fill the box: "perfect now
-    -- 50% smaller")
+    -- centred in the rival crosshair's box (Arn, 14 Oct, seeing it fill the box: "perfect now 50%
+    -- smaller"), and since the same night THE SIZE OF BiS HEALING'S TANK X (Arn: "lets make bis
+    -- tools bg the same size as these") - fixed, not a share of the plate, so the two read as one
     local RC = NS.Recap
-    local okW, pw = pcall(plate.GetWidth, plate)
-    pw = okW and plain(pw)
-    if type(pw) ~= "number" or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
-    local w = math.floor(pw * RC.MARK_WIDE * B.X_SCALE + 0.5)
-    local h = math.floor(RC.MARK_H * B.X_SCALE + 0.5)
-    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2)
+    local k = B.Size() / 100
+    local w, h = math.floor(B.X_SIZE[1] * k + 0.5), math.floor(B.X_SIZE[2] * k + 0.5)
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
     f:SetSize(w, h)
     pcall(f.Fit, f, w, h)
   else
@@ -657,6 +654,24 @@ function B.Paint(u)
 end
 
 function B.PaintAll() for u in pairs(B.plates) do B.Paint(u) end end
+
+--- The marks' size (% of B.X_SIZE) and lift (px up from the middle of the crosshair's box).
+function B.Size(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.size)
+  return v and math.max(50, math.min(200, v)) or 100
+end
+function B.Lift(db)
+  db = db or R:DBFor(R:Get("bg"))
+  local v = tonumber(db.lift)
+  return v and math.max(-40, math.min(40, v)) or 0
+end
+
+--- A setting changed: every mark drawn again at the new size and height.
+function B.Redraw()
+  for u in pairs(B.marks) do B.Undraw(u) end
+  B.PaintAll()
+end
 
 function B.ClearAll()
   for u in pairs(B.marks) do B.Undraw(u) end
@@ -884,9 +899,23 @@ end
 
 R:Register({
   name = "bg",
-  desc = "battlegrounds: a saber on their top 3 healers, a red crosshair on their top killer",
+  desc = "battlegrounds: crossed sabers on their top 3 healers (white) and top killer (red)",
   usage = "/bist bg [why | mark | forget <name> | clear]",
   defaults = { known = {} },
+  -- the marks, to taste (Arn, 14 Oct: "we add the stepper if they want to change the marks")
+  options = {
+    { kind = "step", label = "mark size", min = 50, max = 200, step = 10,
+      get = function(db) return B.Size(db) end,
+      set = function(db, v) db.size = v B.Redraw() end,
+      show = function(db) return B.Size(db) .. "%" end },
+    { kind = "step", label = "mark height", min = -40, max = 40, step = 5,
+      get = function(db) return B.Lift(db) end,
+      set = function(db, v) db.lift = v B.Redraw() end,
+      show = function(db)
+        local v = B.Lift(db)
+        return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+      end },
+  },
   OnInit = function() end,
   OnLogin = function() B.Watch() end,
   OnEnable = function() B.Watch() end,

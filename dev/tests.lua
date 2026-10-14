@@ -1817,8 +1817,8 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (0) -> 7 headers + 26 rows
-  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (7), social (2), threat (2), bg (2) -> 7 headers + 28 rows
+  ok(#opt.rows == 7 + 3 + 5 + 7 + 7 + 2 + 2 + 2, "one row per section header and per option", #opt.rows)
   ok(opt.h == 16 + #opt.rows * 16 + 4, "options height = header + rows")
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
   -- every option label fits its lane (controls take the right 110 px)
@@ -4304,8 +4304,8 @@ do
      "crossed: one blade leans right, the other left - an X")
   ok(#s.hilts == 2, "a hilt on each")
   ok(s.point and s.point[1] == "CENTER" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
-     and s.point[5] == -2 - NS.Recap.MARK_H / 2 and s.h == math.floor(NS.Recap.MARK_H * BG.X_SCALE + 0.5),
-     "on them: centred where the rival crosshair's middle is, half its height")
+     and s.point[5] == -2 - NS.Recap.MARK_H / 2 and s.w == BG.X_SIZE[1] and s.h == BG.X_SIZE[2],
+     "on them: centred where the rival crosshair's middle is, BiS Healing's tank X size")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
   ok(g.kind == "killer" and g.x and g.parts[3].color[1] == 1 and g.parts[3].color[2] < 0.2 and g.point and g.point[1] == "CENTER",
@@ -4480,8 +4480,19 @@ do
       -- the X fills the rival crosshair's box: tips in its corners
       local x = mark("A")
       local tip = x.parts[3].to
-      ok(x.w == math.floor(120 * NS.Recap.MARK_WIDE * BG.X_SCALE + 0.5) and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
-         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X: half the crosshair's box, its tips in its own corners")
+      ok(x.w == BG.X_SIZE[1] and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
+         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X: the tank X's size, its tips in its own corners")
+      -- the steppers (Arn: "we add the stepper if they want to change the marks")
+      local bdb = R:DBFor(R:Get("bg"))
+      bdb.size, bdb.lift = 200, 10
+      BG.Redraw()
+      x = mark("A")
+      ok(x.w == BG.X_SIZE[1] * 2 and x.h == BG.X_SIZE[2] * 2 and x.point[5] == -2 - NS.Recap.MARK_H / 2 + 10,
+         "mark size 200%, height 10 up: redrawn at once", x.w .. "x" .. x.h)
+      bdb.size, bdb.lift = 999, -999
+      ok(BG.Size(bdb) == 200 and BG.Lift(bdb) == -40, "out-of-range settings are held to the stepper's ends")
+      bdb.size, bdb.lift = nil, nil
+      BG.Redraw()
     end
     -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
     do
