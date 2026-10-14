@@ -4401,6 +4401,27 @@ do
     ok(BG.killer and BG.killer.name == "Shocka", "the red glow: the first enemy in kills order - never one of ours")
     ok(mark("A") and mark("A").kind == "healer" and mark("B") and mark("D") == nil, "and they are marked on their plates")
     ok(BG.Known().Heala and BG.Known().Shocka and BG.Known().Bandaid == nil, "and remembered (counts: once per battleground, already spent here)")
+    -- a /reload mid-match is a fresh load: the same match must not count anyone twice
+    BG.inBG = false
+    ev("PLAYER_ENTERING_WORLD")           -- into the match, its run time readable (as in the client)
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    local before = BG.Known().Heala.healer
+    BG.inBG, BG.counted = false, {}
+    ev("PLAYER_ENTERING_WORLD")
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
+    ok(BG.Known().Heala.healer == before, "a /reload in the same match: nobody counted twice")
+    -- a NEW match (started later): counted again
+    BG.inBG = false
+    run = 30000 + 0   -- just started: a different start time
+    ev("PLAYER_ENTERING_WORLD")
+    ok(next(BG.counted) == nil, "a new match: the counted list starts empty")
+    run = 300000
+    BG.inBG = false
+    ev("PLAYER_ENTERING_WORLD")
+    BG.lastOrder = nil
+    ev("UPDATE_BATTLEFIELD_SCORE")
     -- the sort fires its own score event: never read again inside B.ORDER_GAP
     local n0 = #sorts
     ev("UPDATE_BATTLEFIELD_SCORE")

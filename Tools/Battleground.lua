@@ -480,13 +480,31 @@ end
 ------------------------------------------------------------------ the loop --
 
 --- In a battleground: ask for the scoreboard now and every B.EVERY seconds. Out of one: stop.
+--- The match, kept across a /reload (Arn, 14 Oct: "fix the reload double count" - a reload is a
+--- fresh load, and every healer was counted twice). A match = its zone + when it started (now -
+--- the run time), within a minute. The same match: its "already counted" list comes back.
+function B.SameMatch()
+  local db = R:DBFor(R:Get("bg"))
+  local run = yes(GetBattlefieldInstanceRunTime)
+  local start = (type(run) == "number" and run > 0) and ((time and time() or 0) - math.floor(run / 1000)) or nil
+  local zone = yes(GetRealZoneText)
+  local m = db.match
+  if start and type(m) == "table" and m.zone == zone and type(m.start) == "number"
+     and math.abs(m.start - start) < 60 and type(m.counted) == "table" then
+    return m.counted
+  end
+  local counted = {}
+  db.match = start and { zone = zone, start = start, counted = counted } or nil
+  return counted
+end
+
 function B.Watch()
   local ok, inside, kind = pcall(IsInInstance)
   local was = B.inBG
   -- a battleground only: an arena is 2v2/3v3, nobody needs a scoreboard to find the healer there
   B.inBG = ok and plain(inside) == true and plain(kind) == "pvp"
   if B.inBG and not was then
-    B.counted = {}                    -- a new battleground: everyone may be counted once again
+    B.counted = B.SameMatch()         -- a new battleground: everyone may be counted once again
     B.healers, B.killer = {}, nil     -- and nothing live yet: what is drawn now is remembered
     B.onBoard = {}
     B.ended = nil
