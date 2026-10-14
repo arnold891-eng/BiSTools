@@ -630,24 +630,27 @@ end
 -- "mark size" or "mark height" and a panel rolls out beside the options window: YOU, twice, as 3D
 -- models (BiSGamba's DressUpModel + SetUnit), a nameplate over each head, wearing the healer mark and
 -- the killer mark exactly as B.Place puts them - redrawn on every step. 1.43:1, the BiSTheme standard.
-B.PREVIEW_H = 230
+B.PREVIEW_H = 230                   -- before the options window says how tall it is
 B.PREVIEW_W = math.floor(B.PREVIEW_H * 1.43 + 0.5)
+-- room over each fake nameplate for a mark set ABOVE it (Arn, 14 Oct: "in game this looks perfect
+-- right over their name plate - in the preview its cut off"): a full tag at 200%, nudged 40 up
+B.PREVIEW_HEADROOM = 100
 
 --- One half of the panel: a model of you, a nameplate over its head, a word under it.
-local function previewCell(pv, x, w, kind)
+local function previewCell(pv, x, w, kind, h)
   local cell = CreateFrame("Frame", nil, pv)
   cell:SetPoint("TOPLEFT", pv, "TOPLEFT", x, -18)
-  cell:SetSize(w, B.PREVIEW_H - 22)
+  cell:SetSize(w, h - 22)
   local ok, m = pcall(CreateFrame, "DressUpModel", nil, cell)
   if ok and m then
-    m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -10)
+    m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -(B.PREVIEW_HEADROOM + 4))
     m:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 14)
     cell.model = m
   end
-  -- the plate stands where a nameplate stands: over the head
+  -- the plate stands where a nameplate stands: over the head, with the headroom above it
   local p = CreateFrame("Frame", nil, cell)
   p:SetSize(64, 7)
-  p:SetPoint("TOP", cell, "TOP", 0, -14)
+  p:SetPoint("TOP", cell, "TOP", 0, -B.PREVIEW_HEADROOM)
   tex(p, "BACKGROUND", { 0.10, 0.10, 0.12 }, 0.9):SetAllPoints(p)
   local fill = tex(p, "ARTWORK", { 0.75, 0.18, 0.18 }, 1)
   fill:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1) fill:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -12, 1)
@@ -718,16 +721,21 @@ end
 function B.AttachPreview(opt)
   if not opt or B.preview then return B.preview end
   local pv = CreateFrame("Frame", "BiSToolsMarkPreview", opt)
-  pv:SetSize(B.PREVIEW_W, B.PREVIEW_H)
+  -- THE OPTIONS WINDOW'S OWN SIZE (Arn: "make the preview same aspect as our windows"): as tall as it,
+  -- 1.43:1 - side by side they read as a pair. Never smaller than the room the headroom needs.
+  local okH, oh = pcall(opt.GetHeight, opt)
+  local H = (okH and type(oh) == "number" and oh >= B.PREVIEW_H) and math.floor(oh + 0.5) or B.PREVIEW_H
+  local W = math.floor(H * 1.43 + 0.5)
+  pv:SetSize(W, H)
   pv:SetPoint("TOPLEFT", opt, "TOPRIGHT", 4, 0)
   tex(pv, "BACKGROUND", { 0.05, 0.05, 0.08 }, 0.92):SetAllPoints(pv)
   local title = pv:CreateFontString(nil, "OVERLAY")
   pcall(title.SetFont, title, STANDARD_TEXT_FONT, 9, "")
   title:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -5)
   title:SetText(NS.T and NS.T.text and NS.T.text("accent", "BiS>") .. " the marks, on you" or "the marks, on you")
-  local half = math.floor((B.PREVIEW_W - 12) / 2)
-  pv.cellH = previewCell(pv, 6, half, "healer")
-  pv.cellK = previewCell(pv, 6 + half, half, "killer")
+  local half = math.floor((W - 12) / 2)
+  pv.cellH = previewCell(pv, 6, half, "healer", H)
+  pv.cellK = previewCell(pv, 6 + half, half, "killer", H)
   pv:Hide()
   B.preview = pv
   local function hover(r)

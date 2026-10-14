@@ -1847,6 +1847,9 @@ do
   -- Arn: "a full on rollout 3d model of self with the marks on them, like how we did for bisgamba"
   ok(pv.cellH.model and pv.cellK.model, "two 3D models of you, one per mark")
   ok(math.abs(pv.w / pv.h - 1.43) < 0.01, "the roll-out is 1.43:1, the BiSTheme standard", pv.w .. "x" .. pv.h)
+  -- Arn: "make the preview same aspect as our windows" / "in the preview its cut off"
+  ok(pv.h == math.floor(opt.h + 0.5) or (opt.h < BGt.PREVIEW_H and pv.h == BGt.PREVIEW_H), "as tall as the options window", pv.h .. " vs " .. opt.h)
+  ok(BGt.PREVIEW_HEADROOM >= 2 + 40 + BGt.TAG[2] * 1.5, "room over each nameplate for a tag set above it, nudged all the way up")
   ok(pv.point and pv.point[1] == "TOPLEFT" and pv.point[2] == opt and pv.point[3] == "TOPRIGHT", "hung off the options window's right edge")
   ok(pv.marks.healer.point and pv.marks.healer.point[2] == pv.cellH.plate, "the mark placed on the preview's own nameplate, by the same code as a real one")
   ok(pv.marks.healer.look == BGt.LookIndex() and pv.marks.healer.shown ~= false, "in the look picked now")
