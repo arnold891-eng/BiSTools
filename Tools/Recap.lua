@@ -2218,7 +2218,7 @@ NS.Registry:Register({
         if not on then for unit, f in pairs(RC.marks) do if f.kind == "guild" then RC.UnmarkUnit(unit) end end end
         RC.PaintRivals()
       end },
-    { kind = "toggle", label = "guildmates (+, alone)", get = function(db) return db.mates ~= false end,
+    { kind = "toggle", label = "guildmates (crest, alone)", get = function(db) return db.mates ~= false end,
       set = function(db, on) db.mates = on and true or false if not on then RC.ClearMates() end end },
     { kind = "toggle", label = "rival target button", get = function(db) return db.button ~= false end,
       set = function(db, on) db.button = on and true or false RC.ApplyButton(db) end },
