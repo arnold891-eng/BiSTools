@@ -60,11 +60,34 @@ function S.OnBuffs(db, info)
     local ok, locked = pcall(lock)
     if not ok or hidden(locked) or locked then return note("the game is holding chat back") end
   end
-  local added = field(info, "addedAuras")
-  if type(added) ~= "table" then return note("nothing new on you") end
   local now = GetTime and GetTime() or 0
-  for i = 1, #added do
-    local a = added[i]
+  local list = {}
+  local added = field(info, "addedAuras")
+  if type(added) == "table" then
+    for i = 1, #added do list[#list + 1] = added[i] end
+  end
+  -- A RECAST IS AN UPDATE, NOT AN ADD (Arn, 14 Oct: Blessing of Kings, and "nothing new on you"): a
+  -- buff you already wore comes back as updatedAuraInstanceIDs. One back at its FULL duration was
+  -- just cast on you - thanked like a new one; a timer merely ticking is not.
+  local updated = field(info, "updatedAuraInstanceIDs")
+  local get = C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID
+  if type(updated) == "table" and get then
+    for i = 1, #updated do
+      local id = plain(updated[i])
+      local ok, a = pcall(get, "player", id)
+      if ok and type(a) == "table" and not hidden(a) then
+        local dur, exp = field(a, "duration"), field(a, "expirationTime")
+        if type(dur) == "number" and type(exp) == "number" and dur > 0 and exp - now >= dur - 3 then
+          list[#list + 1] = a
+        end
+      end
+    end
+  end
+  -- nothing landed: SAY NOTHING. A ticking timer used to write "nothing new on you" over the answer
+  -- about the buff that DID land, seconds after it did.
+  if #list == 0 then return nil end
+  for i = 1, #list do
+    local a = list[i]
     if type(a) == "table" and not hidden(a) then
       local helpful, src = field(a, "isHelpful"), field(a, "sourceUnit")
       -- THE ONE UNKNOWN: does the game name a stranger who buffs you (a sourceUnit), or only someone

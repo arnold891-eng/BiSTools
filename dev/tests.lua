@@ -3852,6 +3852,27 @@ do
   ok(w2:find("last thanked: ", 1, true) and w2:find("Mediumroar", 1, true) and w2:find("did not say who", 1, true),
      "why keeps the last one thanked apart from the last buff seen", w2)
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  -- A TICKING TIMER SAYS NOTHING (Arn, 14 Oct: Blessing of Kings landed, and why said "nothing new on
+  -- you" - the answer about the buff overwritten by the next aura change)
+  local whyBefore = Sc.lastWhy
+  fire({ isFullUpdate = false })
+  fire({ updatedAuraInstanceIDs = {} })
+  ok(Sc.lastWhy == whyBefore, "an aura change with nothing landed leaves the last answer standing", Sc.lastWhy)
+  -- A RECAST: the buff you wore, back at its full duration - an update, thanked like a new one
+  local keepUA = _G.C_UnitAuras
+  local auras = {
+    [77] = { isHelpful = true, sourceUnit = "mouseover", duration = 3600, expirationTime = W.now + 3600 },  -- just recast
+    [78] = { isHelpful = true, sourceUnit = "target", duration = 3600, expirationTime = W.now + 1200 },     -- ticking
+  }
+  _G.C_UnitAuras = { GetAuraDataByAuraInstanceID = function(_, id) return auras[id] end }
+  Sc.next, Sc.thanked = nil, {}
+  units.mouseover = { name = "Kingsgiver", player = true }
+  local before = #emoted
+  fire({ updatedAuraInstanceIDs = { 78 } })
+  ok(#emoted == before, "a buff whose timer merely ticks: no emote")
+  fire({ updatedAuraInstanceIDs = { 77 } })
+  ok(#emoted == before + 1 and emoted[#emoted].who == "Kingsgiver", "a buff recast on you (full duration again): thanked")
+  _G.C_UnitAuras = keepUA
   -- LEAN: everyone else's auras change constantly; that costs one string compare
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n = Cost.Count(function() for i = 1, 500 do Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "raid" .. (i % 25 + 1), buff("target")) end end)
