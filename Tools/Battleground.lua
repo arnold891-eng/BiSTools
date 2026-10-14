@@ -587,25 +587,35 @@ end
 
 --- Where a mark sits on a plate - the real one, or the options' preview plate (the same code, so the
 --- preview cannot lie about where it lands).
+--- Pin a sized mark to its plate: ON THEM (under the plate, centred on the body) or ABOVE the plate
+--- (Arn, 14 Oct: "some people also like them at the top of the name plate - lets let them"). The
+--- height setting nudges it from whichever spot is picked.
+local function pin(f, plate, h)
+  local RC = NS.Recap
+  if B.Spot() == "above" then
+    f:SetPoint("BOTTOM", plate, "TOP", 0, 2 + B.Lift())
+  else
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+  end
+end
+
 function B.Place(f, plate)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
-  -- centred on the body
+  -- centred on the body - or above the plate, by choice
   if f.tag then
-    local RC = NS.Recap
     local k = B.Size() / 100
     local w, h = math.floor(B.TAG[1] * k + 0.5), math.floor(B.TAG[2] * k + 0.5)
-    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+    pin(f, plate, h)
     f:SetSize(w, h)
     pcall(f.Fit, f, w, h)
   elseif f.x then
     -- centred in the rival crosshair's box (Arn, 14 Oct, seeing it fill the box: "perfect now 50%
     -- smaller"), and since the same night THE SIZE OF BiS HEALING'S TANK X (Arn: "lets make bis
     -- tools bg the same size as these") - fixed, not a share of the plate, so the two read as one
-    local RC = NS.Recap
     local k = B.Size() / 100
     local w, h = math.floor(B.X_SIZE[1] * k + 0.5), math.floor(B.X_SIZE[2] * k + 0.5)
-    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2 + B.Lift())
+    pin(f, plate, h)
     f:SetSize(w, h)
     pcall(f.Fit, f, w, h)
   else
@@ -874,6 +884,12 @@ function B.Size(db)
   local v = tonumber(db.size)
   return v and math.max(50, math.min(200, v)) or 100
 end
+--- Where the marks sit: "on" them (the default) or "above" the nameplate.
+function B.Spot(db)
+  db = db or R:DBFor(R:Get("bg"))
+  return db.spot == "above" and "above" or "on"
+end
+
 function B.Lift(db)
   db = db or R:DBFor(R:Get("bg"))
   local v = tonumber(db.lift)
@@ -1115,12 +1131,18 @@ R:Register({
       get = function(db) return B.Size(db) end,
       set = function(db, v) db.size = v B.Redraw() B.PaintPreview() end,
       show = function(db) return B.Size(db) .. "%" end },
-    { kind = "step", label = "mark height", markPreview = true, help = "Moves the marks up or down from the middle of the body.", min = -40, max = 40, step = 5,
+    -- (Arn, 14 Oct: "some people also like them at the top of the name plate - lets let them"; at 40 up
+    -- the tag sat ON the plate, over the name)
+    { kind = "seg", label = "mark spot", markPreview = true, values = { "on", "above" },
+      help = "Where the marks sit: on - on them, on the body under the nameplate; above - on top of the nameplate, over the name.",
+      get = function(db) return B.Spot(db) == "above" and "above" or "on" end,
+      set = function(db, v) db.spot = (v == "above") and "above" or nil B.Redraw() B.PaintPreview() end },
+    { kind = "step", label = "mark height", markPreview = true, help = "Nudges the marks up or down from their spot.", min = -40, max = 40, step = 5,
       get = function(db) return B.Lift(db) end,
       set = function(db, v) db.lift = v B.Redraw() B.PaintPreview() end,
       show = function(db)
         local v = B.Lift(db)
-        return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+        return v == 0 and (B.Spot(db) == "above" and "on top" or "on them") or (v > 0 and (v .. " up") or (-v .. " down"))
       end },
   },
   OnInit = function() end,

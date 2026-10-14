@@ -1822,7 +1822,7 @@ do
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (3) -> 8 headers + 30 rows
   -- (the rival settings moved out of recap into their own tool, 14 Oct)
-  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -4702,6 +4702,12 @@ do
       x = mark("A")
       ok(x.w == BG.X_SIZE[1] * 2 and x.h == BG.X_SIZE[2] * 2 and x.point[5] == -2 - NS.Recap.MARK_H / 2 + 10,
          "mark size 200%, height 10 up: redrawn at once", x.w .. "x" .. x.h)
+      -- ABOVE THE NAMEPLATE (Arn: "some people also like them at the top of the name plate - lets let them")
+      bdb.spot = "above"
+      BG.Redraw()
+      x = mark("A")
+      ok(x.point[1] == "BOTTOM" and x.point[3] == "TOP" and x.point[5] == 2 + 10, "mark spot above: on top of the nameplate, the height still nudging it")
+      bdb.spot = nil
       bdb.size, bdb.lift = 999, -999
       ok(BG.Size(bdb) == 200 and BG.Lift(bdb) == -40, "out-of-range settings are held to the stepper's ends")
       bdb.size, bdb.lift = nil, nil
