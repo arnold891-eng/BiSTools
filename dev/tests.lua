@@ -1756,6 +1756,13 @@ do
   ok(mm and mm == BiSToolsMinimap and mm.parent == Minimap, "minimap button, parented to the Minimap")
   local x, y = H.MinimapPos(225)
   ok(mm.point[1] == "CENTER" and mm.point[2] == Minimap and math.abs(mm.point[4] - x) < 1e-6 and math.abs(mm.point[5] - y) < 1e-6, "sits on the rim at the saved angle (225 = lower left)")
+  -- THE RING IS MEASURED (Arn's cousin: "the minimap buttons are appearing on the inside of the minimap")
+  local keepW = Minimap.GetWidth
+  Minimap.GetWidth = function() return 192 end            -- Forever's minimap is wider than 140
+  ok(math.abs(H.MinimapRadius() - (96 + H.MM_OVER)) < 1e-6, "a 192 px minimap: the ring at 106, on its edge - not 80, inside it")
+  Minimap.GetWidth = function() return nil end
+  ok(H.MinimapRadius() == H.MM_RADIUS, "a minimap that will not say: the old 80")
+  Minimap.GetWidth = keepW
   ok(mm.icon.file == "Interface\\Icons\\Spell_Shadow_Twilight" and mm.ring.file == "Interface\\Minimap\\MiniMap-TrackingBorder", "BiS icon in the standard tracking ring")
   -- drag: the angle follows the cursor around the minimap centre
   W.cursor = { 1000 + 100, 500 }   -- due east of the centre

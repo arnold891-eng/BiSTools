@@ -49,8 +49,21 @@ end
 -- Hand-rolled, no LibDBIcon: a 31 px round button riding the minimap rim at
 -- db.hub.angle degrees (0 = east, counter-clockwise), like every other minimap
 -- button the raid already has. Drag it and the angle follows the cursor.
+--- THE RING IS MEASURED (14 Oct, Arn's cousin: "the minimap buttons are appearing on the inside of the
+--- minimap"). 80 is right for a 140 px minimap only; Forever's is wider, and minimap addons resize it -
+--- the same lesson BiSTheme's shared button learned 19 Sep ("everyone else's buttons are on the
+--- outside"). Half the minimap's width plus H.MM_OVER, so the button straddles the edge; 80 when the
+--- minimap will not say.
+H.MM_OVER, H.MM_RADIUS = 10, 80
+function H.MinimapRadius()
+  local mm = _G.Minimap
+  local ok, w = pcall(function() return mm and mm:GetWidth() end)
+  if ok and type(w) == "number" and w > 0 then return w / 2 + H.MM_OVER end
+  return H.MM_RADIUS
+end
+
 function H.MinimapPos(angle)
-  local r = 80
+  local r = H.MinimapRadius()
   local a = math.rad(angle or 225)
   return math.cos(a) * r, math.sin(a) * r
 end
@@ -115,6 +128,8 @@ function H.BuildMinimap()
   b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
   H.PlaceMinimap()
   H.ApplyMinimap()
+  -- a minimap addon resizes the map AFTER login: the ring follows it
+  if Minimap.HookScript then pcall(Minimap.HookScript, Minimap, "OnSizeChanged", function() H.PlaceMinimap() end) end
   return b
 end
 
