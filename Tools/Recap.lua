@@ -967,8 +967,10 @@ function RC.SpotPal(db, unit)
   if not RC.Friendly(unit) then RC.UnmarkPal(unit) return false end
   -- a friend wearing a kept surname: the crown, not the heart
   if RC.SurnameOf(db, unit) then RC.UnmarkPal(unit) return RC.MarkCrown(unit, true) end
-  if not RC.PalFor(db, unit) then RC.UnmarkPal(unit) return false end
+  local pal, palKey = RC.PalFor(db, unit)
+  if not pal then RC.UnmarkPal(unit) return false end
   if RC.hearts[unit] then return true end
+  RC.PalNear(db, palKey)
   local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
   if not get then return false end
   local okP, plate = pcall(get, unit)
@@ -986,6 +988,22 @@ function RC.SpotPal(db, unit)
 end
 
 function RC.SpotPals(db) for unit in pairs(RC.plates) do RC.SpotPal(db, unit) end end
+
+--- A PAL NEARBY, a small note (Arn, 14 Oct: "also a small notification when a pal is nearby"): one
+--- green chat line, no sound, no raid warning - once per pal per RC.PAL_GAP. Out of combat only, like
+--- the heart it comes with. "pal nearby note" in the options switches it off (db.palNote).
+RC.PAL_GAP = 600
+RC.palSeenAt = {}
+function RC.PalNear(db, name)
+  if db.palNote == false or type(name) ~= "string" then return false end
+  local now = GetTime and GetTime() or 0
+  local last = RC.palSeenAt[name]
+  if last and now - last < RC.PAL_GAP then return false end
+  RC.palSeenAt[name] = now
+  local where = place()
+  NS.Print("%s %s is nearby%s", T.text("good", "<3"), T.text("good", name), (where and where ~= "") and (" - " .. where) or "")
+  return true
+end
 
 -- ---------------------------------------------------------------- a whole surname
 -- Arn, 14 Oct: "a special command for pals and rivals, that adds everyone with the Foreverpvp

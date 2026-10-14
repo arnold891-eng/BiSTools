@@ -38,6 +38,9 @@ NS.Registry:Register({
         local set = (C_CVar and C_CVar.SetCVar) or SetCVar
         if set and pcall(set, "nameplateShowEnemies", "1") then NS.Print("enemy nameplates on") end
       end },
+    { kind = "toggle", label = "pal nearby note", help = "A small green line in chat when one of your pals comes into view, out of combat - once every ten minutes each, no sound.",
+      get = function() return D().palNote ~= false end,
+      set = function(_, on) D().palNote = on and true or false end },
     { kind = "toggle", label = "guild rivals (amber)", help = "Rivals your guild shares wear an amber crosshair, and the guild hears when you see one.",
       get = function() return D().guildShow ~= false end,
       set = function(_, on)

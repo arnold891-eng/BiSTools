@@ -1820,9 +1820,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (6), social (2), threat (2), bg (3) -> 8 headers + 29 rows
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (3) -> 8 headers + 30 rows
   -- (the rival settings moved out of recap into their own tool, 14 Oct)
-  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 6 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 3, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -3018,6 +3018,27 @@ do
     ok(heart and heart.shown and heart.point and heart.point[1] == "BOTTOM" and heart.point[3] == "TOP",
        "a pal's nameplate: a little heart over it")
     ok(heart.parts == nil or (heart.parts[2].color[2] > 0.9 and heart.parts[2].color[1] < 0.4), "green")
+    -- A PAL NEARBY, a small note (Arn: "also a small notification when a pal is nearby")
+    local saidP = {}
+    local keepAddP = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function(_, m) saidP[#saidP + 1] = tostring(m) end
+    RC.palSeenAt = {}
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    local noted = table.concat(saidP, "
+")
+    ok(noted:find("Pal Guy", 1, true) and noted:find("is nearby", 1, true), "a pal in view: a small green line in chat", noted)
+    local n1 = #saidP
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(#saidP == n1, "the same pal again within ten minutes: quiet")
+    rdb2.palNote = false
+    RC.palSeenAt = {}
+    RC.UnmarkPal("nameplate10")
+    RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate10")
+    ok(#saidP == n1, "the note switched off: quiet")
+    rdb2.palNote = nil
+    DEFAULT_CHAT_FRAME.AddMessage = keepAddP
     RC.frame.scripts.OnEvent(RC.frame, "PLAYER_REGEN_DISABLED")
     ok(RC.hearts.nameplate10 == nil, "a fight starts: the hearts come down")
     local keepLock = _G.InCombatLockdown
