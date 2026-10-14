@@ -4303,11 +4303,12 @@ do
   ok(b1.to[1] > 0 and b2.to[1] < 0 and b1.to[2] > 0 and b2.to[2] > 0 and b1.from[1] < 0 and b2.from[1] > 0,
      "crossed: one blade leans right, the other left - an X")
   ok(#s.hilts == 2, "a hilt on each")
-  ok(s.point and s.point[1] == "TOP" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
-     and s.h == BG.SABER_H, "on them, like the rival crosshair: under the plate, centred on the body")
+  ok(s.point and s.point[1] == "CENTER" and s.point[2] == plates[unitOf("A")] and s.point[3] == "BOTTOM"
+     and s.point[5] == -2 - NS.Recap.MARK_H / 2 and s.h == math.floor(NS.Recap.MARK_H * BG.X_SCALE + 0.5),
+     "on them: centred where the rival crosshair's middle is, half its height")
   ok(s.pulse and s.pulse:IsPlaying(), "humming (a slow pulse)")
   local g = mark("B")
-  ok(g.kind == "killer" and g.x and g.parts[3].color[1] == 1 and g.parts[3].color[2] < 0.2 and g.point and g.point[1] == "TOP",
+  ok(g.kind == "killer" and g.x and g.parts[3].color[1] == 1 and g.parts[3].color[2] < 0.2 and g.point and g.point[1] == "CENTER",
      "the killer: the same crossed sabers, red, on them")
   ok(g.pulse and g.pulse:IsPlaying(), "humming")
   -- a name the game hides on the plate: the GUID still matches
@@ -4479,8 +4480,8 @@ do
       -- the X fills the rival crosshair's box: tips in its corners
       local x = mark("A")
       local tip = x.parts[3].to
-      ok(x.w == math.floor(120 * NS.Recap.MARK_WIDE + 0.5) and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
-         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X's tips sit in the crosshair box's corners")
+      ok(x.w == math.floor(120 * NS.Recap.MARK_WIDE * BG.X_SCALE + 0.5) and math.abs(tip[1] - (x.w / 2 - 2)) < 0.01
+         and math.abs(tip[2] - (x.h / 2 - 2)) < 0.01, "the X: half the crosshair's box, its tips in its own corners")
     end
     -- Forever's two-part names: the board says "Heala Moon", the plate only "Heala" (14 Oct: no saber)
     do

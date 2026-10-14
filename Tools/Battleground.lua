@@ -397,7 +397,8 @@ end
 --- soft glow layers with a dark hilt, drawn as Lines (a solid texture's SetRotation turns only its
 --- image inside its box, so a thin bar cannot be tilted that way). A client without Lines: one
 --- upright blade, as before.
-B.X_W = 46                          -- the X's width; its height is B.SABER_H
+B.X_W = 46                          -- the X's width before a plate sizes it; its height is B.SABER_H
+B.X_SCALE = 0.5                     -- of the rival crosshair's box
 
 -- slim (Arn, 14 Oct, the X in the crosshair: "50% smaller"): half the glow it first had
 local function blade(f, c, sign)
@@ -496,17 +497,21 @@ function B.Draw(u, kind)
   f:ClearAllPoints()
   -- ON THEM, like the rival crosshair (Arn, 14 Oct: "on them... like crosshairs"): under the plate,
   -- centred on the body
-  f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
   if f.x then
-    -- the rival crosshair's own box (RC.MarkPlate): half the plate wide, RC.MARK_H tall
+    -- the rival crosshair's own box (RC.MarkPlate: half the plate wide, RC.MARK_H tall), at
+    -- B.X_SCALE of it and centred on its middle (Arn, 14 Oct, seeing it fill the box: "perfect now
+    -- 50% smaller")
     local RC = NS.Recap
     local okW, pw = pcall(plate.GetWidth, plate)
     pw = okW and plain(pw)
     if type(pw) ~= "number" or pw <= 0 then pw = RC.MARK_W / RC.MARK_WIDE end
-    local w, h = math.floor(pw * RC.MARK_WIDE + 0.5), RC.MARK_H
+    local w = math.floor(pw * RC.MARK_WIDE * B.X_SCALE + 0.5)
+    local h = math.floor(RC.MARK_H * B.X_SCALE + 0.5)
+    f:SetPoint("CENTER", plate, "BOTTOM", 0, -2 - RC.MARK_H / 2)
     f:SetSize(w, h)
     pcall(f.Fit, f, w, h)
   else
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -2)
     f:SetSize(B.SABER_W + 10, B.SABER_H)
   end
   f:SetAlpha(1)
