@@ -3290,6 +3290,19 @@ do
     W.target = nil
     S("recap rival")
     ok(next(rivals) == nil or rivals["Grape Sprite"] == nil, "no target: nothing added")
+    -- for THIS match only (Arn: "it resets at the end of the bg - dont want a rival list that's 10000
+    -- names long"); rivals from the world stay
+    rivals["World Foe"] = { added = 1, kills = 2, active = true }
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    S("recap rival")
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].bg == true, "added inside a battleground: marked for this match")
+    fireAll("PLAYER_ENTERING_WORLD")
+    ok(rivals["Grape Sprite"], "a /reload inside the battleground keeps them")
+    inside = false
+    fireAll("PLAYER_ENTERING_WORLD")
+    ok(rivals["Grape Sprite"] == nil and rivals["World Foe"] and rivals["World Foe"].kills == 2,
+       "out of the battleground: its rivals let go, the world's kept")
+    rivals["World Foe"] = nil
     -- outside an instance the menu line works as before
     inside = false
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }

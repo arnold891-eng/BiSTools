@@ -339,11 +339,33 @@ function RC.ToggleRival(db, a)
   end
   -- GOLD from the start: a rival you just clicked is the one you are hunting (Arn, 12 Oct: "current
   -- target gold, all previous targets silver, can click them again to turn them gold")
-  list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0, active = true }
-  NS.Print("%s added to your rivals", T.text("warn", a.title))
+  -- added inside a battleground or an arena: for THAT match only (Arn, 14 Oct: "it resets at the end
+  -- of the bg - dont want a rival list that's 10000 names long after doing many bgs")
+  local bg = RC.InPvP() or nil
+  list[a.title] = { class = a.class, guid = a.key, added = time and time() or 0, kills = 0, active = true, bg = bg }
+  NS.Print("%s added to your rivals%s", T.text("warn", a.title), bg and " for this match" or "")
   RC.PaintRivals()
   RC.ApplyButton(db)
   return true
+end
+
+--- Out of the battleground: its rivals go. A /reload inside it keeps them (still in PvP).
+function RC.DropMatchRivals(db)
+  if RC.InPvP() then return 0 end
+  local list, n = RC.Rivals(db), 0
+  for name, r in pairs(list) do
+    if type(r) == "table" and r.bg then
+      list[name] = nil
+      RC.UnmarkRival(name)
+      n = n + 1
+    end
+  end
+  if n > 0 then
+    NS.Print("the match is over: %d battleground rival(s) let go", n)
+    RC.PaintRivals()
+    RC.ApplyButton(db)
+  end
+  return n
 end
 
 --- Gold (hunted: the tracker calls them out) or silver (remembered, quiet).
@@ -1705,6 +1727,7 @@ function RC.OnEvent(_, event, unit)
     -- the guildmate + is for passing each other alone: a group, a battleground or an arena ends it
     RC.solo = RC.Solo()
     if not RC.solo then RC.ClearMates() end
+    if event == "PLAYER_ENTERING_WORLD" then RC.DropMatchRivals(db) end
     return
   elseif event == "NAME_PLATE_UNIT_ADDED" then
     if type(unit) == "string" and not hidden(unit) then RC.Spot(db, unit) end
