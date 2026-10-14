@@ -876,7 +876,22 @@ end
 function RC.MenuName(ctx)
   if type(ctx) ~= "table" then return nil end
   local first, sur = field(ctx, "name"), field(ctx, "surname")
-  if type(first) ~= "string" or first == "" then return nil end
+  -- IN A BATTLEGROUND THE MENU CARRIES NO NAME (Arn, 13 Oct, /bist recap why on Grape Sprite's
+  -- PLAYER menu: "the menu gave no name") - while the game still names the unit itself. So the
+  -- menu's unit answers: GetUnitName first (it has Forever's surname; UnitName can leave it off)
+  if type(first) ~= "string" or first == "" then
+    local unit = field(ctx, "unit")
+    if type(unit) ~= "string" then return nil end
+    for _, fn in ipairs({ function() return GetUnitName and GetUnitName(unit, false) end,
+                          function() return UnitName(unit) end }) do
+      local ok, n = pcall(fn)
+      if ok and type(n) == "string" and not hidden(n) and n ~= "" and n ~= (UNKNOWNOBJECT or "Unknown") then
+        first, sur = n, nil
+        break
+      end
+    end
+    if type(first) ~= "string" or first == "" then return nil end
+  end
   local me = UnitName and UnitName("player")
   if not hidden(me) and me == first then return nil end
   if type(sur) == "string" and sur ~= "" then return first .. " " .. sur end
@@ -975,8 +990,11 @@ function RC.Find(db, name)
   if type(name) ~= "string" then return nil end
   local list = RC.Rivals(db)
   if list[name] then return list[name], name end
+  -- both ways round: "Hunting" finds the rival "Hunting Moms", and "Grape Sprite" (the recap's
+  -- name for a killer) finds a rival added as plain "Grape" (from a battleground menu, 13 Oct)
+  local firstOf = name:match("^(%S+)")
   for key, r in pairs(list) do
-    if key:match("^(%S+)") == name then return r, key end
+    if key:match("^(%S+)") == name or key == firstOf then return r, key end
   end
   return nil
 end

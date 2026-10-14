@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **"BiS: add rival" on more right-click menus**: a player's portrait menu can be filed as a target or focus menu (unit frame addons that open it through the game's secure menu do this), and the line was missing there. It is in those now - for players only, never on a mob - and any other player menu the game opens gets it from the next right-click. `/bist recap why` says which menu opened last and whether the line is in it.
+- **"BiS: add rival" works in battlegrounds**: in a battleground the game leaves the name out of a player's right-click menu, so the line had nothing to go on and stayed away. It now takes the name from the player the menu is about (with their surname when the game gives it). It is also on target and focus menus now - for players only, never a mob - and any other player menu the game opens gets it from the next right-click. A rival saved as just "Grape" is still found as "Grape Sprite". `/bist recap why` says which menu opened last and what the rival line decided.
 - **Farm a mob from its right-click menu**: right-click a mob's portrait and pick **BiS: track in farm** - no typing its name, no killing one first. On the mob you are already farming it says **BiS: stop farming**. Only on mobs you can attack, never on players.
 
 ## 0.5.1

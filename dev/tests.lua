@@ -3218,6 +3218,35 @@ do
   ok(hookedMenus.MENU_UNIT_TARGET and hookedMenus.MENU_UNIT_FOCUS, "the TARGET and FOCUS menus carry the line too")
   m = root() hookedMenus.MENU_UNIT_TARGET(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
   ok(m.lines[2] == "BiS: add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
+  -- A BATTLEGROUND MENU CARRIES NO NAME (Arn, 13 Oct: "the menu gave no name" on Grape Sprite's PLAYER
+  -- menu) - the unit answers instead: GetUnitName with the surname, else UnitName
+  do
+    local keepGUN, keepT = _G.GetUnitName, W.target
+    W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
+    _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
+    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape Sprite",
+       "a battleground menu with no name: the name comes from the unit, surname and all", RC.menuDecision)
+    m.click()
+    ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active, "clicked: Grape Sprite is a gold rival")
+    rivals["Grape Sprite"] = nil
+    _G.GetUnitName = function() return setmetatable({}, { __index = function() error("secret") end }) end
+    local keepIs = _G.issecretvalue
+    _G.issecretvalue = function(v) return type(v) == "table" end
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
+    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape",
+       "GetUnitName hidden: UnitName's plain name still does", RC.menuDecision)
+    m.click()
+    _G.issecretvalue = keepIs
+    ok(rivals["Grape"], "added as Grape")
+    ok(RC.Find(rdb2, "Grape Sprite") == rivals["Grape"],
+       "and the recap's 'Grape Sprite' finds the rival saved as plain 'Grape' - matching works both ways")
+    rivals["Grape"] = nil
+    m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, {})
+    ok(#m.lines == 0 and RC.menuDecision == "the menu gave no name (hidden by the game, or none)",
+       "no name and no unit: nothing, and why says so")
+    _G.GetUnitName, W.target = keepGUN, keepT
+  end
   W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
   m = root() hookedMenus.MENU_UNIT_FOCUS(nil, m, { name = "Defias Thug", unit = "target" })
   ok(#m.lines == 0, "a MOB's menu: no rival line")
