@@ -1,4 +1,4 @@
-## Unreleased
+## 0.8.0
 
 - **The death recap, remade** (the BiS shape, 1.43:1): the three cards, then **who hit you** - a bar per attacker with their damage and share - and **what kind** (physical or magic, and which school), your health across the hits, all ten hits in two columns, and the total. The rivals list is no longer tucked under it.
 - **Rivals & pals have their own window**: rivals on the left (gold, the guild's, silver), your pals and the surnames you crown on the right. `/bist rivals`, the rivals & pals row in the tools list, or "rivals >" on the recap opens it; `/bist rivals list` still prints them in chat.
