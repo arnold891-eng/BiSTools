@@ -795,11 +795,39 @@ function RC.Solo()
   return true
 end
 
+--- THE GUILD CREST (Arn, 14 Oct: "guild mates some type of clan icon ... for pals you have to
+--- select it, guild mates you dont have to like but there should be respect at least in the icon"):
+--- a small teal shield, a chevron inside, in glowing strokes. A client without Lines keeps the +.
+RC.CREST = {
+  { 1, 1, 1, 0.2 }, { 1, 0.2, 0.6, -0.45 }, { 0.6, -0.45, 0, -1 }, { 0, -1, -0.6, -0.45 },
+  { -0.6, -0.45, -1, 0.2 }, { -1, 0.2, -1, 1 }, { -1, 1, 1, 1 },          -- the shield
+  { -0.5, 0.4, 0, -0.05 }, { 0, -0.05, 0.5, 0.4 },                        -- the chevron
+}
+
 local function newMate()
   local f = CreateFrame("Frame", nil, UIParent)
   f:SetFrameStrata("BACKGROUND")
   f:SetSize(11, 11)
   local c = RC.MATE
+  if f.CreateLine then
+    f:SetSize(11, 13)
+    f.parts = {}
+    local x, y = 11 / 2 - 1, 13 / 2 - 1
+    for _, s in ipairs(RC.CREST) do
+      for _, layer in ipairs({ { 3, 0.3 }, { 1.4, 1 } }) do
+        local l = f:CreateLine(nil, "ARTWORK")
+        l:SetTexture("Interface\\Buttons\\WHITE8X8")
+        l:SetVertexColor(c[1], c[2], c[3], layer[2])
+        l:SetThickness(layer[1])
+        l:SetStartPoint("CENTER", f, s[1] * x, s[2] * y)
+        l:SetEndPoint("CENTER", f, s[3] * x, s[4] * y)
+        f.parts[#f.parts + 1] = l
+      end
+    end
+    f.bar = f.parts[2]
+    f.crest = true
+    return f
+  end
   for _, d in ipairs({ { 11, 2 }, { 2, 11 } }) do
     local o = bar(f, "BORDER", 0, 0, 0) o:SetPoint("CENTER") o:SetSize(d[1] + 2, d[2] + 2)
     local t = bar(f, "ARTWORK", c[1], c[2], c[3]) t:SetPoint("CENTER") t:SetSize(d[1], d[2])

@@ -3605,7 +3605,9 @@ do
   W.notices, W.sounds = {}, {}
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
   local mate = RC.mates.nameplate6
-  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal +")
+  ok(mate and mate.shown and mate.w == 11 and mate.bar.color[3] > 0.7, "a guildmate's plate, alone: a small teal mark")
+  -- the crest (Arn: "some type of clan icon ... there should be respect at least in the icon")
+  ok(mate.crest and #mate.parts == #RC.CREST * 2 and mate.h == 13, "and it is the guild crest: a shield with a chevron")
   ok(#W.notices == 0 and #W.sounds == 0, "with no noise at all")
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate6")
   ok(RC.mates.nameplate6 == nil and not mate.shown, "their plate goes: so does the +")
