@@ -673,6 +673,7 @@ end
 --- the first plate seen is measured once, in screen pixels; the preview's fake plate takes that size.
 --- Until one is seen, B.PLATE_PX - a typical plate.
 B.PLATE_PX = { 150, 12 }
+B.PREVIEW_BAR_H = 8
 function B.NotePlate(unit)
   if B.platePx then return end
   local plate = plateOf(unit)
@@ -696,7 +697,10 @@ function B.SizePreviewPlates()
   s = (okS and type(s) == "number" and s > 0) and s or 1
   local okU, us = pcall(function() return UIParent:GetEffectiveScale() end)
   local base = B.platePx and 1 or ((okU and type(us) == "number" and us > 0) and us or 1)   -- the default is in UI units
-  local w, h = px[1] * base / s, px[2] * base / s
+  -- the WIDTH only: a plate frame is its whole clickable area, far taller than the bar you see (Arn's
+  -- screenshot: a red slab). The real crosshair is sized off that same frame width, so the width is
+  -- the one that must match; the bar is drawn the thin height a health bar is.
+  local w, h = px[1] * base / s, B.PREVIEW_BAR_H
   for _, cell in ipairs({ pv.cellH, pv.cellK }) do
     local cw = cell.GetWidth and cell:GetWidth() or w
     cell.plate:SetSize(math.min(w, (type(cw) == "number" and cw > 0) and cw - 8 or w), h)

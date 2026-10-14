@@ -1863,6 +1863,9 @@ do
   BGt.platePx = { 180, 12 }               -- as measured off a real plate, in screen pixels
   BGt.SizePreviewPlates()
   ok(pv.cellH.plate.w == 180 and pv.cellK.plate.w == 180, "the preview's nameplates take the real ones' width", tostring(pv.cellH.plate.w))
+  BGt.platePx = { 180, 60 }               -- a plate FRAME is its whole clickable area: far taller than its bar
+  BGt.SizePreviewPlates()
+  ok(pv.cellH.plate.h == BGt.PREVIEW_BAR_H, "but the bar stays a bar's height - never the frame's (Arn's red slab)", tostring(pv.cellH.plate.h))
   -- THE RIVALS & PALS PREVIEW (Arn: "need the preview for pals and rivals")
   local crossRow = find("crosshair")
   crossRow.scripts.OnEnter(crossRow)
