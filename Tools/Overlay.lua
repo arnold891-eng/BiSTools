@@ -293,7 +293,7 @@ local function dot(i, x, y, c, nm, size)
   d:SetSize(size, size)
   d:SetColorTexture(c.r, c.g, c.b, 1)
   d:ClearAllPoints()
-  d:SetPoint("CENTER", O.frame, "TOPLEFT", x * O.frame:GetWidth(), -y * O.frame:GetHeight())
+  d:SetPoint("CENTER", O.frame, "TOPLEFT", O.ToFrame(x, y))
   d:Show()
   -- a small name beside the dot (Arn, 14 Oct: "since its ours maybe we can add small name"):
   -- the first name only, in the dot's colour; no name is just the dot
@@ -435,7 +435,8 @@ local function piece(file, x, y, w, h, fw, fh, layer)
   t:SetTexCoord(0, w / fw, 0, h / fh)
   t:SetSize(w * s, h * s)
   t:ClearAllPoints()
-  t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
+  local l = O.land or { 0, 0 }
+  t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", (x - l[1]) * s, -(y - l[2]) * s)
   if t.SetDesaturated then t:SetDesaturated(O.Grey(O.db or {})) end
   if O.Grey(O.db or {}) then t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1) else t:SetVertexColor(1, 1, 1, 1) end
   return t
@@ -446,6 +447,16 @@ local function fileSize(px)
   local f = 16
   while f < px do f = f * 2 end
   return f
+end
+
+-- how much of the paper's edge never shows, as a share of the map: left/right, top/bottom
+O.EDGE = { 0.03, 0.045 }
+
+--- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
+--- which starts O.land's x0, y0 into the map.
+function O.ToFrame(x, y)
+  local l, s = O.land or { 0, 0 }, O.scale or 1
+  return (x * (O.lw or 1) - l[1]) * s, -((y * (O.lh or 1) - l[2]) * s)
 end
 
 --- Redraw the art for this map: the explored pieces, or the whole zone.
@@ -512,7 +523,11 @@ function O.Draw(db)
       end
     end
   end
-  -- 2. the land those pieces cover (inside the map's own edges); "all" is the whole map
+  -- 2. the land those pieces cover; "all" is the whole map. NEVER the paper's torn edge (Arn, 14 Oct,
+  -- Orgrimmar at 60%: "how come the map does not take out the extra stuff") - a city is one picture,
+  -- parchment and all, so the most that can go is its border: the land stops O.EDGE inside each side,
+  -- and the frame, which clips its children, shows that land and nothing past it.
+  local ex, ey = lw * O.EDGE[1], lh * O.EDGE[2]
   local x0, y0, x1, y1 = lw, lh, 0, 0
   if O.Mode(db) == "full" then x0, y0, x1, y1 = 0, 0, lw, lh end
   for _, p in ipairs(pieces) do
@@ -520,6 +535,8 @@ function O.Draw(db)
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
   end
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
+  x0, y0 = math.max(x0, ex), math.max(y0, ey)
+  x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - ey)
   -- 3. size THAT land, not the canvas (Durotar sits right of the canvas's middle), and hang it from
   -- the tab: the land's top-left under the tab's bottom-left (Arn, 14 Oct: top left, draggable like
   -- the Zone Map). "map size" is the land's height as a share of the screen, never wider than it.
@@ -528,11 +545,12 @@ function O.Draw(db)
   sh = (okH and num(sh)) or 768
   sw = (okW and num(sw)) or 1024
   O.scale = math.min(sh * O.Size(db) / 100 / (y1 - y0), sw * 0.95 / (x1 - x0))
-  f:SetSize(lw * O.scale, lh * O.scale)
+  -- the frame IS the land now (it clips what lies past it), hanging from the tab
+  O.land, O.lw, O.lh = { x0, y0, x1, y1 }, lw, lh
+  f:SetSize((x1 - x0) * O.scale, (y1 - y0) * O.scale)
   f:ClearAllPoints()
   O.PlaceTab(db)
-  f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", -x0 * O.scale, y0 * O.scale)
-  O.land = { x0, y0, x1, y1 }
+  f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, 0)
   for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]) end
   O.DrawTrail(db)
   return true
@@ -565,7 +583,6 @@ end
 function O.DrawTrail(db)
   for _, d in ipairs(O.dots) do d:Hide() end
   if not (O.TrailOn(db) and O.mapID) then return end
-  local W, H = O.frame:GetWidth(), O.frame:GetHeight()
   for i, p in ipairs(O.Trail(db, O.mapID)) do
     local d = O.dots[i]
     if not d then
@@ -575,7 +592,7 @@ function O.DrawTrail(db)
       O.dots[i] = d
     end
     d:ClearAllPoints()
-    d:SetPoint("CENTER", O.frame, "TOPLEFT", p[1] * W, -p[2] * H)
+    d:SetPoint("CENTER", O.frame, "TOPLEFT", O.ToFrame(p[1], p[2]))
     d:Show()
   end
 end
@@ -599,7 +616,7 @@ function O.Tick()
   local face = O.Facing()
   if face then O.lastFace = face end
   face = O.lastFace or 0
-  local cx, cy = x * O.frame:GetWidth(), -y * O.frame:GetHeight()
+  local cx, cy = O.ToFrame(x, y)
   local dx, dy = -math.sin(face), math.cos(face)            -- ahead, in screen x / up
   local px, py = dy, -dx                                    -- to your right
   local L = O.ARROW_LEN

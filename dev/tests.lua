@@ -5007,8 +5007,12 @@ do
   local whole = 0
   for _, t in ipairs(O.art) do if t.shown then whole = whole + 1 end end
   ok(whole == 12, "no explored pieces (a city): the whole map, faint", whole)
-  -- 70% of a 768-tall screen, the art's 1002 x 668 kept in shape
-  ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - 1002 / 668) < 0.001, "sized to the screen, the art's own shape", f.w .. "x" .. f.h)
+  -- 70% of a 768-tall screen; the frame is the land, the paper's edge cut off (O.EDGE: 3% each side,
+  -- 4.5% top and bottom - Arn, 14 Oct: "how come the map does not take out the extra stuff")
+  local landW, landH = 1002 * (1 - 2 * O.EDGE[1]), 668 * (1 - 2 * O.EDGE[2])
+  ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - landW / landH) < 0.001,
+    "sized to the screen, the paper's torn edge cropped off", f.w .. "x" .. f.h)
+  ok(math.abs(O.art[1].anchor[4] + (1002 * O.EDGE[1]) * (f.h / landH)) < 1e-6, "the first tile starts left of the frame - its edge is clipped away", O.art[1].anchor[4])
   -- one explored piece of 300 x 200 pixels at (100, 50): two 256 columns (256 + 44) and one row of 200
   W.explored = { { textureWidth = 300, textureHeight = 200, offsetX = 100, offsetY = 50,
                    isShownByMouseOver = false, fileDataIDs = { 7001, 7002 } } }
@@ -5017,14 +5021,14 @@ do
   for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
-  ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
+  ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == 256 * sc, "the last column only as wide as what is left, in its place (from the land's corner)")
   -- the LAND is sized, not the canvas (Durotar sits right of the canvas's middle), and hangs from the
   -- tab, top-left (Arn, 14 Oct: "top left ... like zone map so we can drag"): the piece covers
   -- x 100-400, y 50-250 of the 1002 x 668 art
   ok(math.abs(sc - 768 * 0.70 / 200) < 1e-9, "map size is the land's height on screen", sc)
-  ok(f.point[1] == "TOPLEFT" and f.point[2] == O.tab and f.point[3] == "BOTTOMLEFT"
-     and math.abs(f.point[4] + 100 * sc) < 1e-9 and math.abs(f.point[5] - 50 * sc) < 1e-9,
-    "the land's top-left hangs under the tab", f.point[4], f.point[5])
+  ok(f.point[1] == "TOPLEFT" and f.point[2] == O.tab and f.point[3] == "BOTTOMLEFT" and f.point[4] == 0 and f.point[5] == 0
+     and math.abs(f.w - 300 * sc) < 1e-9 and math.abs(f.h - 200 * sc) < 1e-9,
+    "the frame IS the land, hanging under the tab", f.point[4], f.point[5])
   ok(O.tab.point[1] == "TOPLEFT" and O.tab.point[4] == 24 and O.tab.point[5] == -80, "the tab: top-left of the screen by default")
   -- the tab: invisible until hovered, and the one thing that takes the mouse (Arn: "only visible if you hover over")
   ok(O.tab:IsShown() and O.tab.alpha == 0, "the tab shows with the map, invisible")
@@ -5097,7 +5101,7 @@ do
   local keepColors = _G.RAID_CLASS_COLORS
   _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
   ok(O.Group() == 2, "Show group: two party members placed (party3 is hidden: no dot)")
-  ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == 0.30 * f.w, "a dot in class colour, at their spot")
+  ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == select(1, O.ToFrame(0.30, 0.40)), "a dot in class colour, at their spot")
   ok(O.gdots[1].name and O.gdots[1].name.shown and O.gdots[1].name.text == "Mos",
     "a small name beside the dot - the first name only (Arn: 'maybe we can add small name')", O.gdots[1].name and O.gdots[1].name.text)
   -- THE GUILD (Arn, 14 Oct: "show all guild locations"): the lib (minor 12) hears guildmates' SPOTs;
@@ -5139,7 +5143,8 @@ do
   -- the arrow: your spot and your facing
   f.scripts.OnUpdate(f, 0.2)
   ok(O.arrow.shown and O.arrow.face == 1.5 and O.arrow[1].shown and O.arrow[1].from, "your arrow - our own three lines, turned the way you face")
-  ok(O.arrow.x == 0.40 * f.w and O.arrow.y == -0.60 * f.h, "at your spot on the map")
+  local ax, ay = O.ToFrame(0.40, 0.60)
+  ok(O.arrow.x == ax and O.arrow.y == ay, "at your spot on the map, from the land's corner")
   -- facing 1.5 rad counter-clockwise from north = pointing west-ish: the tip lies left of you
   ok(O.arrow[1].from[1] < O.arrow.x, "the tip points the way you face (west of you at 1.5 rad)")
   -- hidden position (an instance): no arrow, the art stays, and it says so
