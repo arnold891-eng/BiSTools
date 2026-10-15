@@ -459,8 +459,13 @@ function O.Draw(db)
   local lw = L and num(L.layerWidth)
   local lh = L and num(L.layerHeight)
   if not (lw and lh and lw > 0 and lh > 0) then
-    f:SetSize(400, 260)
+    -- in the map's corner, under the tab - not the middle of the screen (Arn, 14 Oct, in Ragefire:
+    -- "no map for this place" sat right over his character)
+    f:SetSize(220, 40)
     O.scale = 1
+    O.PlaceTab(db)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, 0)
     O.note:SetText("no map for this place")
     return false
   end

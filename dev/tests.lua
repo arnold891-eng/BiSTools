@@ -4988,6 +4988,14 @@ do
   _G.BiSTools_ToggleOverlayMap()
   local f = BiSToolsOverlayMap
   ok(f and f:IsShown(), "the key shows it")
+  -- a place with NO map (a dungeon: Ragefire answers nil): the note sits in the map's corner, under the
+  -- tab - not mid-screen over your character (Arn, 14 Oct)
+  local keepBest = C_Map.GetBestMapForUnit
+  C_Map.GetBestMapForUnit = function() return nil end
+  O.Draw(odb)
+  ok(O.note.text == "no map for this place" and f.point and f.point[2] == O.tab, "no map: it says so, hanging from the tab in the corner")
+  C_Map.GetBestMapForUnit = keepBest
+  O.Draw(odb)
   -- the defaults are Arn's pick: all, grey, 30% of the screen, 50% solid
   ok(O.Mode(odb) == "full" and O.Grey(odb) and O.Size(odb) == 30 and O.Alpha(odb) == 50,
     "defaults: all of the map, grey, 30% size, 50% solid (Arn: 'a nice place')")
