@@ -4942,7 +4942,12 @@ do
   _G.BiSTools_ToggleOverlayMap()
   local f = BiSToolsOverlayMap
   ok(f and f:IsShown(), "the key shows it")
-  ok(O.Mode(odb) == "explored", "it starts on the explored pieces only")
+  -- the defaults are Arn's pick: all, grey, 30% of the screen, 50% solid
+  ok(O.Mode(odb) == "full" and O.Grey(odb) and O.Size(odb) == 30 and O.Alpha(odb) == 50,
+    "defaults: all of the map, grey, 30% size, 50% solid (Arn: 'a nice place')")
+  -- the rest of this section drives the explored-pieces look, in colour, at 70% and 10%
+  odb.mode, odb.grey, odb.size, odb.alpha = "explored", false, 70, 10
+  O.Draw(odb)
   -- a place with no explored pieces at all (a city: the game shows it whole) draws the whole map
   -- (Arn's Orgrimmar, 14 Oct: an empty map and "nothing explored here yet")
   local whole = 0
@@ -4965,11 +4970,11 @@ do
   ok(f.point[1] == "CENTER" and math.abs(f.point[4] - (501 - 250) * sc) < 1e-9 and math.abs(f.point[5] - (150 - 334) * sc) < 1e-9,
     "the land's middle sits on the screen's middle", f.point[4], f.point[5])
   ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
-  ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "10% solid by default (Arn: alpha like 10%)", f.alpha)
+  ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "faintness 10% = 10% solid", f.alpha)
   odb.grey = true
   O.Draw(odb)
   ok(O.art[1].desat == true and O.art[1].vertex[1] < 1, "grey map: desaturated and tinted")
-  odb.grey = nil
+  odb.grey = false
   O.Draw(odb)
   -- the arrow: your spot and your facing
   f.scripts.OnUpdate(f, 0.2)
@@ -4998,7 +5003,7 @@ do
   _G.GetPlayerFacing, _G.issecretvalue, _G.type = keep.face, keep.is, keep.type
   -- all: the zone's 12 base tiles - which ARE the fog of war on these maps - with the explored
   -- pieces painted over them, as the world map does (Arn, 14 Oct: "all setting is showing fog of war")
-  odb.mode = "full"
+  odb.mode = nil
   O.Draw(odb)
   shown = 0
   local base, over = 0, 0

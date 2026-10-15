@@ -30,11 +30,14 @@ local function hidden(v)
 end
 local function num(v) if hidden(v) or type(v) ~= "number" then return nil end return v end
 
-function O.Size(db) return tonumber(db.size) or 70 end          -- % of the screen's height
+-- THE DEFAULTS ARE ARN'S PICK (14 Oct, a screenshot: "these settings keep it in a nice place"):
+-- all of the map, grey, 30% of the screen's height, 50% solid
+O.DEFAULT = { size = 30, alpha = 50 }
+function O.Size(db) return tonumber(db.size) or O.DEFAULT.size end   -- % of the screen's height
 -- Arn, 14 Oct (a world-map shot of Durotar): "a little color like this, alpha like 10%"
-function O.Alpha(db) return tonumber(db.alpha) or 10 end        -- %
-function O.Grey(db) return db.grey == true end                  -- off: the map's own colours
-function O.Mode(db) return db.mode == "full" and "full" or "explored" end
+function O.Alpha(db) return tonumber(db.alpha) or O.DEFAULT.alpha end   -- %
+function O.Grey(db) return db.grey ~= false end                 -- off: the map's own colours
+function O.Mode(db) return db.mode == "explored" and "explored" or "full" end
 -- Arn, 14 Oct: "also no trail its getting too busy" - off unless switched on
 function O.TrailOn(db) return db.trail == true end
 
@@ -366,7 +369,7 @@ R:Register({
     { kind = "seg", label = "map shows", values = { "seen", "all" },
       help = "seen: only the parts of the zone you have been to - everything else see-through, and it fills in as you explore. all: the whole zone, faint.",
       get = function(db) return O.Mode(db) == "full" and "all" or "seen" end,
-      set = function(db, v) db.mode = (v == "all") and "full" or nil redraw() end },
+      set = function(db, v) db.mode = (v == "seen") and "explored" or nil redraw() end },
     { kind = "step", label = "map size", help = "How tall the map is, as a share of your screen.", min = 30, max = 100, step = 10,
       get = function(db) return O.Size(db) end,
       set = function(db, v) db.size = v redraw() end,
@@ -377,7 +380,7 @@ R:Register({
       show = function(db) return O.Alpha(db) .. "%" end },
     { kind = "toggle", label = "grey map", help = "Off: the map in its own colours, like the world map. On: grey with a cold tint, so it reads as a map and not as the world.",
       get = function(db) return O.Grey(db) end,
-      set = function(db, on) db.grey = on and true or nil redraw() end },
+      set = function(db, on) db.grey = (not on) and false or nil redraw() end },
     { kind = "toggle", label = "trail", help = "A dotted trail of where you have walked on each map, like Diablo's. /bist map clear wipes this map's.",
       get = function(db) return O.TrailOn(db) end,
       set = function(db, on)
