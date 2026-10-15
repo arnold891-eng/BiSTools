@@ -1414,7 +1414,8 @@ function RC.FriendName(ctx)
     local ok, info = pcall(C_BattleNet.GetAccountInfoByID, id)
     local game = ok and type(info) == "table" and not hidden(info) and field(info, "gameAccountInfo")
     local char = type(game) == "table" and field(game, "characterName")
-    if type(char) == "string" and char ~= "" then return char end
+    local side = type(game) == "table" and field(game, "factionName")
+    if type(char) == "string" and char ~= "" then return char, type(side) == "string" and side or nil end
     return nil                         -- a Battle.net friend not in this game: nobody to pal
   end
   return RC.MenuName(ctx)
@@ -1452,16 +1453,26 @@ function RC.MenuLines(db, root, ctx, kind)
   -- pal's, always - and a Battle.net friend's "name" is the BattleTag nickname, so the character's
   -- name comes from the friend's account instead.
   local friendMenu = RC.FRIEND_MENUS[kind or ""] or field(ctx, "bnetIDAccount") ~= nil
-  local name
-  if friendMenu then name = RC.FriendName(ctx) else name = RC.MenuName(ctx) end
+  local name, faction
+  if friendMenu then name, faction = RC.FriendName(ctx) else name = RC.MenuName(ctx) end
   if not name then
     local raw = field(ctx, "name")
     return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
   end
   local r, key = RC.Find(db, name)
-  -- a friend is never ADDED (Arn, 14 Oct: "there should be a check if its friendly target not a
-  -- rival but a pal - enemy hostile player rival"); one already on the list can still be taken off
-  if not r and (friendMenu or (type(unit) == "string" and RC.Friendly(unit))) then
+  -- PAL OR RIVAL: a unit we can see says by itself; a Battle.net friend's account names their
+  -- faction; and when nothing says, BOTH lines - the player picks (Arn, 14 Oct: "generally they are
+  -- all the same faction but i guess if we cant see we add both?")
+  local side = "both"
+  if type(unit) == "string" then
+    side = RC.Friendly(unit) and "pal" or "rival"
+  elseif type(faction) == "string" then
+    local okM, mine = pcall(UnitFactionGroup, "player")
+    if okM and type(mine) == "string" and not hidden(mine) then side = (faction == mine) and "pal" or "rival" end
+  end
+  -- a friend is never ADDED as a rival (Arn, 14 Oct: "there should be a check if its friendly target
+  -- not a rival but a pal"); one already on the list can still be taken off
+  if not r and side ~= "rival" then
     -- a friend gets the PAL line instead (Arn, 14 Oct: "right click on and add a pal")
     local p, pkey
     if type(unit) == "string" then p, pkey = RC.PalFor(db, unit) else p, pkey = RC.PalNamed(db, name) end
@@ -1483,10 +1494,12 @@ function RC.MenuLines(db, root, ctx, kind)
         NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
       end
     end)
-    return
+    if side == "pal" then return end
+    say("both lines for " .. name .. " - nothing here says friend or foe, so you pick")
+  else
+    say("added for " .. name)
+    if root.CreateDivider then root:CreateDivider() end
   end
-  say("added for " .. name)
-  if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
     if r then
       RC.Rivals(db)[key] = nil

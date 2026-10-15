@@ -3111,9 +3111,11 @@ do
     -- THE FRIENDS LIST (Arn, 14 Oct: "it thinks is a rival when its the same faction as me"): a
     -- Battle.net friend's menu has no unit and names the BattleTag nickname; the character comes
     -- from the account, and the line is the pal's
-    local keepBN = _G.C_BattleNet
+    local keepBN, keepFac = _G.C_BattleNet, _G.UnitFactionGroup
+    _G.UnitFactionGroup = function() return "Horde", "Horde" end
     _G.C_BattleNet = { GetAccountInfoByID = function(id)
-      if id == 77 then return { accountName = "ShinyPants", gameAccountInfo = { characterName = "Darthsidiouz Sithlord" } } end
+      if id == 77 then return { accountName = "ShinyPants", gameAccountInfo = { characterName = "Darthsidiouz Sithlord", factionName = "Horde" } } end
+      if id == 79 then return { accountName = "Foe", gameAccountInfo = { characterName = "Alli Ance", factionName = "Alliance" } } end
       if id == 78 then return { accountName = "Elsewhere", gameAccountInfo = {} } end
     end }
     root.lines, root.click = {}, nil
@@ -3128,9 +3130,18 @@ do
     RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
     ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
     root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
+    root.lines = {}
+    -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
+    -- (Arn, 14 Oct: "if we cant see we add both?")
     RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
-    ok(root.lines[1] == "BiS: add pal", "a character friend's menu: add pal too")
-    _G.C_BattleNet = keepBN
+    ok(root.lines[1] == "BiS: add pal" and root.lines[2] == "BiS: add rival" and #root.lines == 2,
+      "can't tell: both lines", table.concat(root.lines, " / "))
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Chatty" }, "CHAT_ROSTER")
+    ok(#root.lines == 2, "a name in chat, no unit: both lines too")
+    _G.C_BattleNet, _G.UnitFactionGroup = keepBN, keepFac
     pals["Darthsidiouz Sithlord"] = nil
     -- and in the rivals & pals window's right column
     RC.BuildRivals(rdb2)
