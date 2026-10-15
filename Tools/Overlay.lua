@@ -1,0 +1,335 @@
+-- BiSTools / Tools / Overlay.lua
+-- THE OVERLAY MAP: a see-through map over the game, Diablo style (14 Oct 2026).
+--
+-- Arn, 13 Oct: Diablo's overlay map - press a key, a see-through map sits over the game and you keep
+-- playing through it. 14 Oct: "can we try to make the map that alpha out the useless stuff".
+--
+-- So: our OWN frame (never Blizzard's world map - reading or hooking it taints, Overlord 6 and 11 Oct),
+-- click-through, under every other window, faint. By default it draws only the zone's EXPLORED pieces
+-- (C_MapExplorationInfo - the same pieces the world map reveals): the parchment, the borders and every
+-- place you have not been stay fully see-through, and the map fills in as you explore. "full" draws the
+-- whole zone art instead, desaturated. On top: your arrow, and a dotted trail of where you walked.
+--
+-- Cost: the arrow is repainted 10 times a second ONLY while the map is up; the art is redrawn on a zone
+-- change or a setting. The trail is sampled every 2 s while the tool is on and the trail is on (one
+-- position question); nothing else ticks. Position or facing hidden (an instance) = no arrow, the
+-- art still shows, and the corner says so.
+local _, NS = ...
+local T, R = NS.T, NS.Registry
+
+local O = { TICK = 0.1, SAMPLE = 2, STEP = 0.006, TRAIL_MAX = 600, TILE = 256 }
+NS.Overlay = O
+O.TINT = { 0.75, 0.88, 1.0 }          -- a cold glow, so the art reads as "map", not as the world
+
+local function hidden(v)
+  if v == nil or not issecretvalue then return false end
+  local ok, yes = pcall(issecretvalue, v)
+  return (not ok) or yes == true
+end
+local function num(v) if hidden(v) or type(v) ~= "number" then return nil end return v end
+
+function O.Size(db) return tonumber(db.size) or 70 end          -- % of the screen's height
+function O.Alpha(db) return tonumber(db.alpha) or 45 end        -- %
+function O.Mode(db) return db.mode == "full" and "full" or "explored" end
+function O.TrailOn(db) return db.trail ~= false end
+
+------------------------------------------------------------------ where am I --
+
+function O.MapID()
+  if not (C_Map and C_Map.GetBestMapForUnit) then return nil end
+  local ok, id = pcall(C_Map.GetBestMapForUnit, "player")
+  return ok and num(id) or nil
+end
+
+--- Your spot on this map, 0-1 each way, or nil (hidden, an instance, no map).
+function O.Where(mapID)
+  if not (mapID and C_Map and C_Map.GetPlayerMapPosition) then return nil end
+  local ok, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
+  if not ok or pos == nil or hidden(pos) then return nil end
+  local ok2, x, y = pcall(function() return pos:GetXY() end)
+  if ok2 then
+    x = num(x)
+    y = num(y)
+  else
+    x, y = nil, nil
+  end
+  if not (x and y) or (x == 0 and y == 0) then return nil end
+  return x, y
+end
+
+function O.Facing()
+  if not GetPlayerFacing then return nil end
+  local ok, f = pcall(GetPlayerFacing)
+  return ok and num(f) or nil
+end
+
+------------------------------------------------------------------ the frame --
+
+function O.Build()
+  if O.frame then return O.frame end
+  local f = CreateFrame("Frame", "BiSToolsOverlayMap", UIParent)
+  O.frame = f
+  f:SetFrameStrata("BACKGROUND")        -- over the world, under every window
+  f:EnableMouse(false)                  -- click-through: you keep playing
+  f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+  if f.SetClipsChildren then f:SetClipsChildren(true) end
+  O.art, O.dots = {}, {}
+  O.arrow = f:CreateTexture(nil, "OVERLAY")
+  O.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
+  O.arrow:SetSize(28, 28)
+  O.note = f:CreateFontString(nil, "OVERLAY")
+  O.note:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+  O.note:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
+  f:Hide()
+  return f
+end
+
+local function tex(layer)
+  local t = table.remove(O.art.pool or {})
+  if not t then t = O.frame:CreateTexture(nil, layer or "ARTWORK") end
+  t:Show()
+  O.art[#O.art + 1] = t
+  return t
+end
+
+local function clearArt()
+  O.art.pool = O.art.pool or {}
+  for i = #O.art, 1, -1 do
+    O.art[i]:Hide()
+    O.art.pool[#O.art.pool + 1] = O.art[i]
+    O.art[i] = nil
+  end
+end
+
+--- One texture of map art at (x, y) in the art's own pixels, w x h of it shown, out of a file fw x fh.
+local function piece(file, x, y, w, h, fw, fh)
+  local s = O.scale
+  local t = tex("ARTWORK")
+  t:SetTexture(file)
+  t:SetTexCoord(0, w / fw, 0, h / fh)
+  t:SetSize(w * s, h * s)
+  t:ClearAllPoints()
+  t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
+  if t.SetDesaturated then t:SetDesaturated(true) end
+  t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1)
+  return t
+end
+
+-- the next power of two up from a piece's pixels (texture files are), at least 16
+local function fileSize(px)
+  local f = 16
+  while f < px do f = f * 2 end
+  return f
+end
+
+--- Redraw the art for this map: the explored pieces, or the whole zone.
+function O.Draw(db)
+  local f = O.Build()
+  clearArt()
+  local mapID = O.MapID()
+  O.mapID = mapID
+  local layers = mapID and C_Map.GetMapArtLayers and C_Map.GetMapArtLayers(mapID)
+  local L = type(layers) == "table" and layers[1] or nil
+  local lw = L and num(L.layerWidth)
+  local lh = L and num(L.layerHeight)
+  if not (lw and lh and lw > 0 and lh > 0) then
+    f:SetSize(400, 260)
+    O.scale = 1
+    O.note:SetText("no map for this place")
+    return false
+  end
+  local okH, sh = pcall(function() return UIParent:GetHeight() end)
+  local H = ((okH and num(sh)) or 768) * O.Size(db) / 100
+  O.scale = H / lh
+  f:SetSize(lw * O.scale, H)
+  f:SetAlpha(O.Alpha(db) / 100)
+  O.note:SetText("")
+  if O.Mode(db) == "full" then
+    local tw, th = num(L.tileWidth) or O.TILE, num(L.tileHeight) or O.TILE
+    local files = C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(mapID, 1) or {}
+    local cols = math.ceil(lw / tw)
+    for i, file in ipairs(files) do
+      local c, r = (i - 1) % cols, math.floor((i - 1) / cols)
+      piece(file, c * tw, r * th, tw, th, tw, th)
+    end
+  else
+    -- the explored pieces, cut the way the client cuts them: 256-pixel files, the last row and
+    -- column only as big as what is left, in a file of the next power of two
+    local info = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+      and C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}
+    local drawn = 0
+    for _, e in ipairs(info) do
+      local W, Hh = num(e.textureWidth), num(e.textureHeight)
+      local ox, oy = num(e.offsetX) or 0, num(e.offsetY) or 0
+      if W and Hh and type(e.fileDataIDs) == "table" then
+        local wide, tall = math.ceil(W / O.TILE), math.ceil(Hh / O.TILE)
+        for j = 1, tall do
+          local ph = (j < tall) and O.TILE or (Hh - O.TILE * (tall - 1))
+          for k = 1, wide do
+            local pw = (k < wide) and O.TILE or (W - O.TILE * (wide - 1))
+            local file = e.fileDataIDs[(j - 1) * wide + k]
+            if file then
+              piece(file, ox + O.TILE * (k - 1), oy + O.TILE * (j - 1), pw, ph,
+                (k < wide) and O.TILE or fileSize(pw), (j < tall) and O.TILE or fileSize(ph))
+              drawn = drawn + 1
+            end
+          end
+        end
+      end
+    end
+    if drawn == 0 then O.note:SetText("nothing explored here yet - walk around, or set the map to show all") end
+  end
+  O.DrawTrail(db)
+  return true
+end
+
+------------------------------------------------------------------ the trail --
+
+function O.Trail(db, mapID)
+  db.trails = type(db.trails) == "table" and db.trails or {}
+  local key = tostring(mapID)
+  db.trails[key] = type(db.trails[key]) == "table" and db.trails[key] or {}
+  return db.trails[key]
+end
+
+--- Remember where you are, if you moved far enough since the last dot.
+function O.Sample(db)
+  if not O.TrailOn(db) then return false end
+  local mapID = O.mapID or O.MapID()
+  local x, y = O.Where(mapID)
+  if not x then return false end
+  local t = O.Trail(db, mapID)
+  local last = t[#t]
+  if last and math.abs(last[1] - x) < O.STEP and math.abs(last[2] - y) < O.STEP then return false end
+  t[#t + 1] = { math.floor(x * 1000 + 0.5) / 1000, math.floor(y * 1000 + 0.5) / 1000 }
+  if #t > O.TRAIL_MAX then table.remove(t, 1) end
+  if O.frame and O.frame:IsShown() then O.DrawTrail(db) end
+  return true
+end
+
+function O.DrawTrail(db)
+  for _, d in ipairs(O.dots) do d:Hide() end
+  if not (O.TrailOn(db) and O.mapID) then return end
+  local W, H = O.frame:GetWidth(), O.frame:GetHeight()
+  for i, p in ipairs(O.Trail(db, O.mapID)) do
+    local d = O.dots[i]
+    if not d then
+      d = O.frame:CreateTexture(nil, "OVERLAY")
+      d:SetColorTexture(1, 1, 1, 0.75)
+      d:SetSize(3, 3)
+      O.dots[i] = d
+    end
+    d:ClearAllPoints()
+    d:SetPoint("CENTER", O.frame, "TOPLEFT", p[1] * W, -p[2] * H)
+    d:Show()
+  end
+end
+
+------------------------------------------------------------------ the arrow --
+
+function O.Tick()
+  local x, y = O.Where(O.mapID)
+  if not x then
+    O.arrow:Hide()
+    if O.note:GetText() == "" then O.note:SetText("your position is hidden here") end
+    return
+  end
+  O.arrow:ClearAllPoints()
+  O.arrow:SetPoint("CENTER", O.frame, "TOPLEFT", x * O.frame:GetWidth(), -y * O.frame:GetHeight())
+  local face = O.Facing()
+  if face then O.arrow:SetRotation(face) end
+  O.arrow:Show()
+end
+
+------------------------------------------------------------------ open / shut --
+
+function O.Show(db, on)
+  db = db or O.db
+  local f = O.Build()
+  if on == nil then on = not f:IsShown() end
+  if on then
+    O.Draw(db)
+    f:Show()
+    O.acc = 0
+    f:SetScript("OnUpdate", function(_, e)
+      O.acc = O.acc + e
+      if O.acc >= O.TICK then O.acc = 0 O.Tick() end
+    end)
+    O.Tick()
+  else
+    f:SetScript("OnUpdate", nil)
+    f:Hide()
+  end
+  return on
+end
+
+-- the key binding (Bindings.xml: Key Bindings > BiS Tools > "Overlay map")
+_G.BINDING_HEADER_BISTOOLS = "BiS Tools"
+_G.BINDING_NAME_BISTOOLS_OVERLAYMAP = "Overlay map (see-through, over the game)"
+function _G.BiSTools_ToggleOverlayMap()
+  if not (O.db and R:Enabled("map")) then return end
+  O.Show(O.db)
+end
+
+local ev = CreateFrame("Frame")
+ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+ev:RegisterEvent("ZONE_CHANGED")
+ev:RegisterEvent("ZONE_CHANGED_INDOORS")
+ev:SetScript("OnEvent", function()
+  if O.frame and O.frame:IsShown() and O.MapID() ~= O.mapID then O.Draw(O.db) end
+end)
+
+function O.StartSampling(db)
+  if O.ticker or not C_Timer or not C_Timer.NewTicker then return end
+  O.ticker = C_Timer.NewTicker(O.SAMPLE, function() O.Sample(db) end)
+end
+function O.StopSampling()
+  if O.ticker then O.ticker:Cancel() O.ticker = nil end
+end
+
+local function redraw() if O.frame and O.frame:IsShown() then O.Draw(O.db) end end
+
+R:Register({
+  name = "map",
+  desc = "a see-through map over the game (pick a key in Key Bindings > BiS Tools)",
+  usage = "/bist map [clear]",
+  defaults = {},
+  options = {
+    { kind = "button", label = "show / hide the map", help = "The overlay map: a faint map over the game that clicks pass through. Give it a key in the game's Key Bindings, under BiS Tools.",
+      button = "map", action = function(db) O.Show(db) end },
+    { kind = "seg", label = "map shows", values = { "seen", "all" },
+      help = "seen: only the parts of the zone you have been to - everything else see-through, and it fills in as you explore. all: the whole zone, faint.",
+      get = function(db) return O.Mode(db) == "full" and "all" or "seen" end,
+      set = function(db, v) db.mode = (v == "all") and "full" or nil redraw() end },
+    { kind = "step", label = "map size", help = "How tall the map is, as a share of your screen.", min = 30, max = 100, step = 10,
+      get = function(db) return O.Size(db) end,
+      set = function(db, v) db.size = v redraw() end,
+      show = function(db) return O.Size(db) .. "%" end },
+    { kind = "step", label = "map faintness", help = "How solid the map is: low is barely there, high is easy to read.", min = 10, max = 90, step = 5,
+      get = function(db) return O.Alpha(db) end,
+      set = function(db, v) db.alpha = v redraw() end,
+      show = function(db) return O.Alpha(db) .. "%" end },
+    { kind = "toggle", label = "trail", help = "A dotted trail of where you have walked on each map, like Diablo's. /bist map clear wipes this map's.",
+      get = function(db) return O.TrailOn(db) end,
+      set = function(db, on)
+        db.trail = on and true or false
+        if on then O.StartSampling(db) else O.StopSampling() end
+        redraw()
+      end },
+  },
+  OnInit = function(_, db) O.db = db end,
+  OnLogin = function(_, db) O.db = db if O.TrailOn(db) then O.StartSampling(db) end end,
+  OnEnable = function(_, db) O.db = db if O.TrailOn(db) then O.StartSampling(db) end end,
+  OnDisable = function() O.StopSampling() if O.frame then O.Show(O.db, false) end end,
+  OnOpen = function(_, db) O.Show(db) end,
+  OnSlash = function(_, db, args)
+    O.db = db
+    if args == "clear" then
+      local id = O.MapID()
+      if id then O.Trail(db, id) db.trails[tostring(id)] = {} end
+      redraw()
+      return NS.Print("this map's trail is wiped")
+    end
+    O.Show(db)
+  end,
+})

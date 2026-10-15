@@ -1,6 +1,7 @@
 ## Interface: 20506, 16001
 ## Title: |cffb980ffBiS|r Tools
 ## Category: |cffb980ffBiS>|rAddons
+## IconTexture: Interface\Icons\INV_Misc_Wrench_01
 ## Notes: Death recap, rivals and a farm tracker for WoW Forever. /bist for the tools.
 ## Author: Arn
 ## Version: 0.8.0
@@ -32,4 +33,5 @@ Tools\Social.lua
 Tools\Threat.lua
 Tools\ThreatWindow.lua
 Tools\Battleground.lua
+Tools\Overlay.lua
 Tools\Hub.lua

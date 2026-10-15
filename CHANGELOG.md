@@ -1,3 +1,8 @@
+## Unreleased
+
+- **An overlay map, Diablo style.** Press a key (Key Bindings > BiS Tools > Overlay map, or `/bist map`) and a faint map sits over the game; clicks go straight through it and you keep playing. By default it shows only the parts of the zone you've explored - the parchment, the borders and everywhere you haven't been stay see-through, so the map fills in as you explore. Your arrow on top, and a dotted trail of where you've walked. Settings: seen or all, size, how faint, trail on or off; `/bist map clear` wipes this map's trail.
+- BiS Tools has an icon in the addon list (a wrench).
+
 ## 0.8.0
 
 - **The death recap, remade** (the BiS shape, 1.43:1): the three cards, then **who hit you** - a bar per attacker with their damage and share - and **what kind** (physical or magic, and which school), your health across the hits, all ten hits in two columns, and the total. The rivals list is no longer tucked under it.

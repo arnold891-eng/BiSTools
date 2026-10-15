@@ -112,7 +112,15 @@ _G.C_Map = {
   GetBestMapForUnit = function() return W.map end,
   GetPlayerMapPosition = function() return { GetXY = function() return W.px, W.py end } end,
   GetMapWorldSize = function() return 5000, 3300 end,
+  -- the overlay map's art (shapes as the client documents them): one layer of 256-px tiles,
+  -- 1002 x 668 shown, 4 x 3 files
+  GetMapArtLayers = function() return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256,
+    minScale = 1, maxScale = 1, additionalZoomSteps = 0 } } end,
+  GetMapArtLayerTextures = function() local t = {} for i = 1, 12 do t[i] = 100000 + i end return t end,
 }
+-- the explored pieces of the zone: W.explored, a list as GetExploredMapTextures answers it
+W.explored = {}
+_G.C_MapExplorationInfo = { GetExploredMapTextures = function() return W.explored end }
 _G.GameTooltip = { SetOwner = function() end, AddLine = function() end, AddDoubleLine = function() end, Show = function() end, Hide = function() end,
   IsShown = function() return W.tooltipShown end, GetOwner = function() return nil end }
 _G.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
@@ -206,6 +214,11 @@ local function Texture()
   function t:SetTexCoord() end
   function t:ClearAllPoints() end
   function t:SetRotation(r) if type(r) ~= "number" then error("SetRotation wants a number") end self.rot = r end
+  function t:SetVertexColor(r, g, b, a)
+    if not num3(r, g, b) then error("SetVertexColor wants r,g,b numbers") end
+    self.vertex = { r, g, b, a }
+  end
+  function t:SetDesaturated(on) self.desat = on end
   function t:SetColorTexture(r, g, b, a)
     if not num3(r, g, b) then error("SetColorTexture wants r,g,b numbers") end
     self.color = { r, g, b, a }
@@ -1775,19 +1788,19 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 7, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 8, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
-     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg")
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map")
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "6 of 7 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 8 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 7 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 8 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1805,7 +1818,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "5 of 7 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 8 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1828,9 +1841,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (3) -> 8 headers + 30 rows
-  -- (the rival settings moved out of recap into their own tool, 14 Oct)
-  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (5)
+  -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 5, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1899,7 +1912,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "5 of 7 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 8 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -4914,6 +4927,86 @@ do
   _G.issecretvalue = keep.is
 end
 
+-- ---------------------------------------------------------------- the overlay map
+-- (14 Oct 2026) Arn: Diablo's see-through map over the game, "alpha out the useless stuff". Our own
+-- click-through frame; explored pieces only by default; an arrow, and a dotted trail.
+do
+  local O = NS.Overlay
+  local odb = R:DBFor(R:Get("map"))
+  ok(type(_G.BiSTools_ToggleOverlayMap) == "function" and _G.BINDING_NAME_BISTOOLS_OVERLAYMAP ~= nil,
+    "the overlay map has a key binding (Key Bindings > BiS Tools)")
+  W.explored = {}
+  W.map, W.px, W.py, W.facing = 1952, 0.40, 0.60, 1.5
+  O.Show(odb, false)              -- the options section above pressed "show / hide the map"
+  _G.BiSTools_ToggleOverlayMap()
+  local f = BiSToolsOverlayMap
+  ok(f and f:IsShown(), "the key shows it")
+  ok(O.Mode(odb) == "explored", "it starts on the explored pieces only")
+  ok(O.note.text and O.note.text:find("nothing explored here yet", 1, true), "an unexplored zone says so - nothing drawn", O.note.text)
+  -- 70% of a 768-tall screen, the art's 1002 x 668 kept in shape
+  ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - 1002 / 668) < 0.001, "sized to the screen, the art's own shape", f.w .. "x" .. f.h)
+  -- one explored piece of 300 x 200 pixels at (100, 50): two 256 columns (256 + 44) and one row of 200
+  W.explored = { { textureWidth = 300, textureHeight = 200, offsetX = 100, offsetY = 50,
+                   isShownByMouseOver = false, fileDataIDs = { 7001, 7002 } } }
+  O.Draw(odb)
+  local shown = 0
+  for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
+  ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
+  local sc = O.scale
+  ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
+  ok(O.art[1].desat and O.art[1].vertex, "desaturated and tinted, so it reads as a map")
+  -- the arrow: your spot and your facing
+  f.scripts.OnUpdate(f, 0.2)
+  ok(O.arrow.shown and O.arrow.rot == 1.5, "your arrow, turned the way you face")
+  ok(O.arrow.anchor[4] == 0.40 * f.w and O.arrow.anchor[5] == -0.60 * f.h, "at your spot on the map")
+  -- hidden position (an instance): no arrow, the art stays, and it says so
+  local keepPos = C_Map.GetPlayerMapPosition
+  C_Map.GetPlayerMapPosition = function() return nil end
+  f.scripts.OnUpdate(f, 0.2)
+  ok(not O.arrow.shown and O.note.text == "your position is hidden here", "position hidden: no arrow, and it says so")
+  C_Map.GetPlayerMapPosition = keepPos
+  -- a secret facing never reaches SetRotation
+  -- a SECRET facing says "number" to type() and refuses arithmetic and comparison, as Forever's does
+  local secretMeta = { __index = function() error("attempt to use a secret value", 2) end,
+    __eq = function() error("attempt to compare a secret value", 2) end,
+    __lt = function() error("attempt to compare a secret value", 2) end }
+  local keep = { face = _G.GetPlayerFacing, is = _G.issecretvalue, type = _G.type }
+  local realType = type
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "number" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  _G.GetPlayerFacing = function() return setmetatable({}, secretMeta) end
+  local okS, errS = pcall(O.Tick)
+  ok(okS and O.arrow.rot == 1.5, "a secret facing is never handed to SetRotation - the arrow keeps its last turn", errS)
+  _G.GetPlayerFacing, _G.issecretvalue, _G.type = keep.face, keep.is, keep.type
+  -- full: the whole zone's 12 tiles
+  odb.mode = "full"
+  O.Draw(odb)
+  shown = 0
+  for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
+  ok(shown == 12, "full: all twelve tiles of the zone", shown)
+  odb.mode = nil
+  -- the trail: a dot when you moved far enough, none for a shuffle
+  odb.trails = nil
+  ok(O.Sample(odb), "a first dot")
+  W.px = 0.401
+  ok(not O.Sample(odb), "a shuffle is not a new dot")
+  W.px = 0.42
+  ok(O.Sample(odb), "a few steps on: a new dot")
+  ok(#O.Trail(odb, 1952) == 2 and O.dots[2] and O.dots[2].shown, "two dots, drawn on the open map")
+  SlashCmdList.BISTOOLS("map clear")
+  ok(#O.Trail(odb, 1952) == 0, "/bist map clear wipes this map's trail")
+  -- click-through, and gone with the key again
+  _G.BiSTools_ToggleOverlayMap()
+  ok(not f:IsShown() and f.scripts.OnUpdate == nil, "the key again hides it, and nothing ticks")
+  -- cost: a second of the open map asks a handful of things (10 arrow repaints)
+  _G.BiSTools_ToggleOverlayMap()
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() for _ = 1, 60 do f.scripts.OnUpdate(f, 1 / 60) end end)
+  ok(n <= 40, "a second of the open overlay map asks at most 40 things: " .. n, Cost.Top and Cost.Top(by, 5))
+  _G.BiSTools_ToggleOverlayMap()
+  W.explored = {}
+end
+
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
   -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
@@ -4921,7 +5014,9 @@ local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SL
   LibStub = true, HBD_PINS_WORLDMAP_SHOW_PARENT = true, HBD_PINS_WORLDMAP_SHOW_CONTINENT = true,
   HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
-  BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  BiSTheme = true,    -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  -- the overlay map's key binding: Bindings.xml calls a global, and the client reads these two names
+  BiSTools_ToggleOverlayMap = true, BINDING_HEADER_BISTOOLS = true, BINDING_NAME_BISTOOLS_OVERLAYMAP = true }
 for k in pairs(_G) do
   if not before[k] and not allowed[k] and not frames[k] then error("leaked global: " .. k) end
 end
