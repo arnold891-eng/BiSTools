@@ -257,6 +257,7 @@ local function FontString()
   function s:GetText() return self.text end
   function s:SetAlpha(a) self.alpha = a end
   function s:GetParent() return self.parent end
+  function s:SetWidth(w) if type(w) ~= "number" then error("SetWidth wants a number", 2) end self.w = w end
   function s:SetJustifyH(j)
     if j ~= "LEFT" and j ~= "CENTER" and j ~= "RIGHT" then error("SetJustifyH wants LEFT, CENTER or RIGHT", 2) end
     self.justify = j
@@ -1860,7 +1861,7 @@ do
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7),
   -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
   -- the party list, 15 Oct)
-  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 2, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 3, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -5307,6 +5308,42 @@ do
   ok(P.dbtn:IsShown() and P.ibtn:IsShown(), "grouped with listed players: Disband, and Invite for the one missing")
   P.Invite(pdb)
   ok(#sent.invite == 1 and sent.invite[1] == "Zed", "Invite asks only the ones not with you", #sent.invite)
+  -- THE LITTLE SHOW (Arn, 15 Oct): the invite has already gone; a box fills, its log scrolls with
+  -- the machine talking to each player - on the window, never in chat - then it closes itself
+  do
+    local box = BiSToolsPartyLoading
+    ok(box and box:IsShown() and P.run, "Invite: the inviting box comes up")
+    local chat = 0
+    local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function() chat = chat + 1 end
+    local function shown() local t = {} for _, l in ipairs(box.log) do if l.text and l.text ~= "" then t[#t + 1] = l.text end end return t end
+    for _ = 1, 30 do box.scripts.OnUpdate(box, 0.05) end        -- 1.5 s in
+    local mid = shown()
+    local saysZed = false
+    for _, l in ipairs(mid) do if l:find("Zed", 1, true) then saysZed = true end end
+    ok(#mid >= 2 and saysZed, "the log scrolls with lines about the player being invited", table.concat(mid, " / "))
+    local lit = 0
+    for _, b in ipairs(box.blocks) do if b.shown then lit = lit + 1 end end
+    ok(lit > 0, "the bar fills with blocks", lit)
+    for _ = 1, 60 do box.scripts.OnUpdate(box, 0.05) end        -- past the end and the linger
+    ok(not box:IsShown() and P.run == nil, "it closes itself")
+    ok(chat == 0, "and nothing of it went to chat (Arn: 'on the window')", chat)
+    DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+    P.Show({ "A", "B" })
+    box.cancel.scripts.OnClick(box.cancel)
+    ok(not box:IsShown() and P.run == nil, "Cancel closes it (the invites went anyway)")
+    -- lean: a whole run asks the client nothing (our own textures and text)
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    P.Show({ "A", "B", "C" })
+    local n, by = Cost.Count(function() for _ = 1, 120 do box.scripts.OnUpdate(box, 0.05) end end)
+    ok(n <= 10 and not box:IsShown(), "a whole inviting show asks at most 10 things: " .. n, Cost.Top and Cost.Top(by, 5))
+    pdb.show = false
+    P.Show = (function(show) return function(...) P.showCalled = true return show(...) end end)(P.Show)
+    P.showCalled = nil
+    P.Invite(pdb)
+    ok(not P.showCalled, "the show switched off: invites go with no box")
+    pdb.show = nil
+  end
   -- leading: Disband removes everyone; not leading: you leave
   P.Disband()
   ok(#sent.uninvite == 2 and sent.left == 0, "the leader's Disband: everyone out", #sent.uninvite)

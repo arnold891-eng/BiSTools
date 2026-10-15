@@ -151,9 +151,197 @@ function P.Invite(db)
     if convert then pcall(convert) end
   end
   for _, n in ipairs(missing) do P.queue[#P.queue + 1] = n end
-  NS.Print("party list: inviting %d (%s)", #missing, table.concat(missing, ", "))
+  if db.show ~= false then P.Show(missing) else
+    NS.Print("party list: inviting %d (%s)", #missing, table.concat(missing, ", "))
+  end
   if not P.timer then P.Pump() end
   return #missing
+end
+
+------------------------------------------------------------- the little show --
+-- WATCH THE MACHINE WORK (Arn, 15 Oct: "a little progress bar of it inviting people ... the invites
+-- are instant, its just a little flavor of seeing the machine do something" - and then: "not saying
+-- stuff in actual chat, saying things on the window"). The SHAPE is the old Counter-Strike loading
+-- box (his reference): a title, lines of text scrolling up as the machine talks to each player, a
+-- sunken bar filling with chunky blocks, Cancel. The LOOK is ours (Arn: "i like our bis theme -
+-- these pictures are just ideas we can do in the bis themes"): BiSTheme's surface, accent edge and
+-- purple blocks, at the family's 1.43:1. Pure flavour: the invites have already gone. Nothing goes
+-- to chat. OnUpdate only while it shows; Cancel or the end hides it. `db.show = false` skips it.
+P.BLOCKS, P.LOG_ROWS = 14, 3
+P.W, P.H = 300, 210                          -- 1.43:1
+P.SHOW_MIN, P.SHOW_PER, P.SHOW_MAX, P.LINGER = 1.4, 0.45, 4.0, 1.2
+-- the note under the rule, one per run (Arn's second reference: "This server is VAC-secured.
+-- Cheating will result in a permanent ban.")
+P.NOTES = {
+  "Note: this group is BiS-secured. Standing in fire will result in a permanent wipe.",
+  "Note: loot is need before greed. Needing on everything will be remembered.",
+  "Note: the tank sets the pace. Pulling for the tank will result in a repair bill.",
+  "Note: this group is healer-secured. Not drinking will result in a long wait.",
+}
+-- each player gets an opening line and a closing one, so the text keeps moving
+P.OPEN = {
+  "Establishing network connection to %s...",
+  "Resolving %s's realm...",
+  "Pinging %s... %d ms",
+  "Sending invite packet to %s...",
+  "Negotiating loot rules with %s...",
+  "Asking %s nicely...",
+}
+P.CLOSE = {
+  "Handshake with %s: OK",
+  "%s: invite delivered",
+  "%s: packet received, 0 lost",
+  "%s: connection stable",
+}
+
+function P.Line(list, i, name)
+  local fmt = list[(i - 1) % #list + 1]
+  if fmt:find("%%d") then return fmt:format(name, math.random(3, 60)) end
+  return fmt:format(name)
+end
+
+--- The whole script of one run: the lines in order, the first one before any player.
+function P.Script(names)
+  local out = { "Contacting the party list..." }
+  for i, n in ipairs(names) do
+    out[#out + 1] = P.Line(P.OPEN, i + math.random(0, #P.OPEN - 1), n)
+    out[#out + 1] = P.Line(P.CLOSE, i + math.random(0, #P.CLOSE - 1), n)
+  end
+  return out
+end
+
+function P.BuildShow()
+  if P.box then return P.box end
+  local K, T = NS.Farm, NS.T
+  local f = CreateFrame("Frame", "BiSToolsPartyLoading", UIParent)
+  P.box = f
+  f:SetSize(P.W, P.H)
+  f:SetPoint("CENTER", UIParent, "CENTER", 0, 140)
+  f:SetFrameStrata("DIALOG")
+  K.tex(f, "BACKGROUND", "surface", 0.97)
+  f.edge = K.border(f, "accent", 0.8)
+  f.title = K.fs(f, T.text("accent", "BiS>") .. " invite", 13, "ink")
+  f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -8)
+  local inner = P.W - 24
+  local function bar(y, w)
+    local b = CreateFrame("Frame", nil, f)
+    b:SetSize(w, 16)
+    b:SetPoint("TOPLEFT", f, "TOPLEFT", 12, y)
+    K.tex(b, "BACKGROUND", "sunken", 1)
+    b.blocks = {}
+    local step = (w - 6) / P.BLOCKS
+    for i = 1, P.BLOCKS do
+      local t = b:CreateTexture(nil, "ARTWORK")
+      t:SetColorTexture(T.rgb("accent"))
+      t:SetSize(step - 3, 10)
+      t:SetPoint("LEFT", b, "LEFT", 3 + (i - 1) * step, 0)
+      t:Hide()
+      b.blocks[i] = t
+    end
+    return b
+  end
+  -- the whole run: what it is doing, and how far
+  f.status = K.fs(f, "", 11, "ink2")
+  f.status:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
+  f.all = bar(-46, inner)
+  f.blocks = f.all.blocks
+  -- the player now: the machine talking to them (the newest line at the bottom), time left, a bar
+  f.log = {}
+  for i = 1, P.LOG_ROWS do
+    local l = K.fs(f, "", 11, i == P.LOG_ROWS and "ink2" or "muted")
+    l:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70 - (i - 1) * 14)
+    l:SetWidth(inner)
+    l:SetJustifyH("LEFT")
+    f.log[i] = l
+  end
+  f.left = K.fs(f, "", 11, "muted")
+  f.left:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70 - P.LOG_ROWS * 14)
+  f.one = bar(-88 - P.LOG_ROWS * 14, inner - 66)
+  local cancel = CreateFrame("Button", nil, f)
+  cancel:SetSize(56, 16)
+  cancel:SetPoint("LEFT", f.one, "RIGHT", 10, 0)
+  K.tex(cancel, "BACKGROUND", "sunken", 1)
+  K.border(cancel, "line2", 1)
+  cancel.label = K.fs(cancel, "Cancel", 11, "ink2")
+  cancel.label:SetPoint("CENTER", cancel, "CENTER", 0, 0)
+  cancel:SetScript("OnClick", function() P.EndShow() end)
+  f.cancel = cancel
+  -- a rule, and the note under it (the reference's "this server is VAC-secured")
+  local rule = f:CreateTexture(nil, "ARTWORK")
+  rule:SetColorTexture(T.rgb("line2"))
+  rule:SetSize(inner, 1)
+  rule:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -114 - P.LOG_ROWS * 14)
+  f.note = K.fs(f, "", 11, "ink2")
+  f.note:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -122 - P.LOG_ROWS * 14)
+  f.note:SetWidth(inner)
+  f.note:SetJustifyH("LEFT")
+  f:SetScript("OnUpdate", function(_, dt) P.Step(dt) end)
+  f:Hide()
+  return f
+end
+
+--- One more line at the bottom of the log; the rest move up one.
+function P.Say(line)
+  local f = P.box
+  local shown = P.shown or {}
+  shown[#shown + 1] = line
+  while #shown > P.LOG_ROWS do table.remove(shown, 1) end
+  P.shown = shown
+  for i = 1, P.LOG_ROWS do f.log[i]:SetText(shown[i - (P.LOG_ROWS - #shown)] or "") end
+end
+
+--- Start it: the script spread over the run, the bar filling with the clock.
+function P.Show(names)
+  local f = P.BuildShow()
+  local script = P.Script(names)
+  P.run = { names = names, script = script, t = 0, said = 0,
+            len = math.min(P.SHOW_MAX, P.SHOW_MIN + P.SHOW_PER * #names) }
+  P.shown = {}
+  for _, b in ipairs(f.all.blocks) do b:Hide() end
+  for _, b in ipairs(f.one.blocks) do b:Hide() end
+  for _, l in ipairs(f.log) do l:SetText("") end
+  f.status:SetText(("Inviting your party list: %d player%s..."):format(#names, #names == 1 and "" or "s"))
+  f.note:SetText(P.NOTES[math.random(1, #P.NOTES)])
+  f:Show()
+  P.Step(0)
+end
+
+function P.Step(dt)
+  local run, f = P.run, P.box
+  if not (run and f) then return end
+  run.t = run.t + (dt or 0)
+  if run.done then
+    if run.t >= run.len + P.LINGER then P.EndShow() end
+    return
+  end
+  local frac = math.min(1, run.t / run.len)
+  local function fill(bar, x)
+    local lit = math.floor(x * P.BLOCKS + 0.5)
+    for i, b in ipairs(bar.blocks) do if i <= lit then b:Show() else b:Hide() end end
+  end
+  fill(f.all, frac)
+  -- the player now: their share of the run, and the seconds left of the whole
+  local n = math.max(1, #run.names)
+  local seg = run.len / n
+  fill(f.one, frac >= 1 and 1 or ((run.t % seg) / seg))
+  local left = math.ceil(run.len - run.t)
+  f.left:SetText(left > 0 and ("%d second%s remaining"):format(left, left == 1 and "" or "s") or "")
+  local due = math.min(#run.script, 1 + math.floor(frac * (#run.script - 1) + 0.0001))
+  while run.said < due do
+    run.said = run.said + 1
+    P.Say(run.script[run.said])
+  end
+  if frac >= 1 then
+    run.done = true
+    local n = #run.names
+    P.Say(("Done. %d invite%s sent."):format(n, n == 1 and "" or "s"))
+    f.status:SetText("Inviting your party list: done.")
+  end
+end
+
+function P.EndShow()
+  P.run = nil
+  if P.box then P.box:Hide() end
 end
 
 --- Leading: everyone out. Otherwise: you leave.
@@ -291,6 +479,8 @@ R:Register({
         NS.Print(n > 0 and ("party list: %d saved"):format(n) or "party list: you're not in a group - nobody to save")
         refresh()
       end },
+    { kind = "toggle", label = "the inviting show", help = "When you press Invite, a little loading box fills up and talks you through it in chat. Just for fun: the invites go out at once either way.",
+      get = function(db) return db.show ~= false end, set = function(db, on) db.show = on and true or false end },
     { kind = "button", label = "clear the list", help = "Empty the party list.",
       button = "clear", action = function(db) db.names = {} NS.Print("party list: cleared") refresh() end },
   },
