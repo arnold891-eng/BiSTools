@@ -20,6 +20,8 @@ local T, R = NS.T, NS.Registry
 local O = { TICK = 0.1, SAMPLE = 2, STEP = 0.012, TRAIL_MAX = 600, TILE = 256 }
 NS.Overlay = O
 O.TINT = { 0.75, 0.88, 1.0 }          -- a cold glow, so the art reads as "map", not as the world
+O.ARROW = { 1.0, 0.85, 0.2 }          -- your arrow: gold, so it stands out on grey art
+O.ARROW_LEN = 14
 
 local function hidden(v)
   if v == nil or not issecretvalue then return false end
@@ -32,6 +34,9 @@ function O.Size(db) return tonumber(db.size) or 70 end          -- % of the scre
 function O.Alpha(db) return tonumber(db.alpha) or 45 end        -- %
 function O.Mode(db) return db.mode == "full" and "full" or "explored" end
 function O.TrailOn(db) return db.trail ~= false end
+--- paper: the map art laid over the game, faint. ink: MULTIPLIED onto the game - light parchment
+--- barely changes the world, dark lines show (Arn: "alpha out the useless stuff").
+function O.Look(db) return db.look == "ink" and "ink" or "paper" end
 
 ------------------------------------------------------------------ where am I --
 
@@ -74,9 +79,17 @@ function O.Build()
   f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   if f.SetClipsChildren then f:SetClipsChildren(true) end
   O.art, O.dots = {}, {}
-  O.arrow = f:CreateTexture(nil, "OVERLAY")
-  O.arrow:SetTexture("Interface\\Minimap\\MinimapArrow")
-  O.arrow:SetSize(28, 28)
+  -- the arrow is OURS, three lines (Arn's screenshots, 14 Oct: the trail drew and no arrow did -
+  -- the old minimap arrow file is not on Forever). A Line needs WHITE8X8 + SetVertexColor.
+  O.arrow = { shown = false }
+  for i = 1, 3 do
+    local l = f:CreateLine(nil, "OVERLAY")
+    l:SetTexture("Interface\\Buttons\\WHITE8X8")
+    l:SetVertexColor(O.ARROW[1], O.ARROW[2], O.ARROW[3], 1)
+    l:SetThickness(3)
+    l:Hide()
+    O.arrow[i] = l
+  end
   O.note = f:CreateFontString(nil, "OVERLAY")
   O.note:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
   O.note:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
@@ -111,6 +124,7 @@ local function piece(file, x, y, w, h, fw, fh)
   t:ClearAllPoints()
   t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
   if t.SetDesaturated then t:SetDesaturated(true) end
+  if t.SetBlendMode then t:SetBlendMode(O.Look(O.db or {}) == "ink" and "MOD" or "BLEND") end
   t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1)
   return t
 end
@@ -230,18 +244,39 @@ end
 
 ------------------------------------------------------------------ the arrow --
 
+local function arrowShown(on)
+  O.arrow.shown = on
+  for i = 1, 3 do if on then O.arrow[i]:Show() else O.arrow[i]:Hide() end end
+end
+
+--- Your arrow: a tip ahead of you and two back corners, turned the way you face. Facing is radians
+--- counter-clockwise from north; the map's up is north. A hidden facing keeps the last one.
 function O.Tick()
   local x, y = O.Where(O.mapID)
   if not x then
-    O.arrow:Hide()
+    arrowShown(false)
     if O.note:GetText() == "" then O.note:SetText("your position is hidden here") end
     return
   end
-  O.arrow:ClearAllPoints()
-  O.arrow:SetPoint("CENTER", O.frame, "TOPLEFT", x * O.frame:GetWidth(), -y * O.frame:GetHeight())
   local face = O.Facing()
-  if face then O.arrow:SetRotation(face) end
-  O.arrow:Show()
+  if face then O.lastFace = face end
+  face = O.lastFace or 0
+  local cx, cy = x * O.frame:GetWidth(), -y * O.frame:GetHeight()
+  local dx, dy = -math.sin(face), math.cos(face)            -- ahead, in screen x / up
+  local px, py = dy, -dx                                    -- to your right
+  local L = O.ARROW_LEN
+  local tipX, tipY = cx + dx * L, cy + dy * L
+  local lx, ly = cx - dx * L * 0.6 - px * L * 0.6, cy - dy * L * 0.6 - py * L * 0.6
+  local rx, ry = cx - dx * L * 0.6 + px * L * 0.6, cy - dy * L * 0.6 + py * L * 0.6
+  local a = O.arrow
+  a.x, a.y, a.face = cx, cy, face
+  a[1]:SetStartPoint("TOPLEFT", O.frame, tipX, tipY)
+  a[1]:SetEndPoint("TOPLEFT", O.frame, lx, ly)
+  a[2]:SetStartPoint("TOPLEFT", O.frame, tipX, tipY)
+  a[2]:SetEndPoint("TOPLEFT", O.frame, rx, ry)
+  a[3]:SetStartPoint("TOPLEFT", O.frame, lx, ly)
+  a[3]:SetEndPoint("TOPLEFT", O.frame, rx, ry)
+  arrowShown(true)
 end
 
 ------------------------------------------------------------------ open / shut --
@@ -304,6 +339,10 @@ R:Register({
       help = "seen: only the parts of the zone you have been to - everything else see-through, and it fills in as you explore. all: the whole zone, faint.",
       get = function(db) return O.Mode(db) == "full" and "all" or "seen" end,
       set = function(db, v) db.mode = (v == "all") and "full" or nil redraw() end },
+    { kind = "seg", label = "map look", values = { "paper", "ink" },
+      help = "paper: the map laid over the game, faint. ink: only its dark lines darken the game - the light parchment all but vanishes.",
+      get = function(db) return O.Look(db) end,
+      set = function(db, v) db.look = (v == "ink") and "ink" or nil redraw() end },
     { kind = "step", label = "map size", help = "How tall the map is, as a share of your screen.", min = 30, max = 100, step = 10,
       get = function(db) return O.Size(db) end,
       set = function(db, v) db.size = v redraw() end,

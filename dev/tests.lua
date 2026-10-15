@@ -219,6 +219,7 @@ local function Texture()
     self.vertex = { r, g, b, a }
   end
   function t:SetDesaturated(on) self.desat = on end
+  function t:SetBlendMode(m) if type(m) ~= "string" then error("SetBlendMode wants a mode name") end self.blend = m end
   function t:SetColorTexture(r, g, b, a)
     if not num3(r, g, b) then error("SetColorTexture wants r,g,b numbers") end
     self.color = { r, g, b, a }
@@ -1841,9 +1842,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (5)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (6)
   -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 5, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 6, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -4961,8 +4962,10 @@ do
   ok(O.art[1].desat and O.art[1].vertex, "desaturated and tinted, so it reads as a map")
   -- the arrow: your spot and your facing
   f.scripts.OnUpdate(f, 0.2)
-  ok(O.arrow.shown and O.arrow.rot == 1.5, "your arrow, turned the way you face")
-  ok(O.arrow.anchor[4] == 0.40 * f.w and O.arrow.anchor[5] == -0.60 * f.h, "at your spot on the map")
+  ok(O.arrow.shown and O.arrow.face == 1.5 and O.arrow[1].shown and O.arrow[1].from, "your arrow - our own three lines, turned the way you face")
+  ok(O.arrow.x == 0.40 * f.w and O.arrow.y == -0.60 * f.h, "at your spot on the map")
+  -- facing 1.5 rad counter-clockwise from north = pointing west-ish: the tip lies left of you
+  ok(O.arrow[1].from[1] < O.arrow.x, "the tip points the way you face (west of you at 1.5 rad)")
   -- hidden position (an instance): no arrow, the art stays, and it says so
   local keepPos = C_Map.GetPlayerMapPosition
   C_Map.GetPlayerMapPosition = function() return nil end
@@ -4980,7 +4983,7 @@ do
   _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
   _G.GetPlayerFacing = function() return setmetatable({}, secretMeta) end
   local okS, errS = pcall(O.Tick)
-  ok(okS and O.arrow.rot == 1.5, "a secret facing is never handed to SetRotation - the arrow keeps its last turn", errS)
+  ok(okS and O.arrow.face == 1.5, "a secret facing is never used - the arrow keeps its last turn", errS)
   _G.GetPlayerFacing, _G.issecretvalue, _G.type = keep.face, keep.is, keep.type
   -- full: the whole zone's 12 tiles
   odb.mode = "full"
@@ -4988,6 +4991,11 @@ do
   shown = 0
   for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
   ok(shown == 12, "full: all twelve tiles of the zone", shown)
+  ok(O.art[1].blend == "BLEND", "paper: laid over the game")
+  odb.look = "ink"
+  O.Draw(odb)
+  ok(O.art[1].blend == "MOD", "ink: multiplied onto the game, so light parchment all but vanishes")
+  odb.look = nil
   odb.mode = nil
   -- the trail: a dot when you moved far enough, none for a shuffle
   odb.trails = nil
