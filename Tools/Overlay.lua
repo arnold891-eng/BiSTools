@@ -597,8 +597,15 @@ R:Register({
   usage = "/bist map [reset | clear]",
   defaults = {},
   options = {
-    { kind = "button", label = "show / hide the map", help = "The overlay map: a faint map over the game that clicks pass through. Give it a key in the game's Key Bindings, under BiS Tools.",
-      button = "map", action = function(db) O.Show(db) end },
+    -- (Arn, 14 Oct: "i uncheck the map but can still show and hide it by clicking map button" -
+    -- the tick on this section switches the tool; with it off, this button only says so)
+    { kind = "button", label = "open / close the map", help = "Opens or closes the overlay map now (the tick on 'map' above switches the whole map tool on or off). Give it a key in the game's Key Bindings, under BiS Tools.",
+      button = "open", action = function(db)
+        if not R:Enabled("map") then
+          return NS.Print("the map is off - tick 'map' in the options to use it")
+        end
+        O.Show(db)
+      end },
     { kind = "seg", label = "map shows", values = { "seen", "all" },
       help = "seen: only the parts of the zone you have been to - everything else see-through, and it fills in as you explore. all: the whole zone, faint.",
       get = function(db) return O.Mode(db) == "full" and "all" or "seen" end,

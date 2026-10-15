@@ -4938,7 +4938,18 @@ do
     "the overlay map has a key binding (Key Bindings > BiS Tools)")
   W.explored = {}
   W.map, W.px, W.py, W.facing = 1952, 0.40, 0.60, 1.5
-  O.Show(odb, false)              -- the options section above pressed "show / hide the map"
+  O.Show(odb, false)              -- the options section above pressed "open / close the map"
+  -- the section's tick switches the tool: off, the open button only says so (Arn, 14 Oct: "i uncheck
+  -- the map but can still show and hide it by clicking map button")
+  local openBtn
+  for _, o in ipairs(R:Get("map").options) do if o.kind == "button" then openBtn = o end end
+  R:SetEnabled("map", false)
+  openBtn.action(odb)
+  ok(not (BiSToolsOverlayMap and BiSToolsOverlayMap:IsShown()), "map tool off: the open button opens nothing")
+  _G.BiSTools_ToggleOverlayMap()
+  ok(not (BiSToolsOverlayMap and BiSToolsOverlayMap:IsShown()), "and neither does the key")
+  R:SetEnabled("map", true)
+  ok(openBtn.button == "open" and openBtn.label == "open / close the map", "the button says what it does")
   _G.BiSTools_ToggleOverlayMap()
   local f = BiSToolsOverlayMap
   ok(f and f:IsShown(), "the key shows it")
