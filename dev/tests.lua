@@ -4942,7 +4942,11 @@ do
   local f = BiSToolsOverlayMap
   ok(f and f:IsShown(), "the key shows it")
   ok(O.Mode(odb) == "explored", "it starts on the explored pieces only")
-  ok(O.note.text and O.note.text:find("nothing explored here yet", 1, true), "an unexplored zone says so - nothing drawn", O.note.text)
+  -- a place with no explored pieces at all (a city: the game shows it whole) draws the whole map
+  -- (Arn's Orgrimmar, 14 Oct: an empty map and "nothing explored here yet")
+  local whole = 0
+  for _, t in ipairs(O.art) do if t.shown then whole = whole + 1 end end
+  ok(whole == 12, "no explored pieces (a city): the whole map, faint", whole)
   -- 70% of a 768-tall screen, the art's 1002 x 668 kept in shape
   ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - 1002 / 668) < 0.001, "sized to the screen, the art's own shape", f.w .. "x" .. f.h)
   -- one explored piece of 300 x 200 pixels at (100, 50): two 256 columns (256 + 44) and one row of 200

@@ -17,7 +17,7 @@
 local _, NS = ...
 local T, R = NS.T, NS.Registry
 
-local O = { TICK = 0.1, SAMPLE = 2, STEP = 0.006, TRAIL_MAX = 600, TILE = 256 }
+local O = { TICK = 0.1, SAMPLE = 2, STEP = 0.012, TRAIL_MAX = 600, TILE = 256 }
 NS.Overlay = O
 O.TINT = { 0.75, 0.88, 1.0 }          -- a cold glow, so the art reads as "map", not as the world
 
@@ -144,7 +144,13 @@ function O.Draw(db)
   f:SetSize(lw * O.scale, H)
   f:SetAlpha(O.Alpha(db) / 100)
   O.note:SetText("")
-  if O.Mode(db) == "full" then
+  -- a city has no explored pieces at all (the game shows it whole): there, seen = all
+  -- (Arn's Orgrimmar, 14 Oct: "nothing explored here yet" over an empty map)
+  local info = (O.Mode(db) ~= "full") and C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+    and C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}
+  if type(info) ~= "table" or hidden(info) then info = {} end
+  local whole = O.Mode(db) == "full" or #info == 0
+  if whole then
     local tw, th = num(L.tileWidth) or O.TILE, num(L.tileHeight) or O.TILE
     local files = C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(mapID, 1) or {}
     local cols = math.ceil(lw / tw)
@@ -155,8 +161,6 @@ function O.Draw(db)
   else
     -- the explored pieces, cut the way the client cuts them: 256-pixel files, the last row and
     -- column only as big as what is left, in a file of the next power of two
-    local info = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
-      and C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}
     local drawn = 0
     for _, e in ipairs(info) do
       local W, Hh = num(e.textureWidth), num(e.textureHeight)
@@ -177,7 +181,6 @@ function O.Draw(db)
         end
       end
     end
-    if drawn == 0 then O.note:SetText("nothing explored here yet - walk around, or set the map to show all") end
   end
   O.DrawTrail(db)
   return true
