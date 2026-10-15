@@ -4984,6 +4984,51 @@ do
   ok(O.tab.point[4] == 300 and O.tab.point[5] == -200, "a saved spot is where it goes")
   SlashCmdList.BISTOOLS("map reset")
   ok(odb.pos == nil and O.tab.point[4] == 24, "/bist map reset: back to the top-left")
+  -- right-click the tab: the quick menu (Arn, 14 Oct, the Zone Map's tab menu)
+  O.tab.scripts.OnClick(O.tab, "RightButton")
+  local menu = BiSToolsOverlayMapMenu
+  ok(menu and menu:IsShown() and O.tab.alpha == 1, "right-click the tab: the menu, and the tab stays visible")
+  local inEsc = false
+  for _, n in ipairs(UISpecialFrames) do if n == "BiSToolsOverlayMapMenu" then inEsc = true end end
+  ok(inEsc, "Escape closes the menu")
+  local function row(label) for _, b in ipairs(menu.rows) do if b.def.label == label then return b end end end
+  row("Lock map").scripts.OnClick(row("Lock map"))
+  ok(odb.locked == true and row("Lock map").text.text:find("Check", 1, true), "Lock map: ticked")
+  O.tab.dragging = nil
+  O.tab.scripts.OnDragStart(O.tab)
+  ok(not O.tab.dragging, "a locked map does not drag")
+  row("Lock map").scripts.OnClick(row("Lock map"))
+  ok(odb.locked == nil, "and unlocks")
+  local a0 = O.Alpha(odb)
+  row("Opacity").plus.scripts.OnClick(row("Opacity").plus)
+  ok(O.Alpha(odb) == a0 + 5 and row("Opacity").text.text:find(tostring(a0 + 5) .. "%", 1, true), "Opacity +: 5 more, and the row says so")
+  row("Opacity").minus.scripts.OnClick(row("Opacity").minus)
+  ok(O.Alpha(odb) == a0, "Opacity -: back")
+  odb.alpha = 5
+  row("Opacity").minus.scripts.OnClick(row("Opacity").minus)
+  ok(O.Alpha(odb) == 5, "never below 5")
+  odb.alpha = 10
+  O.tab.scripts.OnClick(O.tab, "RightButton")
+  ok(not menu:IsShown(), "right-click again: the menu shuts")
+  -- Show group: the party as dots in class colours, the player left out, a hidden position no dot
+  local keepPos, keepN, keepRaid, keepClass = C_Map.GetPlayerMapPosition, _G.GetNumGroupMembers, _G.IsInRaid, _G.UnitClass
+  local spots = { party1 = { 0.30, 0.40 }, party2 = { 0.50, 0.50 } }
+  C_Map.GetPlayerMapPosition = function(_, u)
+    local p = spots[u] or (u == "player" and { W.px, W.py })
+    return p and { GetXY = function() return p[1], p[2] end } or nil
+  end
+  _G.GetNumGroupMembers = function() return 4 end
+  _G.IsInRaid = function() return false end
+  _G.UnitClass = function(u) return "Hunter", "HUNTER" end
+  local keepColors = _G.RAID_CLASS_COLORS
+  _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
+  ok(O.Group() == 2, "Show group: two party members placed (party3 is hidden: no dot)")
+  ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == 0.30 * f.w, "a dot in class colour, at their spot")
+  odb.group = false
+  ok(O.Group() == 0 and not O.gdots[1].shown, "Show group off: no dots")
+  odb.group = nil
+  C_Map.GetPlayerMapPosition, _G.GetNumGroupMembers, _G.IsInRaid, _G.UnitClass = keepPos, keepN, keepRaid, keepClass
+  _G.RAID_CLASS_COLORS = keepColors
   O.Draw(odb)
   ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
   ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "faintness 10% = 10% solid", f.alpha)
@@ -5055,6 +5100,13 @@ do
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n, by = Cost.Count(function() for _ = 1, 60 do f.scripts.OnUpdate(f, 1 / 60) end end)
   ok(n <= 40, "a second of the open overlay map asks at most 40 things: " .. n, Cost.Top and Cost.Top(by, 5))
+  -- in a 40-player raid with Show group on: twice a second, a position and a class per member
+  local keepN2, keepRaid2 = _G.GetNumGroupMembers, _G.IsInRaid
+  _G.GetNumGroupMembers = function() return 40 end
+  _G.IsInRaid = function() return true end
+  n, by = Cost.Count(function() for _ = 1, 60 do f.scripts.OnUpdate(f, 1 / 60) end end)
+  ok(n <= 400, "a second of the open map in a 40-man raid asks at most 400 things: " .. n, Cost.Top and Cost.Top(by, 5))
+  _G.GetNumGroupMembers, _G.IsInRaid = keepN2, keepRaid2
   _G.BiSTools_ToggleOverlayMap()
   W.explored = {}
 end

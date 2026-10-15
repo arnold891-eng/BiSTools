@@ -119,8 +119,17 @@ function O.Build()
   tab.label = label
   tab:SetAlpha(0)
   tab:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
-  tab:SetScript("OnLeave", function(self) if not self.dragging then self:SetAlpha(0) end end)
-  tab:SetScript("OnDragStart", function(self) self.dragging = true self:StartMoving() end)
+  tab:SetScript("OnLeave", function(self)
+    if not self.dragging and not (O.menu and O.menu:IsShown()) then self:SetAlpha(0) end
+  end)
+  tab:SetScript("OnDragStart", function(self)
+    if O.db and O.db.locked then return end            -- the menu's "Lock map"
+    self.dragging = true
+    self:StartMoving()
+  end)
+  -- right-click: the quick menu, as the Zone Map's tab has (Arn, 14 Oct)
+  tab:RegisterForClicks("RightButtonUp")
+  tab:SetScript("OnClick", function(_, button) if button == "RightButton" then O.Menu() end end)
   tab:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     self.dragging = nil
@@ -144,6 +153,164 @@ function O.PlaceTab(db)
   local x, y = O.Pos(db)
   O.tab:ClearAllPoints()
   O.tab:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x, y)
+end
+
+------------------------------------------------------------------ the menu --
+-- Right-click the tab (Arn, 14 Oct, the Zone Map's tab menu: Show Teammates, Lock Zone Map, Change
+-- Opacity). Our own little frame, not Blizzard's menu system - its menus are what instances broke for
+-- our right-click lines (13 Oct). A tick row toggles; a -/+ row steps; Escape or the tab closes it.
+O.MENU_W, O.ROW_H = 190, 18
+
+function O.MenuRows()
+  local function redraw() if O.frame and O.frame:IsShown() then O.Draw(O.db) end end
+  return {
+    { kind = "check", label = "Show group", get = function(db) return db.group ~= false end,
+      set = function(db, on) db.group = (not on) and false or nil O.Group(true) end },
+    { kind = "check", label = "Lock map", get = function(db) return db.locked == true end,
+      set = function(db, on) db.locked = on and true or nil end },
+    { kind = "check", label = "Show all of the map", get = function(db) return O.Mode(db) == "full" end,
+      set = function(db, on) db.mode = (not on) and "explored" or nil redraw() end },
+    { kind = "check", label = "Grey", get = function(db) return O.Grey(db) end,
+      set = function(db, on) db.grey = (not on) and false or nil redraw() end },
+    { kind = "step", label = "Opacity", get = function(db) return O.Alpha(db) end, min = 5, max = 90, step = 5,
+      set = function(db, v) db.alpha = v redraw() end },
+    { kind = "step", label = "Size", get = function(db) return O.Size(db) end, min = 30, max = 100, step = 10,
+      set = function(db, v) db.size = v redraw() end },
+    { kind = "action", label = "All settings...", run = function()
+        if NS.HubSlash then NS.HubSlash("options") end
+        O.menu:Hide()
+      end },
+  }
+end
+
+function O.BuildMenu()
+  if O.menu then return O.menu end
+  local m = CreateFrame("Frame", "BiSToolsOverlayMapMenu", UIParent)
+  O.menu = m
+  m:SetFrameStrata("DIALOG")
+  m:EnableMouse(true)
+  local bg = m:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints(m)
+  bg:SetColorTexture(0.06, 0.05, 0.10, 0.95)
+  m.rows = {}
+  for i, r in ipairs(O.MenuRows()) do
+    local b = CreateFrame("Button", nil, m)
+    b:SetSize(O.MENU_W - 8, O.ROW_H)
+    b:SetPoint("TOPLEFT", m, "TOPLEFT", 4, -4 - (i - 1) * O.ROW_H)
+    b.def = r
+    local fs = b:CreateFontString(nil, "OVERLAY")
+    fs:SetFont(STANDARD_TEXT_FONT, 11, "")
+    fs:SetPoint("LEFT", b, "LEFT", 4, 0)
+    b.text = fs
+    if r.kind == "step" then
+      for k, d in ipairs({ { "-", -1 }, { "+", 1 } }) do
+        local s = CreateFrame("Button", nil, b)
+        s:SetSize(18, O.ROW_H)
+        s:SetPoint("RIGHT", b, "RIGHT", (k - 2) * 20, 0)
+        local st = s:CreateFontString(nil, "OVERLAY")
+        st:SetFont(STANDARD_TEXT_FONT, 12, "")
+        st:SetPoint("CENTER", s, "CENTER", 0, 0)
+        st:SetText(d[1])
+        s:SetScript("OnClick", function()
+          local v = r.get(O.db) + d[2] * r.step
+          r.set(O.db, math.max(r.min, math.min(r.max, v)))
+          O.PaintMenu()
+        end)
+        b[d[1] == "-" and "minus" or "plus"] = s
+      end
+    else
+      b:SetScript("OnClick", function()
+        if r.kind == "check" then r.set(O.db, not r.get(O.db)) O.PaintMenu() else r.run() end
+      end)
+    end
+    m.rows[i] = b
+  end
+  m:SetSize(O.MENU_W, 8 + #m.rows * O.ROW_H)
+  m:SetScript("OnHide", function() if O.tab and not O.tab.dragging then O.tab:SetAlpha(0) end end)
+  m:Hide()
+  table.insert(UISpecialFrames, "BiSToolsOverlayMapMenu")       -- Escape closes it
+  return m
+end
+
+function O.PaintMenu()
+  for _, b in ipairs(O.menu.rows) do
+    local r = b.def
+    if r.kind == "check" then
+      b.text:SetText((r.get(O.db) and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t " or "      ") .. r.label)
+    elseif r.kind == "step" then
+      b.text:SetText(("      %s  %d%%"):format(r.label, r.get(O.db)))
+    else
+      b.text:SetText("      " .. r.label)
+    end
+  end
+end
+
+--- Open or shut the menu under the tab.
+function O.Menu()
+  local m = O.BuildMenu()
+  if m:IsShown() then m:Hide() return false end
+  m:ClearAllPoints()
+  m:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, -2)
+  O.PaintMenu()
+  O.tab:SetAlpha(1)
+  m:Show()
+  return true
+end
+
+------------------------------------------------------------------ the group --
+-- "Show group": your party or raid as small dots in class colours, asked twice a second while the
+-- map is up (40 position questions at most). A hidden position (an instance, or the game says no)
+-- is just no dot.
+O.GROUP_EVERY = 0.5
+
+local function groupUnits()
+  local out = {}
+  local n = GetNumGroupMembers and GetNumGroupMembers() or 0
+  n = num(n) or 0
+  if n == 0 then return out end
+  local raid = IsInRaid and IsInRaid()
+  for i = 1, raid and n or math.min(4, n - 1) do out[#out + 1] = (raid and "raid" or "party") .. i end
+  return out
+end
+
+function O.Group(force)
+  O.gdots = O.gdots or {}
+  for _, d in ipairs(O.gdots) do d:Hide() end
+  if not (O.db and O.db.group ~= false and O.frame and O.frame:IsShown()) then return 0 end
+  local W, H = O.frame:GetWidth(), O.frame:GetHeight()
+  local shown = 0
+  for _, u in ipairs(groupUnits()) do
+    local okU, me = pcall(UnitIsUnit, u, "player")
+    local isMe = okU and not hidden(me) and me == true
+    local x, y
+    if not isMe then
+      local ok, pos = pcall(C_Map.GetPlayerMapPosition, O.mapID, u)
+      if ok and pos and not hidden(pos) then
+        local ok2, px, py = pcall(function() return pos:GetXY() end)
+        if ok2 then
+          x = num(px)
+          y = num(py)
+        end
+      end
+    end
+    if x and y and not (x == 0 and y == 0) then
+      shown = shown + 1
+      local d = O.gdots[shown]
+      if not d then
+        d = O.frame:CreateTexture(nil, "OVERLAY")
+        d:SetSize(7, 7)
+        O.gdots[shown] = d
+      end
+      local okC, _, class = pcall(UnitClass, u)
+      if not okC then class = nil end
+      local c = (type(class) == "string" and not hidden(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]) or { r = 0.9, g = 0.9, b = 0.9 }
+      d:SetColorTexture(c.r, c.g, c.b, 1)
+      d:ClearAllPoints()
+      d:SetPoint("CENTER", O.frame, "TOPLEFT", x * W, -y * H)
+      d:Show()
+    end
+  end
+  return shown
 end
 
 --- After a drag: keep the tab's top-left, from the screen's top-left.
@@ -380,23 +547,27 @@ function O.Show(db, on)
     O.Draw(db)
     f:Show()
     O.tab:Show()
-    O.acc = 0
+    O.acc, O.gacc = 0, O.GROUP_EVERY
     f:SetScript("OnUpdate", function(_, e)
       O.acc = O.acc + e
       if O.acc >= O.TICK then O.acc = 0 O.Tick() end
+      O.gacc = O.gacc + e
+      if O.gacc >= O.GROUP_EVERY then O.gacc = 0 O.Group() end
     end)
     O.Tick()
   else
     f:SetScript("OnUpdate", nil)
     f:Hide()
     O.tab:Hide()
+    if O.menu then O.menu:Hide() end
+    O.Group()
   end
   return on
 end
 
 -- the key binding (Bindings.xml: Key Bindings > BiS Tools > "Overlay map")
 _G.BINDING_HEADER_BISTOOLS = "BiS Tools"
-_G.BINDING_NAME_BISTOOLS_OVERLAYMAP = "Overlay map (see-through, over the game)"
+_G.BINDING_NAME_BISTOOLS_OVERLAYMAP = "Overlay map"     -- the long name was cut off in Key Bindings
 function _G.BiSTools_ToggleOverlayMap()
   if not (O.db and R:Enabled("map")) then return end
   O.Show(O.db)
