@@ -211,6 +211,10 @@ local function Texture()
   function t:SetWidth(w) self.w = w end
   function t:SetSize(w, h) self.w, self.h = w, h end
   function t:SetTexture(x) self.file = x end
+  function t:AddMaskTexture(m)
+    if type(m) ~= "table" or not m.isMask then error("AddMaskTexture wants a mask texture", 2) end
+    self.masks = self.masks or {} self.masks[#self.masks + 1] = m
+  end
   function t:SetTexCoord() end
   function t:ClearAllPoints() end
   function t:SetRotation(r) if type(r) ~= "number" then error("SetRotation wants a number") end self.rot = r end
@@ -302,6 +306,8 @@ _G.CreateFrame = function(kind, name, parent, template)
     self.scripts[k] = prev and function(...) prev(...) return fn(...) end or fn
   end
   function f:CreateTexture() local t = Texture() self.regions = self.regions or {} self.regions[#self.regions + 1] = t return t end
+  -- a mask: a texture other textures take their alpha from (the overlay map's soft edges)
+  function f:CreateMaskTexture() local m = Texture() m.isMask = true return m end
   -- a Line (the bg tool's crossed sabers): a texture with two ends and a thickness
   function f:CreateLine()
     local l = Texture()
@@ -5016,6 +5022,13 @@ do
   ok(math.abs(O.art[1].anchor[4] + (1002 * O.EDGE[1]) * (f.h / landH)) < 1e-6, "the first tile starts left of the frame - its edge is clipped away", O.art[1].anchor[4])
   -- a capital with a measured box (Orgrimmar, 1454) is cut to it; the map above (1952) has none
   ok(O.CROP[1952] == nil, "an unmeasured map keeps the light crop")
+  -- soft edges: every piece of art wears the fade mask, stretched over the frame; the dots do not
+  local masked = O.mask and O.mask.all and O.mask.file == O.FADE
+  for _, t in ipairs(O.art) do masked = masked and t.masks and t.masks[1] == O.mask end
+  ok(masked and #O.art > 0, "the map's art fades out at its edges (MapFade mask over the frame)")
+  local fh = io.open("Media/MapFade.tga", "rb")
+  ok(fh ~= nil, "the fade file ships with the addon")
+  if fh then fh:close() end
   W.map = 1454
   O.Draw(odb)
   local bx = O.CROP[1454]

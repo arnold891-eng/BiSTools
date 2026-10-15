@@ -73,6 +73,8 @@ end
 
 ------------------------------------------------------------------ the frame --
 
+O.FADE = "Interface\\AddOns\\BiSTools\\Media\\MapFade"
+
 function O.Build()
   if O.frame then return O.frame end
   local f = CreateFrame("Frame", "BiSToolsOverlayMap", UIParent)
@@ -81,6 +83,18 @@ function O.Build()
   f:EnableMouse(false)                  -- click-through: you keep playing
   f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   if f.SetClipsChildren then f:SetClipsChildren(true) end
+  -- SOFT EDGES (Arn, 14 Oct: "do the soft edges too ... fade out"): the art is masked by our own
+  -- MapFade (white, its alpha falling to 0 over the outer eighth of each side), stretched to the
+  -- frame, so the map melts into the game instead of ending in a box. The art only - dots and the
+  -- arrow stay sharp. A client without masks just keeps the hard edge.
+  if f.CreateMaskTexture then
+    local ok, m = pcall(f.CreateMaskTexture, f)
+    if ok and m then
+      m:SetTexture(O.FADE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+      m:SetAllPoints(f)
+      O.mask = m
+    end
+  end
   O.art, O.dots = {}, {}
   -- the arrow is OURS, three lines (Arn's screenshots, 14 Oct: the trail drew and no arrow did -
   -- the old minimap arrow file is not on Forever). A Line needs WHITE8X8 + SetVertexColor.
@@ -411,6 +425,7 @@ local function tex(layer)
   if not t then
     t = O.frame:CreateTexture(nil, layer)
     t.layer = layer
+    if O.mask and t.AddMaskTexture then t:AddMaskTexture(O.mask) end
   end
   t:Show()
   O.art[#O.art + 1] = t
@@ -458,7 +473,15 @@ O.EDGE = { 0.03, 0, 0.045 }
 -- from a screenshot of that city: left, top, right, bottom as shares of the map. Only measured
 -- cities are here; any other map keeps O.EDGE alone.
 O.CROP = {
-  [1454] = { 0.10, 0.04, 0.85, 0.955 },   -- Orgrimmar: the empty band west, the crest's half east
+  -- Orgrimmar: the empty band west, part of the crest east. First box (0.10, 0.04, 0.85, 0.955) cut
+  -- the city (Arn: "cropped off some"), so every side was let out
+  [1454] = { 0.08, 0.015, 0.88, 0.985 },
+  -- Thunder Bluff, measured off the Blizzard world map (Arn, 14 Oct - no need to fly there): the
+  -- four rises and the banner kept, the empty west and most of the crest gone
+  [1456] = { 0.10, 0.03, 0.88, 0.96 },
+  -- Undercity: the banner reaches the west edge and the crest sits under the sewers, so only the
+  -- empty east goes
+  [1458] = { 0.03, 0.01, 0.91, 0.975 },
 }
 
 --- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
@@ -544,12 +567,14 @@ function O.Draw(db)
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
   end
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
-  x0, y0 = math.max(x0, ex), math.max(y0, et)
-  x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - eb)
   -- a capital is one painted picture, parchment and city in the same pixels, so its box is measured
-  -- by eye, once per city (O.CROP)
+  -- by eye, once per city (O.CROP) - and it REPLACES the edge trim: the city may reach past it
+  -- (Orgrimmar's gate sits on the bottom edge)
   local box = mapID and O.CROP[mapID]
-  if box then
+  if not box then
+    x0, y0 = math.max(x0, ex), math.max(y0, et)
+    x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - eb)
+  else
     x0, y0 = math.max(x0, lw * box[1]), math.max(y0, lh * box[2])
     x1, y1 = math.min(x1, lw * box[3]), math.min(y1, lh * box[4])
   end
