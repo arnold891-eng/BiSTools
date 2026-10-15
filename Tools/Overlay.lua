@@ -283,7 +283,7 @@ end
 
 function O.Group(force)
   O.gdots = O.gdots or {}
-  for _, d in ipairs(O.gdots) do d:Hide() end
+  for _, d in ipairs(O.gdots) do d:Hide() if d.name then d.name:Hide() end end
   if not (O.db and O.db.group ~= false and O.frame and O.frame:IsShown()) then return 0 end
   local W, H = O.frame:GetWidth(), O.frame:GetHeight()
   local shown = 0
@@ -316,6 +316,20 @@ function O.Group(force)
       d:ClearAllPoints()
       d:SetPoint("CENTER", O.frame, "TOPLEFT", x * W, -y * H)
       d:Show()
+      -- a small name beside the dot (Arn, 14 Oct: "since its ours maybe we can add small name"):
+      -- the first name only, in the class colour; a hidden name is just the dot
+      if not d.name then
+        d.name = O.frame:CreateFontString(nil, "OVERLAY")
+        d.name:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
+        d.name:SetPoint("LEFT", d, "RIGHT", 2, 0)
+      end
+      local okN, nm = pcall(UnitName, u)
+      nm = okN and not hidden(nm) and type(nm) == "string" and nm:match("^(%S+)") or nil
+      if nm then
+        d.name:SetText(nm)
+        d.name:SetTextColor(c.r, c.g, c.b)
+        d.name:Show()
+      end
     end
   end
   return shown

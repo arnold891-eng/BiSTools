@@ -5084,14 +5084,19 @@ do
   _G.GetNumGroupMembers = function() return 4 end
   _G.IsInRaid = function() return false end
   _G.UnitClass = function(u) return "Hunter", "HUNTER" end
+  local keepName = _G.UnitName
+  _G.UnitName = function(u) if u == "party1" then return "Mos Dei" elseif u == "party2" then return "Kel" end return keepName(u) end
   local keepColors = _G.RAID_CLASS_COLORS
   _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
   ok(O.Group() == 2, "Show group: two party members placed (party3 is hidden: no dot)")
   ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == 0.30 * f.w, "a dot in class colour, at their spot")
+  ok(O.gdots[1].name and O.gdots[1].name.shown and O.gdots[1].name.text == "Mos",
+    "a small name beside the dot - the first name only (Arn: 'maybe we can add small name')", O.gdots[1].name and O.gdots[1].name.text)
   odb.group = false
-  ok(O.Group() == 0 and not O.gdots[1].shown, "Show group off: no dots")
+  ok(O.Group() == 0 and not O.gdots[1].shown and not O.gdots[1].name.shown, "Show group off: no dots, no names")
   odb.group = nil
   C_Map.GetPlayerMapPosition, _G.GetNumGroupMembers, _G.IsInRaid, _G.UnitClass = keepPos, keepN, keepRaid, keepClass
+  _G.UnitName = keepName
   _G.RAID_CLASS_COLORS = keepColors
   O.Draw(odb)
   ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
