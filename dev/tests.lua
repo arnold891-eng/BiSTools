@@ -257,6 +257,10 @@ local function FontString()
   function s:GetText() return self.text end
   function s:SetAlpha(a) self.alpha = a end
   function s:GetParent() return self.parent end
+  function s:SetJustifyH(j)
+    if j ~= "LEFT" and j ~= "CENTER" and j ~= "RIGHT" then error("SetJustifyH wants LEFT, CENTER or RIGHT", 2) end
+    self.justify = j
+  end
   function s:SetTextColor(r, g, b, a)
     if not num3(r, g, b) then error("SetTextColor wants r,g,b numbers") end
     self.color = { r, g, b, a }
@@ -5053,6 +5057,20 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == 256 * sc, "the last column only as wide as what is left, in its place (from the land's corner)")
+  -- WHERE YOU ARE, in the corner (Arn, 15 Oct, Diablo II's "Rogue Encampment")
+  do
+    local keepZ, keepS = _G.GetZoneText, _G.GetSubZoneText
+    _G.GetZoneText, _G.GetSubZoneText = function() return "Durotar" end, function() return "Razor Hill" end
+    O.events.scripts.OnEvent(O.events, "ZONE_CHANGED")
+    ok(O.place.text == "DUROTAR - RAZOR HILL", "the zone and the subzone, in capitals, in the map's corner", O.place.text)
+    _G.GetSubZoneText = function() return "" end
+    O.PaintPlace()
+    ok(O.place.text == "DUROTAR", "no subzone: the zone alone", O.place.text)
+    _G.GetZoneText = function() return setmetatable({}, { __index = function() error("secret") end }) end
+    O.PaintPlace()
+    ok(O.place.text == "", "a name we may not read: nothing, never an error", O.place.text)
+    _G.GetZoneText, _G.GetSubZoneText = keepZ, keepS
+  end
   -- A NEW PLACE FOUND, on the same map, fills in without closing the map (Arn, 15 Oct)
   do
     local keepEx = W.explored

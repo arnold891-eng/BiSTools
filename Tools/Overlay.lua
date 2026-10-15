@@ -107,6 +107,13 @@ function O.Build()
     l:Hide()
     O.arrow[i] = l
   end
+  -- WHERE YOU ARE, Diablo style (Arn, 15 Oct, a Diablo II screenshot: "Rogue Encampment" small in
+  -- the top-right corner): the zone and the subzone, in capitals, on the map's own corner
+  O.place = f:CreateFontString(nil, "OVERLAY")
+  O.place:SetFont(STANDARD_TEXT_FONT, 11, "OUTLINE")
+  O.place:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, -6)
+  O.place:SetJustifyH("RIGHT")
+  O.place:SetTextColor(O.GOLD[1], O.GOLD[2], O.GOLD[3])
   O.note = f:CreateFontString(nil, "OVERLAY")
   O.note:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
   O.note:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
@@ -519,8 +526,27 @@ function O.ToFrame(x, y)
 end
 
 --- Redraw the art for this map: the explored pieces, or the whole zone.
+--- "DUROTAR - RAZOR HILL": the zone, and the subzone when it is another name. Plain only.
+O.GOLD = { 0.95, 0.80, 0.45 }
+function O.PlaceName()
+  local function ask(fn)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn)
+    if not ok or v == nil or (issecretvalue and issecretvalue(v)) or type(v) ~= "string" or v == "" then return nil end
+    return v
+  end
+  local zone, sub = ask(GetZoneText), ask(GetSubZoneText)
+  if not zone then return "" end
+  if sub and sub ~= zone then return (zone .. " - " .. sub):upper() end
+  return zone:upper()
+end
+function O.PaintPlace()
+  if O.place then O.place:SetText(O.PlaceName()) end
+end
+
 function O.Draw(db)
   local f = O.Build()
+  O.PaintPlace()
   clearArt()
   local mapID = O.MapID()
   O.mapID = mapID
@@ -749,6 +775,7 @@ ev:RegisterEvent("ZONE_CHANGED_INDOORS")
 pcall(ev.RegisterEvent, ev, "MAP_EXPLORATION_UPDATED")
 ev:SetScript("OnEvent", function(_, event)
   if not (O.frame and O.frame:IsShown()) then return end
+  O.PaintPlace()                       -- a new subzone renames the corner, map or no redraw
   if event == "MAP_EXPLORATION_UPDATED"
      or (event == "ZONE_CHANGED" and O.db and O.Mode(O.db) == "explored")
      or O.MapID() ~= O.mapID then
