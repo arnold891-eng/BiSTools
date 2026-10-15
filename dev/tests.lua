@@ -5004,6 +5004,8 @@ do
   odb.look = nil
   odb.mode = nil
   -- the trail: a dot when you moved far enough, none for a shuffle
+  ok(not O.TrailOn(odb) and not O.Sample(odb), "the trail is off by default (Arn: too busy) - nothing sampled")
+  odb.trail = true
   odb.trails = nil
   ok(O.Sample(odb), "a first dot")
   W.px = 0.401
@@ -5013,6 +5015,7 @@ do
   ok(#O.Trail(odb, 1952) == 2 and O.dots[2] and O.dots[2].shown, "two dots, drawn on the open map")
   SlashCmdList.BISTOOLS("map clear")
   ok(#O.Trail(odb, 1952) == 0, "/bist map clear wipes this map's trail")
+  odb.trail = nil
   -- click-through, and gone with the key again
   _G.BiSTools_ToggleOverlayMap()
   ok(not f:IsShown() and f.scripts.OnUpdate == nil, "the key again hides it, and nothing ticks")

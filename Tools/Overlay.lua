@@ -35,7 +35,8 @@ function O.Size(db) return tonumber(db.size) or 70 end          -- % of the scre
 function O.Alpha(db) return tonumber(db.alpha) or 10 end        -- %
 function O.Grey(db) return db.grey == true end                  -- off: the map's own colours
 function O.Mode(db) return db.mode == "full" and "full" or "explored" end
-function O.TrailOn(db) return db.trail ~= false end
+-- Arn, 14 Oct: "also no trail its getting too busy" - off unless switched on
+function O.TrailOn(db) return db.trail == true end
 --- paper: the map art laid over the game, faint. ink: MULTIPLIED onto the game - light parchment
 --- barely changes the world, dark lines show (Arn: "alpha out the useless stuff").
 function O.Look(db) return db.look == "ink" and "ink" or "paper" end
