@@ -73,6 +73,8 @@ end
 
 ------------------------------------------------------------------ the frame --
 
+O.FADE = "Interface\\AddOns\\BiSTools\\Media\\MapFade"
+
 function O.Build()
   if O.frame then return O.frame end
   local f = CreateFrame("Frame", "BiSToolsOverlayMap", UIParent)
@@ -81,6 +83,18 @@ function O.Build()
   f:EnableMouse(false)                  -- click-through: you keep playing
   f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
   if f.SetClipsChildren then f:SetClipsChildren(true) end
+  -- SOFT EDGES (Arn, 14 Oct: "do the soft edges too ... fade out"): the art is masked by our own
+  -- MapFade (white, its alpha falling to 0 over the outer eighth of each side), stretched to the
+  -- frame, so the map melts into the game instead of ending in a box. The art only - dots and the
+  -- arrow stay sharp. A client without masks just keeps the hard edge.
+  if f.CreateMaskTexture then
+    local ok, m = pcall(f.CreateMaskTexture, f)
+    if ok and m then
+      m:SetTexture(O.FADE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+      m:SetAllPoints(f)
+      O.mask = m
+    end
+  end
   O.art, O.dots = {}, {}
   -- the arrow is OURS, three lines (Arn's screenshots, 14 Oct: the trail drew and no arrow did -
   -- the old minimap arrow file is not on Forever). A Line needs WHITE8X8 + SetVertexColor.
@@ -116,11 +130,20 @@ function O.Build()
   label:SetFont(STANDARD_TEXT_FONT, 10, "")
   label:SetPoint("CENTER", tab, "CENTER", 0, 0)
   label:SetText(T.text("accent", "BiS>") .. " map")
-  tab.label = label
-  tab:SetAlpha(0)
-  tab:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
+  tab.label, tab.bg = label, bg
+  -- THE HINT (Arn, 14 Oct: "maybe we do show like a little line ____ ... to let people know where its
+  -- at"): a short faint underline where the tab is, there while the tab is not - so the tab can be
+  -- found without sitting over the map all the time
+  local hint = tab:CreateTexture(nil, "ARTWORK")
+  hint:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 4, 0)
+  hint:SetSize(O.HINT_W, 2)
+  local hr, hg, hb = T.rgb("accent")
+  hint:SetColorTexture(hr or 1, hg or 0.82, hb or 0.3, O.HINT_A)
+  tab.hint = hint
+  O.Lit(false)
+  tab:SetScript("OnEnter", function() O.Lit(true) end)
   tab:SetScript("OnLeave", function(self)
-    if not self.dragging and not (O.menu and O.menu:IsShown()) then self:SetAlpha(0) end
+    if not self.dragging and not (O.menu and O.menu:IsShown()) then O.Lit(false) end
   end)
   tab:SetScript("OnDragStart", function(self)
     if O.db and O.db.locked then return end            -- the menu's "Lock map"
@@ -133,7 +156,7 @@ function O.Build()
   tab:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     self.dragging = nil
-    self:SetAlpha(0)
+    O.Lit(false)
     O.SavePos(O.db)
   end)
   tab:Hide()
@@ -142,6 +165,18 @@ end
 
 --- Where the tab sits: from the screen's top-left, x right and y down (negative). Default top-left.
 O.TAB_W, O.TAB_H = 70, 16
+O.HINT_W, O.HINT_A = 24, 0.5
+
+--- The tab lit (hovered, dragged, its menu open) or resting: lit shows the tab and hides the hint;
+--- resting is the other way round. The tab itself stays solid, so it always takes the mouse.
+function O.Lit(on)
+  local tab = O.tab
+  if not tab then return end
+  tab.lit = on and true or false
+  tab.bg:SetAlpha(on and 1 or 0)
+  tab.label:SetAlpha(on and 1 or 0)
+  tab.hint:SetAlpha(on and 0 or 1)
+end
 O.POS = { 24, -80 }
 function O.Pos(db)
   local p = type(db) == "table" and db.pos
@@ -237,7 +272,7 @@ function O.BuildMenu()
     m.rows[i] = b
   end
   m:SetSize(O.MENU_W, 8 + #m.rows * O.ROW_H)
-  m:SetScript("OnHide", function() if O.tab and not O.tab.dragging then O.tab:SetAlpha(0) end end)
+  m:SetScript("OnHide", function() if O.tab and not O.tab.dragging then O.Lit(false) end end)
   m:Hide()
   table.insert(UISpecialFrames, "BiSToolsOverlayMapMenu")       -- Escape closes it
   return m
@@ -262,7 +297,7 @@ function O.Menu()
   m:ClearAllPoints()
   m:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, -2)
   O.PaintMenu()
-  O.tab:SetAlpha(1)
+  O.Lit(true)
   m:Show()
   return true
 end
@@ -293,7 +328,7 @@ local function dot(i, x, y, c, nm, size)
   d:SetSize(size, size)
   d:SetColorTexture(c.r, c.g, c.b, 1)
   d:ClearAllPoints()
-  d:SetPoint("CENTER", O.frame, "TOPLEFT", x * O.frame:GetWidth(), -y * O.frame:GetHeight())
+  d:SetPoint("CENTER", O.frame, "TOPLEFT", O.ToFrame(x, y))
   d:Show()
   -- a small name beside the dot (Arn, 14 Oct: "since its ours maybe we can add small name"):
   -- the first name only, in the dot's colour; no name is just the dot
@@ -411,6 +446,7 @@ local function tex(layer)
   if not t then
     t = O.frame:CreateTexture(nil, layer)
     t.layer = layer
+    if O.mask and t.AddMaskTexture then t:AddMaskTexture(O.mask) end
   end
   t:Show()
   O.art[#O.art + 1] = t
@@ -435,7 +471,8 @@ local function piece(file, x, y, w, h, fw, fh, layer)
   t:SetTexCoord(0, w / fw, 0, h / fh)
   t:SetSize(w * s, h * s)
   t:ClearAllPoints()
-  t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
+  local l = O.land or { 0, 0 }
+  t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", (x - l[1]) * s, -(y - l[2]) * s)
   if t.SetDesaturated then t:SetDesaturated(O.Grey(O.db or {})) end
   if O.Grey(O.db or {}) then t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1) else t:SetVertexColor(1, 1, 1, 1) end
   return t
@@ -446,6 +483,39 @@ local function fileSize(px)
   local f = 16
   while f < px do f = f * 2 end
   return f
+end
+
+-- how much of the paper's edge never shows, as a share of the map: left/right, top, bottom. The top
+-- stays whole: the map's name banner sits there (Arn, 14 Oct, Durotar: "it cut off the map name")
+O.EDGE = { 0.03, 0, 0.045 }
+
+-- THE CAPITALS' BOXES (Arn, 14 Oct: "nothing we can do for the capital city map about all the extra
+-- parchment?"). The game cannot tell us where a city's drawing ends, so each box is measured by eye
+-- from a screenshot of that city: left, top, right, bottom as shares of the map. Only measured
+-- cities are here; any other map keeps O.EDGE alone.
+O.CROP = {
+  -- Orgrimmar: the empty band west, part of the crest east. First box (0.10, 0.04, 0.85, 0.955) cut
+  -- the city (Arn: "cropped off some"), so every side was let out
+  [1454] = { 0.08, 0.015, 0.88, 0.985 },
+  -- Thunder Bluff, measured off the Blizzard world map (Arn, 14 Oct - no need to fly there): the
+  -- four rises and the banner kept, the empty west and most of the crest gone
+  [1456] = { 0.10, 0.03, 0.88, 0.96 },
+  -- Undercity: the banner reaches the west edge and the crest sits under the sewers, so only the
+  -- empty east goes
+  [1458] = { 0.03, 0.01, 0.91, 0.975 },
+  -- the Alliance three, off the same world map screenshots: Stormwind keeps the harbour's water (the
+  -- crest sits in it) and loses the empty band over the keep; Ironforge and Darnassus lose the west
+  -- margin and most of the crest - their banners sit at the bottom, so the bottom stays
+  [1453] = { 0.03, 0.05, 0.92, 0.97 },    -- Stormwind
+  [1455] = { 0.08, 0.005, 0.915, 0.98 },  -- Ironforge
+  [1457] = { 0.05, 0.005, 0.93, 0.98 },   -- Darnassus
+}
+
+--- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
+--- which starts O.land's x0, y0 into the map.
+function O.ToFrame(x, y)
+  local l, s = O.land or { 0, 0 }, O.scale or 1
+  return (x * (O.lw or 1) - l[1]) * s, -((y * (O.lh or 1) - l[2]) * s)
 end
 
 --- Redraw the art for this map: the explored pieces, or the whole zone.
@@ -459,8 +529,13 @@ function O.Draw(db)
   local lw = L and num(L.layerWidth)
   local lh = L and num(L.layerHeight)
   if not (lw and lh and lw > 0 and lh > 0) then
-    f:SetSize(400, 260)
+    -- in the map's corner, under the tab - not the middle of the screen (Arn, 14 Oct, in Ragefire:
+    -- "no map for this place" sat right over his character)
+    f:SetSize(220, 40)
     O.scale = 1
+    O.PlaceTab(db)
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, 0)
     O.note:SetText("no map for this place")
     return false
   end
@@ -507,7 +582,11 @@ function O.Draw(db)
       end
     end
   end
-  -- 2. the land those pieces cover (inside the map's own edges); "all" is the whole map
+  -- 2. the land those pieces cover; "all" is the whole map. NEVER the paper's torn edge (Arn, 14 Oct,
+  -- Orgrimmar at 60%: "how come the map does not take out the extra stuff") - a city is one picture,
+  -- parchment and all, so the most that can go is its border: the land stops O.EDGE inside each side,
+  -- and the frame, which clips its children, shows that land and nothing past it.
+  local ex, et, eb = lw * O.EDGE[1], lh * O.EDGE[2], lh * O.EDGE[3]
   local x0, y0, x1, y1 = lw, lh, 0, 0
   if O.Mode(db) == "full" then x0, y0, x1, y1 = 0, 0, lw, lh end
   for _, p in ipairs(pieces) do
@@ -515,6 +594,17 @@ function O.Draw(db)
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
   end
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
+  -- a capital is one painted picture, parchment and city in the same pixels, so its box is measured
+  -- by eye, once per city (O.CROP) - and it REPLACES the edge trim: the city may reach past it
+  -- (Orgrimmar's gate sits on the bottom edge)
+  local box = mapID and O.CROP[mapID]
+  if not box then
+    x0, y0 = math.max(x0, ex), math.max(y0, et)
+    x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - eb)
+  else
+    x0, y0 = math.max(x0, lw * box[1]), math.max(y0, lh * box[2])
+    x1, y1 = math.min(x1, lw * box[3]), math.min(y1, lh * box[4])
+  end
   -- 3. size THAT land, not the canvas (Durotar sits right of the canvas's middle), and hang it from
   -- the tab: the land's top-left under the tab's bottom-left (Arn, 14 Oct: top left, draggable like
   -- the Zone Map). "map size" is the land's height as a share of the screen, never wider than it.
@@ -523,11 +613,12 @@ function O.Draw(db)
   sh = (okH and num(sh)) or 768
   sw = (okW and num(sw)) or 1024
   O.scale = math.min(sh * O.Size(db) / 100 / (y1 - y0), sw * 0.95 / (x1 - x0))
-  f:SetSize(lw * O.scale, lh * O.scale)
+  -- the frame IS the land now (it clips what lies past it), hanging from the tab
+  O.land, O.lw, O.lh = { x0, y0, x1, y1 }, lw, lh
+  f:SetSize((x1 - x0) * O.scale, (y1 - y0) * O.scale)
   f:ClearAllPoints()
   O.PlaceTab(db)
-  f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", -x0 * O.scale, y0 * O.scale)
-  O.land = { x0, y0, x1, y1 }
+  f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, 0)
   for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]) end
   O.DrawTrail(db)
   return true
@@ -560,7 +651,6 @@ end
 function O.DrawTrail(db)
   for _, d in ipairs(O.dots) do d:Hide() end
   if not (O.TrailOn(db) and O.mapID) then return end
-  local W, H = O.frame:GetWidth(), O.frame:GetHeight()
   for i, p in ipairs(O.Trail(db, O.mapID)) do
     local d = O.dots[i]
     if not d then
@@ -570,7 +660,7 @@ function O.DrawTrail(db)
       O.dots[i] = d
     end
     d:ClearAllPoints()
-    d:SetPoint("CENTER", O.frame, "TOPLEFT", p[1] * W, -p[2] * H)
+    d:SetPoint("CENTER", O.frame, "TOPLEFT", O.ToFrame(p[1], p[2]))
     d:Show()
   end
 end
@@ -594,7 +684,7 @@ function O.Tick()
   local face = O.Facing()
   if face then O.lastFace = face end
   face = O.lastFace or 0
-  local cx, cy = x * O.frame:GetWidth(), -y * O.frame:GetHeight()
+  local cx, cy = O.ToFrame(x, y)
   local dx, dy = -math.sin(face), math.cos(face)            -- ahead, in screen x / up
   local px, py = dy, -dx                                    -- to your right
   local L = O.ARROW_LEN

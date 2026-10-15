@@ -1,3 +1,11 @@
+## 0.10.1
+
+- **The overlay map fades out at its edges** instead of ending in a hard box, so it melts into the game. Your arrow and the dots stay sharp. (A new file: restart the game once after updating, a /reload won't pick it up.)
+- **Capital cities lose their empty parchment.** A city map is one painted picture, so each of the six capitals now has its own measured frame - the empty paper and most of the crest go, the city and its name stay.
+- **No more torn paper edge** around any map, and the map's name banner at the top is never cut off.
+- **A faint line marks the map's tab** while it's hidden, so you can always find where to grab it.
+- **"No map for this place"** (inside dungeons) sits in the map's corner under the tab, not over your character.
+
 ## 0.10.0
 
 - **Your guild on the map.** Guildmates running any BiS addon show on the overlay map as small amber dots with their first names, on the zone you're looking at (your group keeps its class-coloured dots, and nobody is drawn twice). "Show guild" in the map tab's right-click menu hides them.
