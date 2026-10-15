@@ -482,6 +482,12 @@ O.CROP = {
   -- Undercity: the banner reaches the west edge and the crest sits under the sewers, so only the
   -- empty east goes
   [1458] = { 0.03, 0.01, 0.91, 0.975 },
+  -- the Alliance three, off the same world map screenshots: Stormwind keeps the harbour's water (the
+  -- crest sits in it) and loses the empty band over the keep; Ironforge and Darnassus lose the west
+  -- margin and most of the crest - their banners sit at the bottom, so the bottom stays
+  [1453] = { 0.03, 0.05, 0.92, 0.97 },    -- Stormwind
+  [1455] = { 0.08, 0.005, 0.915, 0.98 },  -- Ironforge
+  [1457] = { 0.05, 0.005, 0.93, 0.98 },   -- Darnassus
 }
 
 --- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
