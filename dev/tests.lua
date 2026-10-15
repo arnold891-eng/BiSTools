@@ -4964,11 +4964,27 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
-  -- the LAND is sized and centred, not the canvas (Arn, 14 Oct: Durotar sat right of centre at 100%):
-  -- the piece covers x 100-400, y 50-250 of the 1002 x 668 art
+  -- the LAND is sized, not the canvas (Durotar sits right of the canvas's middle), and hangs from the
+  -- tab, top-left (Arn, 14 Oct: "top left ... like zone map so we can drag"): the piece covers
+  -- x 100-400, y 50-250 of the 1002 x 668 art
   ok(math.abs(sc - 768 * 0.70 / 200) < 1e-9, "map size is the land's height on screen", sc)
-  ok(f.point[1] == "CENTER" and math.abs(f.point[4] - (501 - 250) * sc) < 1e-9 and math.abs(f.point[5] - (150 - 334) * sc) < 1e-9,
-    "the land's middle sits on the screen's middle", f.point[4], f.point[5])
+  ok(f.point[1] == "TOPLEFT" and f.point[2] == O.tab and f.point[3] == "BOTTOMLEFT"
+     and math.abs(f.point[4] + 100 * sc) < 1e-9 and math.abs(f.point[5] - 50 * sc) < 1e-9,
+    "the land's top-left hangs under the tab", f.point[4], f.point[5])
+  ok(O.tab.point[1] == "TOPLEFT" and O.tab.point[4] == 24 and O.tab.point[5] == -80, "the tab: top-left of the screen by default")
+  -- the tab: invisible until hovered, and the one thing that takes the mouse (Arn: "only visible if you hover over")
+  ok(O.tab:IsShown() and O.tab.alpha == 0, "the tab shows with the map, invisible")
+  O.tab.scripts.OnEnter(O.tab)
+  ok(O.tab.alpha == 1, "hovered: it shows")
+  O.tab.scripts.OnLeave(O.tab)
+  ok(O.tab.alpha == 0, "the mouse leaves: gone again")
+  ok(O.tab.scripts.OnDragStart and O.tab.scripts.OnDragStop, "it drags (the map hangs off it, so the map follows)")
+  odb.pos = { 300, -200 }
+  O.Draw(odb)
+  ok(O.tab.point[4] == 300 and O.tab.point[5] == -200, "a saved spot is where it goes")
+  SlashCmdList.BISTOOLS("map reset")
+  ok(odb.pos == nil and O.tab.point[4] == 24, "/bist map reset: back to the top-left")
+  O.Draw(odb)
   ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
   ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "faintness 10% = 10% solid", f.alpha)
   odb.grey = true
@@ -5014,7 +5030,7 @@ do
     end
   end
   ok(shown == 14 and base == 12 and over == 2, "all: the 12 base tiles under, the 2 explored pieces over", base, over)
-  ok(f.point[4] == 0 and f.point[5] == 0, "all: the whole map, centred")
+  ok(f.point[4] == 0 and f.point[5] == 0, "all: the whole map, its top-left under the tab")
   -- (an "ink" look - BlendMode MOD - was tried and taken out, 14 Oct: Arn "ink wonky"; a MOD
   -- texture's transparent edges go black, so the explored pieces showed as dark boxes)
   odb.mode = nil

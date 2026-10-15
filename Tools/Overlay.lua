@@ -97,7 +97,64 @@ function O.Build()
   O.note:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
   O.note:SetPoint("BOTTOM", f, "BOTTOM", 0, 6)
   f:Hide()
+  -- THE TAB (Arn, 14 Oct, the Zone Map beside it: "top left, if we could do it like zone map so we
+  -- can drag if we want to" - "only visible if you hover over"). The map stays click-through; this
+  -- small tab at the land's top-left is the one thing that takes the mouse. It is invisible until the
+  -- mouse is on it; drag it and the map follows (the map hangs off it); the spot is saved.
+  local tab = CreateFrame("Button", "BiSToolsOverlayMapTab", UIParent)
+  O.tab = tab
+  tab:SetSize(O.TAB_W, O.TAB_H)
+  tab:SetFrameStrata("LOW")
+  tab:SetMovable(true)
+  tab:SetClampedToScreen(true)
+  tab:EnableMouse(true)
+  tab:RegisterForDrag("LeftButton")
+  local bg = tab:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints(tab)
+  bg:SetColorTexture(0.08, 0.06, 0.14, 0.9)
+  local label = tab:CreateFontString(nil, "OVERLAY")
+  label:SetFont(STANDARD_TEXT_FONT, 10, "")
+  label:SetPoint("CENTER", tab, "CENTER", 0, 0)
+  label:SetText("|cffb980ffBiS>|r map")
+  tab.label = label
+  tab:SetAlpha(0)
+  tab:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
+  tab:SetScript("OnLeave", function(self) if not self.dragging then self:SetAlpha(0) end end)
+  tab:SetScript("OnDragStart", function(self) self.dragging = true self:StartMoving() end)
+  tab:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    self.dragging = nil
+    self:SetAlpha(0)
+    O.SavePos(O.db)
+  end)
+  tab:Hide()
   return f
+end
+
+--- Where the tab sits: from the screen's top-left, x right and y down (negative). Default top-left.
+O.TAB_W, O.TAB_H = 70, 16
+O.POS = { 24, -80 }
+function O.Pos(db)
+  local p = type(db) == "table" and db.pos
+  if type(p) == "table" and type(p[1]) == "number" and type(p[2]) == "number" then return p[1], p[2] end
+  return O.POS[1], O.POS[2]
+end
+
+function O.PlaceTab(db)
+  local x, y = O.Pos(db)
+  O.tab:ClearAllPoints()
+  O.tab:SetPoint("TOPLEFT", UIParent, "TOPLEFT", x, y)
+end
+
+--- After a drag: keep the tab's top-left, from the screen's top-left.
+function O.SavePos(db)
+  if not db then return end
+  local okL, l = pcall(function() return O.tab:GetLeft() end)
+  local okT, t = pcall(function() return O.tab:GetTop() end)
+  local okH, h = pcall(function() return UIParent:GetHeight() end)
+  l, t, h = okL and num(l), okT and num(t), okH and num(h)
+  if l and t and h then db.pos = { math.floor(l + 0.5), math.floor(t - h + 0.5) } end
+  O.PlaceTab(db)
 end
 
 -- one pool per draw layer: a texture is made in its layer and stays there (the base map in
@@ -214,9 +271,9 @@ function O.Draw(db)
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
   end
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
-  -- 3. size THAT land, not the canvas, and centre it on the screen (Arn, 14 Oct, at 100%: "would
-  -- be nice to keep it centered" - Durotar sits right of the canvas's middle). "map size" is the
-  -- land's height as a share of the screen, never wider than the screen.
+  -- 3. size THAT land, not the canvas (Durotar sits right of the canvas's middle), and hang it from
+  -- the tab: the land's top-left under the tab's bottom-left (Arn, 14 Oct: top left, draggable like
+  -- the Zone Map). "map size" is the land's height as a share of the screen, never wider than it.
   local okH, sh = pcall(function() return UIParent:GetHeight() end)
   local okW, sw = pcall(function() return UIParent:GetWidth() end)
   sh = (okH and num(sh)) or 768
@@ -224,7 +281,8 @@ function O.Draw(db)
   O.scale = math.min(sh * O.Size(db) / 100 / (y1 - y0), sw * 0.95 / (x1 - x0))
   f:SetSize(lw * O.scale, lh * O.scale)
   f:ClearAllPoints()
-  f:SetPoint("CENTER", UIParent, "CENTER", (lw / 2 - (x0 + x1) / 2) * O.scale, ((y0 + y1) / 2 - lh / 2) * O.scale)
+  O.PlaceTab(db)
+  f:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", -x0 * O.scale, y0 * O.scale)
   O.land = { x0, y0, x1, y1 }
   for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]) end
   O.DrawTrail(db)
@@ -319,6 +377,7 @@ function O.Show(db, on)
   if on then
     O.Draw(db)
     f:Show()
+    O.tab:Show()
     O.acc = 0
     f:SetScript("OnUpdate", function(_, e)
       O.acc = O.acc + e
@@ -328,6 +387,7 @@ function O.Show(db, on)
   else
     f:SetScript("OnUpdate", nil)
     f:Hide()
+    O.tab:Hide()
   end
   return on
 end
@@ -361,7 +421,7 @@ local function redraw() if O.frame and O.frame:IsShown() then O.Draw(O.db) end e
 R:Register({
   name = "map",
   desc = "a see-through map over the game (pick a key in Key Bindings > BiS Tools)",
-  usage = "/bist map [clear]",
+  usage = "/bist map [reset | clear]",
   defaults = {},
   options = {
     { kind = "button", label = "show / hide the map", help = "The overlay map: a faint map over the game that clicks pass through. Give it a key in the game's Key Bindings, under BiS Tools.",
@@ -393,9 +453,22 @@ R:Register({
   OnLogin = function(_, db) O.db = db if O.TrailOn(db) then O.StartSampling(db) end end,
   OnEnable = function(_, db) O.db = db if O.TrailOn(db) then O.StartSampling(db) end end,
   OnDisable = function() O.StopSampling() if O.frame then O.Show(O.db, false) end end,
-  OnOpen = function(_, db) O.Show(db) end,
+  -- the Hub's "reset window positions" (recenter) puts the map back top-left; a plain open toggles it
+  OnOpen = function(_, db, recenter)
+    if recenter then
+      db.pos = nil
+      if O.tab then O.PlaceTab(db) end
+      return
+    end
+    O.Show(db)
+  end,
   OnSlash = function(_, db, args)
     O.db = db
+    if args == "reset" then
+      db.pos = nil
+      if O.tab then O.PlaceTab(db) end
+      return NS.Print("the map is back in the top-left corner")
+    end
     if args == "clear" then
       local id = O.MapID()
       if id then O.Trail(db, id) db.trails[tostring(id)] = {} end
