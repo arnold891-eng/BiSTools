@@ -61,11 +61,13 @@ function NS.Comm.Boot()
   if not lib then return end
   lib:RegisterAddon(ADDON, NS.VERSION)
   if BiSToolsDB.comm == false then lib:SetEnabled(false) end
+  if BiSToolsDB.commShare == false and lib.SetSharing then lib:SetSharing(false) end   -- /biscomm share off (minor 12)
   lib:Boot()
 end
 function NS.Comm.Save()
   local lib = _G.LibBiSComm
   if lib and BiSToolsDB then BiSToolsDB.comm = lib:Enabled() and true or false end
+  if lib and BiSToolsDB and lib.Sharing then BiSToolsDB.commShare = lib:Sharing() end
 end
 
 local f = CreateFrame("Frame")
