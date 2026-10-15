@@ -742,9 +742,20 @@ local ev = CreateFrame("Frame")
 ev:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 ev:RegisterEvent("ZONE_CHANGED")
 ev:RegisterEvent("ZONE_CHANGED_INDOORS")
-ev:SetScript("OnEvent", function()
-  if O.frame and O.frame:IsShown() and O.MapID() ~= O.mapID then O.Draw(O.db) end
+-- A NEW PLACE FOUND fills in at once (Arn, 15 Oct: "its not updating when i discover a new zone ...
+-- have to close and open again"). The same map, so the map-changed test below never fired. The
+-- client's own word for it is MAP_EXPLORATION_UPDATED (pcall: a client without it must not stop the
+-- file); and a new subzone is usually where the discovery is, so in "explored" mode that redraws too.
+pcall(ev.RegisterEvent, ev, "MAP_EXPLORATION_UPDATED")
+ev:SetScript("OnEvent", function(_, event)
+  if not (O.frame and O.frame:IsShown()) then return end
+  if event == "MAP_EXPLORATION_UPDATED"
+     or (event == "ZONE_CHANGED" and O.db and O.Mode(O.db) == "explored")
+     or O.MapID() ~= O.mapID then
+    O.Draw(O.db)
+  end
 end)
+O.events = ev
 
 function O.StartSampling(db)
   if O.ticker or not C_Timer or not C_Timer.NewTicker then return end

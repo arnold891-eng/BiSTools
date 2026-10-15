@@ -5051,6 +5051,18 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == 256 * sc, "the last column only as wide as what is left, in its place (from the land's corner)")
+  -- A NEW PLACE FOUND, on the same map, fills in without closing the map (Arn, 15 Oct)
+  do
+    local keepEx = W.explored
+    W.explored = { keepEx[1], { textureWidth = 100, textureHeight = 100, offsetX = 500, offsetY = 300,
+                                isShownByMouseOver = false, fileDataIDs = { 7003 } } }
+    local function count() local n = 0 for _, t in ipairs(O.art) do if t.shown then n = n + 1 end end return n end
+    O.events.scripts.OnEvent(O.events, "MAP_EXPLORATION_UPDATED")
+    ok(count() == 3, "the client says the map was explored: the new piece is drawn at once", count())
+    W.explored = keepEx
+    O.events.scripts.OnEvent(O.events, "ZONE_CHANGED")
+    ok(count() == 2, "and a new subzone redraws too, in explored mode", count())
+  end
   -- the LAND is sized, not the canvas (Durotar sits right of the canvas's middle), and hangs from the
   -- tab, top-left (Arn, 14 Oct: "top left ... like zone map so we can drag"): the piece covers
   -- x 100-400, y 50-250 of the 1002 x 668 art
