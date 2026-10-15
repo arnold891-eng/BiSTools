@@ -37,9 +37,6 @@ function O.Grey(db) return db.grey == true end                  -- off: the map'
 function O.Mode(db) return db.mode == "full" and "full" or "explored" end
 -- Arn, 14 Oct: "also no trail its getting too busy" - off unless switched on
 function O.TrailOn(db) return db.trail == true end
---- paper: the map art laid over the game, faint. ink: MULTIPLIED onto the game - light parchment
---- barely changes the world, dark lines show (Arn: "alpha out the useless stuff").
-function O.Look(db) return db.look == "ink" and "ink" or "paper" end
 
 ------------------------------------------------------------------ where am I --
 
@@ -127,7 +124,6 @@ local function piece(file, x, y, w, h, fw, fh)
   t:ClearAllPoints()
   t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
   if t.SetDesaturated then t:SetDesaturated(O.Grey(O.db or {})) end
-  if t.SetBlendMode then t:SetBlendMode(O.Look(O.db or {}) == "ink" and "MOD" or "BLEND") end
   if O.Grey(O.db or {}) then t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1) else t:SetVertexColor(1, 1, 1, 1) end
   return t
 end
@@ -342,10 +338,6 @@ R:Register({
       help = "seen: only the parts of the zone you have been to - everything else see-through, and it fills in as you explore. all: the whole zone, faint.",
       get = function(db) return O.Mode(db) == "full" and "all" or "seen" end,
       set = function(db, v) db.mode = (v == "all") and "full" or nil redraw() end },
-    { kind = "seg", label = "map look", values = { "paper", "ink" },
-      help = "paper: the map laid over the game, faint. ink: only its dark lines darken the game - the light parchment all but vanishes.",
-      get = function(db) return O.Look(db) end,
-      set = function(db, v) db.look = (v == "ink") and "ink" or nil redraw() end },
     { kind = "step", label = "map size", help = "How tall the map is, as a share of your screen.", min = 30, max = 100, step = 10,
       get = function(db) return O.Size(db) end,
       set = function(db, v) db.size = v redraw() end,

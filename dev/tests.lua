@@ -1842,9 +1842,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (6)
   -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 6, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -4997,11 +4997,8 @@ do
   shown = 0
   for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
   ok(shown == 12, "full: all twelve tiles of the zone", shown)
-  ok(O.art[1].blend == "BLEND", "paper: laid over the game")
-  odb.look = "ink"
-  O.Draw(odb)
-  ok(O.art[1].blend == "MOD", "ink: multiplied onto the game, so light parchment all but vanishes")
-  odb.look = nil
+  -- (an "ink" look - BlendMode MOD - was tried and taken out, 14 Oct: Arn "ink wonky"; a MOD
+  -- texture's transparent edges go black, so the explored pieces showed as dark boxes)
   odb.mode = nil
   -- the trail: a dot when you moved far enough, none for a shuffle
   ok(not O.TrailOn(odb) and not O.Sample(odb), "the trail is off by default (Arn: too busy) - nothing sampled")
