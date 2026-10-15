@@ -112,7 +112,15 @@ _G.C_Map = {
   GetBestMapForUnit = function() return W.map end,
   GetPlayerMapPosition = function() return { GetXY = function() return W.px, W.py end } end,
   GetMapWorldSize = function() return 5000, 3300 end,
+  -- the overlay map's art (shapes as the client documents them): one layer of 256-px tiles,
+  -- 1002 x 668 shown, 4 x 3 files
+  GetMapArtLayers = function() return { { layerWidth = 1002, layerHeight = 668, tileWidth = 256, tileHeight = 256,
+    minScale = 1, maxScale = 1, additionalZoomSteps = 0 } } end,
+  GetMapArtLayerTextures = function() local t = {} for i = 1, 12 do t[i] = 100000 + i end return t end,
 }
+-- the explored pieces of the zone: W.explored, a list as GetExploredMapTextures answers it
+W.explored = {}
+_G.C_MapExplorationInfo = { GetExploredMapTextures = function() return W.explored end }
 _G.GameTooltip = { SetOwner = function() end, AddLine = function() end, AddDoubleLine = function() end, Show = function() end, Hide = function() end,
   IsShown = function() return W.tooltipShown end, GetOwner = function() return nil end }
 _G.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
@@ -206,6 +214,12 @@ local function Texture()
   function t:SetTexCoord() end
   function t:ClearAllPoints() end
   function t:SetRotation(r) if type(r) ~= "number" then error("SetRotation wants a number") end self.rot = r end
+  function t:SetVertexColor(r, g, b, a)
+    if not num3(r, g, b) then error("SetVertexColor wants r,g,b numbers") end
+    self.vertex = { r, g, b, a }
+  end
+  function t:SetDesaturated(on) self.desat = on end
+  function t:SetBlendMode(m) if type(m) ~= "string" then error("SetBlendMode wants a mode name") end self.blend = m end
   function t:SetColorTexture(r, g, b, a)
     if not num3(r, g, b) then error("SetColorTexture wants r,g,b numbers") end
     self.color = { r, g, b, a }
@@ -1775,19 +1789,19 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 7, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 8, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
-     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg")
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map")
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "6 of 7 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 8 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 7 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 8 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1805,7 +1819,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "5 of 7 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 8 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1828,9 +1842,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (3) -> 8 headers + 30 rows
-  -- (the rival settings moved out of recap into their own tool, 14 Oct)
-  ok(#opt.rows == 8 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (6)
+  -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 6, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1899,7 +1913,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "5 of 7 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 8 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -3094,6 +3108,41 @@ do
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
     root.click()
     ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    -- THE FRIENDS LIST (Arn, 14 Oct: "it thinks is a rival when its the same faction as me"): a
+    -- Battle.net friend's menu has no unit and names the BattleTag nickname; the character comes
+    -- from the account, and the line is the pal's
+    local keepBN, keepFac = _G.C_BattleNet, _G.UnitFactionGroup
+    _G.UnitFactionGroup = function() return "Horde", "Horde" end
+    _G.C_BattleNet = { GetAccountInfoByID = function(id)
+      if id == 77 then return { accountName = "ShinyPants", gameAccountInfo = { characterName = "Darthsidiouz Sithlord", factionName = "Horde" } } end
+      if id == 79 then return { accountName = "Foe", gameAccountInfo = { characterName = "Alli Ance", factionName = "Alliance" } } end
+      if id == 78 then return { accountName = "Elsewhere", gameAccountInfo = {} } end
+    end }
+    root.lines, root.click = {}, nil
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
+    root.click()
+    ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: remove pal", "and next time it offers to take them off")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
+    ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
+    root.lines = {}
+    -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
+    -- (Arn, 14 Oct: "if we cant see we add both?")
+    RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
+    ok(root.lines[1] == "BiS: add pal" and root.lines[2] == "BiS: add rival" and #root.lines == 2,
+      "can't tell: both lines", table.concat(root.lines, " / "))
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Chatty" }, "CHAT_ROSTER")
+    ok(#root.lines == 2, "a name in chat, no unit: both lines too")
+    _G.C_BattleNet, _G.UnitFactionGroup = keepBN, keepFac
+    pals["Darthsidiouz Sithlord"] = nil
     -- and in the rivals & pals window's right column
     RC.BuildRivals(rdb2)
     RC.db = RC.db or rdb2
@@ -4914,6 +4963,223 @@ do
   _G.issecretvalue = keep.is
 end
 
+-- ---------------------------------------------------------------- the overlay map
+-- (14 Oct 2026) Arn: Diablo's see-through map over the game, "alpha out the useless stuff". Our own
+-- click-through frame; explored pieces only by default; an arrow, and a dotted trail.
+do
+  local O = NS.Overlay
+  local odb = R:DBFor(R:Get("map"))
+  ok(type(_G.BiSTools_ToggleOverlayMap) == "function" and _G.BINDING_NAME_BISTOOLS_OVERLAYMAP ~= nil,
+    "the overlay map has a key binding (Key Bindings > BiS Tools)")
+  W.explored = {}
+  W.map, W.px, W.py, W.facing = 1952, 0.40, 0.60, 1.5
+  O.Show(odb, false)              -- the options section above pressed "open / close the map"
+  -- the section's tick switches the tool: off, the open button only says so (Arn, 14 Oct: "i uncheck
+  -- the map but can still show and hide it by clicking map button")
+  local openBtn
+  for _, o in ipairs(R:Get("map").options) do if o.kind == "button" then openBtn = o end end
+  R:SetEnabled("map", false)
+  openBtn.action(odb)
+  ok(not (BiSToolsOverlayMap and BiSToolsOverlayMap:IsShown()), "map tool off: the open button opens nothing")
+  _G.BiSTools_ToggleOverlayMap()
+  ok(not (BiSToolsOverlayMap and BiSToolsOverlayMap:IsShown()), "and neither does the key")
+  R:SetEnabled("map", true)
+  ok(openBtn.button == "open" and openBtn.label == "open / close the map", "the button says what it does")
+  _G.BiSTools_ToggleOverlayMap()
+  local f = BiSToolsOverlayMap
+  ok(f and f:IsShown(), "the key shows it")
+  -- the defaults are Arn's pick: all, grey, 30% of the screen, 50% solid
+  ok(O.Mode(odb) == "full" and O.Grey(odb) and O.Size(odb) == 30 and O.Alpha(odb) == 50,
+    "defaults: all of the map, grey, 30% size, 50% solid (Arn: 'a nice place')")
+  -- the rest of this section drives the explored-pieces look, in colour, at 70% and 10%
+  odb.mode, odb.grey, odb.size, odb.alpha = "explored", false, 70, 10
+  O.Draw(odb)
+  -- a place with no explored pieces at all (a city: the game shows it whole) draws the whole map
+  -- (Arn's Orgrimmar, 14 Oct: an empty map and "nothing explored here yet")
+  local whole = 0
+  for _, t in ipairs(O.art) do if t.shown then whole = whole + 1 end end
+  ok(whole == 12, "no explored pieces (a city): the whole map, faint", whole)
+  -- 70% of a 768-tall screen, the art's 1002 x 668 kept in shape
+  ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - 1002 / 668) < 0.001, "sized to the screen, the art's own shape", f.w .. "x" .. f.h)
+  -- one explored piece of 300 x 200 pixels at (100, 50): two 256 columns (256 + 44) and one row of 200
+  W.explored = { { textureWidth = 300, textureHeight = 200, offsetX = 100, offsetY = 50,
+                   isShownByMouseOver = false, fileDataIDs = { 7001, 7002 } } }
+  O.Draw(odb)
+  local shown = 0
+  for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
+  ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
+  local sc = O.scale
+  ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
+  -- the LAND is sized, not the canvas (Durotar sits right of the canvas's middle), and hangs from the
+  -- tab, top-left (Arn, 14 Oct: "top left ... like zone map so we can drag"): the piece covers
+  -- x 100-400, y 50-250 of the 1002 x 668 art
+  ok(math.abs(sc - 768 * 0.70 / 200) < 1e-9, "map size is the land's height on screen", sc)
+  ok(f.point[1] == "TOPLEFT" and f.point[2] == O.tab and f.point[3] == "BOTTOMLEFT"
+     and math.abs(f.point[4] + 100 * sc) < 1e-9 and math.abs(f.point[5] - 50 * sc) < 1e-9,
+    "the land's top-left hangs under the tab", f.point[4], f.point[5])
+  ok(O.tab.point[1] == "TOPLEFT" and O.tab.point[4] == 24 and O.tab.point[5] == -80, "the tab: top-left of the screen by default")
+  -- the tab: invisible until hovered, and the one thing that takes the mouse (Arn: "only visible if you hover over")
+  ok(O.tab:IsShown() and O.tab.alpha == 0, "the tab shows with the map, invisible")
+  O.tab.scripts.OnEnter(O.tab)
+  ok(O.tab.alpha == 1, "hovered: it shows")
+  O.tab.scripts.OnLeave(O.tab)
+  ok(O.tab.alpha == 0, "the mouse leaves: gone again")
+  ok(O.tab.scripts.OnDragStart and O.tab.scripts.OnDragStop, "it drags (the map hangs off it, so the map follows)")
+  odb.pos = { 300, -200 }
+  O.Draw(odb)
+  ok(O.tab.point[4] == 300 and O.tab.point[5] == -200, "a saved spot is where it goes")
+  SlashCmdList.BISTOOLS("map reset")
+  ok(odb.pos == nil and O.tab.point[4] == 24, "/bist map reset: back to the top-left")
+  -- right-click the tab: the quick menu (Arn, 14 Oct, the Zone Map's tab menu)
+  O.tab.scripts.OnClick(O.tab, "RightButton")
+  local menu = BiSToolsOverlayMapMenu
+  ok(menu and menu:IsShown() and O.tab.alpha == 1, "right-click the tab: the menu, and the tab stays visible")
+  local inEsc = false
+  for _, n in ipairs(UISpecialFrames) do if n == "BiSToolsOverlayMapMenu" then inEsc = true end end
+  ok(inEsc, "Escape closes the menu")
+  local function row(label) for _, b in ipairs(menu.rows) do if b.def.label == label then return b end end end
+  row("Lock map").scripts.OnClick(row("Lock map"))
+  ok(odb.locked == true and row("Lock map").tick.shown, "Lock map: ticked")
+  -- every tick row UNTICKS too (Arn, 14 Oct: "cant unclick the grey" - "(not on) and false or nil"
+  -- is nil both ways), and the label never moves when it does ("everything shifts")
+  for _, label in ipairs({ "Show group", "Grey", "Show all of the map" }) do
+    local b = row(label)
+    local before = b.def.get(odb)
+    local at = b.text.anchor and b.text.anchor[4]
+    b.scripts.OnClick(b)
+    ok(b.def.get(odb) == not before and b.tick.shown == not before, label .. ": one click flips it", tostring(before))
+    b.scripts.OnClick(b)
+    ok(b.def.get(odb) == before and b.text.anchor[4] == at, label .. ": and back, the label in the same place")
+  end
+  local greyOpt
+  for _, o in ipairs(R:Get("map").options) do if o.label == "grey map" then greyOpt = o end end
+  local g0 = greyOpt.get(odb)
+  greyOpt.set(odb, true)
+  greyOpt.set(odb, false)
+  ok(greyOpt.get(odb) == false, "the options window's grey map unticks too")
+  greyOpt.set(odb, g0)
+  O.tab.dragging = nil
+  O.tab.scripts.OnDragStart(O.tab)
+  ok(not O.tab.dragging, "a locked map does not drag")
+  row("Lock map").scripts.OnClick(row("Lock map"))
+  ok(odb.locked == nil, "and unlocks")
+  local a0 = O.Alpha(odb)
+  row("Opacity").plus.scripts.OnClick(row("Opacity").plus)
+  ok(O.Alpha(odb) == a0 + 5 and row("Opacity").text.text:find(tostring(a0 + 5) .. "%", 1, true), "Opacity +: 5 more, and the row says so")
+  row("Opacity").minus.scripts.OnClick(row("Opacity").minus)
+  ok(O.Alpha(odb) == a0, "Opacity -: back")
+  odb.alpha = 5
+  row("Opacity").minus.scripts.OnClick(row("Opacity").minus)
+  ok(O.Alpha(odb) == 5, "never below 5")
+  odb.alpha = 10
+  O.tab.scripts.OnClick(O.tab, "RightButton")
+  ok(not menu:IsShown(), "right-click again: the menu shuts")
+  -- Show group: the party as dots in class colours, the player left out, a hidden position no dot
+  local keepPos, keepN, keepRaid, keepClass = C_Map.GetPlayerMapPosition, _G.GetNumGroupMembers, _G.IsInRaid, _G.UnitClass
+  local spots = { party1 = { 0.30, 0.40 }, party2 = { 0.50, 0.50 } }
+  C_Map.GetPlayerMapPosition = function(_, u)
+    local p = spots[u] or (u == "player" and { W.px, W.py })
+    return p and { GetXY = function() return p[1], p[2] end } or nil
+  end
+  _G.GetNumGroupMembers = function() return 4 end
+  _G.IsInRaid = function() return false end
+  _G.UnitClass = function(u) return "Hunter", "HUNTER" end
+  local keepName = _G.UnitName
+  _G.UnitName = function(u) if u == "party1" then return "Mos Dei" elseif u == "party2" then return "Kel" end return keepName(u) end
+  local keepColors = _G.RAID_CLASS_COLORS
+  _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
+  ok(O.Group() == 2, "Show group: two party members placed (party3 is hidden: no dot)")
+  ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == 0.30 * f.w, "a dot in class colour, at their spot")
+  ok(O.gdots[1].name and O.gdots[1].name.shown and O.gdots[1].name.text == "Mos",
+    "a small name beside the dot - the first name only (Arn: 'maybe we can add small name')", O.gdots[1].name and O.gdots[1].name.text)
+  odb.group = false
+  ok(O.Group() == 0 and not O.gdots[1].shown and not O.gdots[1].name.shown, "Show group off: no dots, no names")
+  odb.group = nil
+  C_Map.GetPlayerMapPosition, _G.GetNumGroupMembers, _G.IsInRaid, _G.UnitClass = keepPos, keepN, keepRaid, keepClass
+  _G.UnitName = keepName
+  _G.RAID_CLASS_COLORS = keepColors
+  O.Draw(odb)
+  ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
+  ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "faintness 10% = 10% solid", f.alpha)
+  odb.grey = true
+  O.Draw(odb)
+  ok(O.art[1].desat == true and O.art[1].vertex[1] < 1, "grey map: desaturated and tinted")
+  odb.grey = false
+  O.Draw(odb)
+  -- the arrow: your spot and your facing
+  f.scripts.OnUpdate(f, 0.2)
+  ok(O.arrow.shown and O.arrow.face == 1.5 and O.arrow[1].shown and O.arrow[1].from, "your arrow - our own three lines, turned the way you face")
+  ok(O.arrow.x == 0.40 * f.w and O.arrow.y == -0.60 * f.h, "at your spot on the map")
+  -- facing 1.5 rad counter-clockwise from north = pointing west-ish: the tip lies left of you
+  ok(O.arrow[1].from[1] < O.arrow.x, "the tip points the way you face (west of you at 1.5 rad)")
+  -- hidden position (an instance): no arrow, the art stays, and it says so
+  local keepPos = C_Map.GetPlayerMapPosition
+  C_Map.GetPlayerMapPosition = function() return nil end
+  f.scripts.OnUpdate(f, 0.2)
+  ok(not O.arrow.shown and O.note.text == "your position is hidden here", "position hidden: no arrow, and it says so")
+  C_Map.GetPlayerMapPosition = keepPos
+  -- a secret facing never reaches SetRotation
+  -- a SECRET facing says "number" to type() and refuses arithmetic and comparison, as Forever's does
+  local secretMeta = { __index = function() error("attempt to use a secret value", 2) end,
+    __eq = function() error("attempt to compare a secret value", 2) end,
+    __lt = function() error("attempt to compare a secret value", 2) end }
+  local keep = { face = _G.GetPlayerFacing, is = _G.issecretvalue, type = _G.type }
+  local realType = type
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "number" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  _G.GetPlayerFacing = function() return setmetatable({}, secretMeta) end
+  local okS, errS = pcall(O.Tick)
+  ok(okS and O.arrow.face == 1.5, "a secret facing is never used - the arrow keeps its last turn", errS)
+  _G.GetPlayerFacing, _G.issecretvalue, _G.type = keep.face, keep.is, keep.type
+  -- all: the zone's 12 base tiles - which ARE the fog of war on these maps - with the explored
+  -- pieces painted over them, as the world map does (Arn, 14 Oct: "all setting is showing fog of war")
+  odb.mode = nil
+  O.Draw(odb)
+  shown = 0
+  local base, over = 0, 0
+  for _, t in ipairs(O.art) do
+    if t.shown then
+      shown = shown + 1
+      if t.layer == "BORDER" then base = base + 1 elseif t.layer == "ARTWORK" then over = over + 1 end
+    end
+  end
+  ok(shown == 14 and base == 12 and over == 2, "all: the 12 base tiles under, the 2 explored pieces over", base, over)
+  ok(f.point[4] == 0 and f.point[5] == 0, "all: the whole map, its top-left under the tab")
+  -- (an "ink" look - BlendMode MOD - was tried and taken out, 14 Oct: Arn "ink wonky"; a MOD
+  -- texture's transparent edges go black, so the explored pieces showed as dark boxes)
+  odb.mode = nil
+  -- the trail: a dot when you moved far enough, none for a shuffle
+  ok(not O.TrailOn(odb) and not O.Sample(odb), "the trail is off by default (Arn: too busy) - nothing sampled")
+  odb.trail = true
+  odb.trails = nil
+  ok(O.Sample(odb), "a first dot")
+  W.px = 0.401
+  ok(not O.Sample(odb), "a shuffle is not a new dot")
+  W.px = 0.42
+  ok(O.Sample(odb), "a few steps on: a new dot")
+  ok(#O.Trail(odb, 1952) == 2 and O.dots[2] and O.dots[2].shown, "two dots, drawn on the open map")
+  SlashCmdList.BISTOOLS("map clear")
+  ok(#O.Trail(odb, 1952) == 0, "/bist map clear wipes this map's trail")
+  odb.trail = nil
+  -- click-through, and gone with the key again
+  _G.BiSTools_ToggleOverlayMap()
+  ok(not f:IsShown() and f.scripts.OnUpdate == nil, "the key again hides it, and nothing ticks")
+  -- cost: a second of the open map asks a handful of things (10 arrow repaints)
+  _G.BiSTools_ToggleOverlayMap()
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() for _ = 1, 60 do f.scripts.OnUpdate(f, 1 / 60) end end)
+  ok(n <= 40, "a second of the open overlay map asks at most 40 things: " .. n, Cost.Top and Cost.Top(by, 5))
+  -- in a 40-player raid with Show group on: twice a second, a position and a class per member
+  local keepN2, keepRaid2 = _G.GetNumGroupMembers, _G.IsInRaid
+  _G.GetNumGroupMembers = function() return 40 end
+  _G.IsInRaid = function() return true end
+  n, by = Cost.Count(function() for _ = 1, 60 do f.scripts.OnUpdate(f, 1 / 60) end end)
+  ok(n <= 400, "a second of the open map in a 40-man raid asks at most 400 things: " .. n, Cost.Top and Cost.Top(by, 5))
+  _G.GetNumGroupMembers, _G.IsInRaid = keepN2, keepRaid2
+  _G.BiSTools_ToggleOverlayMap()
+  W.explored = {}
+end
+
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
   -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
@@ -4921,7 +5187,9 @@ local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SL
   LibStub = true, HBD_PINS_WORLDMAP_SHOW_PARENT = true, HBD_PINS_WORLDMAP_SHOW_CONTINENT = true,
   HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
-  BiSTheme = true }   -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  BiSTheme = true,    -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  -- the overlay map's key binding: Bindings.xml calls a global, and the client reads these two names
+  BiSTools_ToggleOverlayMap = true, BINDING_HEADER_BISTOOLS = true, BINDING_NAME_BISTOOLS_OVERLAYMAP = true }
 for k in pairs(_G) do
   if not before[k] and not allowed[k] and not frames[k] then error("leaked global: " .. k) end
 end

@@ -1354,7 +1354,10 @@ RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_R
   -- Arn, 13 Oct: "i cant see the add rival when i right click them". A unit frame that opens its
   -- menu through the secure "togglemenu" action (EllesmereUI's do, to dodge 12.x's togglemenu gate)
   -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
-  "TARGET", "FOCUS" }
+  "TARGET", "FOCUS",
+  -- the Friends list (Arn, 14 Oct: no line on a Battle.net friend's first right-click after a
+  -- reload - a kind learned only when it opens misses that first time)
+  "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
 
 --- CAN A LINE GO INTO THE GAME'S RIGHT-CLICK MENU HERE? Not inside an instance. Arn's BugGrabber
 --- in a battleground, 13 Oct: "FrameUtil.lua:223: attempt to perform arithmetic on local 'frameLeft'
@@ -1403,8 +1406,34 @@ function RC.MenuName(ctx)
   return first
 end
 
+-- the Friends list's menus: whoever is in them is a friend, so a pal - never a rival
+RC.FRIEND_MENUS = { FRIEND = true, FRIEND_OFFLINE = true, BN_FRIEND = true, BN_FRIEND_OFFLINE = true }
+
+--- A friend menu's character: a Battle.net friend through their account (the menu's own "name" is
+--- the BattleTag nickname - "ShinyPants" for "Darthsidiouz Sithlord"), a character friend by name.
+function RC.FriendName(ctx)
+  local id = field(ctx, "bnetIDAccount")
+  if id ~= nil and C_BattleNet and C_BattleNet.GetAccountInfoByID then
+    local ok, info = pcall(C_BattleNet.GetAccountInfoByID, id)
+    local game = ok and type(info) == "table" and not hidden(info) and field(info, "gameAccountInfo")
+    local char = type(game) == "table" and field(game, "characterName")
+    local side = type(game) == "table" and field(game, "factionName")
+    if type(char) == "string" and char ~= "" then return char, type(side) == "string" and side or nil end
+    return nil                         -- a Battle.net friend not in this game: nobody to pal
+  end
+  return RC.MenuName(ctx)
+end
+
+--- The pal a name belongs to: whole, or by its first word (a plate may give only that).
+function RC.PalNamed(db, name)
+  local list = RC.Pals(db)
+  if list[name] then return list[name], name end
+  local first = name:match("^(%S+)")
+  for k, e in pairs(list) do if k:match("^(%S+)") == first then return e, k end end
+end
+
 --- The lines for one menu: add, or remove, this player as a rival.
-function RC.MenuLines(db, root, ctx)
+function RC.MenuLines(db, root, ctx, kind)
   -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
   -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
   local function say(why) RC.menuDecision = why end
@@ -1422,17 +1451,34 @@ function RC.MenuLines(db, root, ctx)
     if hidden(isPlayer) then return say("the game HID whether " .. unit .. " is a player") end
     if isPlayer ~= true then return say(unit .. " is not a player") end
   end
-  local name = RC.MenuName(ctx)
+  -- A FRIENDS-LIST MENU (Arn, 14 Oct, right-clicking a Battle.net friend: "it thinks is a rival when
+  -- its the same faction as me"): no unit to ask, so it fell through to rival. A friend's menu is a
+  -- pal's, always - and a Battle.net friend's "name" is the BattleTag nickname, so the character's
+  -- name comes from the friend's account instead.
+  local friendMenu = RC.FRIEND_MENUS[kind or ""] or field(ctx, "bnetIDAccount") ~= nil
+  local name, faction
+  if friendMenu then name, faction = RC.FriendName(ctx) else name = RC.MenuName(ctx) end
   if not name then
     local raw = field(ctx, "name")
     return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
   end
   local r, key = RC.Find(db, name)
-  -- a friend is never ADDED (Arn, 14 Oct: "there should be a check if its friendly target not a
-  -- rival but a pal - enemy hostile player rival"); one already on the list can still be taken off
-  if not r and type(unit) == "string" and RC.Friendly(unit) then
+  -- PAL OR RIVAL: a unit we can see says by itself; a Battle.net friend's account names their
+  -- faction; and when nothing says, BOTH lines - the player picks (Arn, 14 Oct: "generally they are
+  -- all the same faction but i guess if we cant see we add both?")
+  local side = "both"
+  if type(unit) == "string" then
+    side = RC.Friendly(unit) and "pal" or "rival"
+  elseif type(faction) == "string" then
+    local okM, mine = pcall(UnitFactionGroup, "player")
+    if okM and type(mine) == "string" and not hidden(mine) then side = (faction == mine) and "pal" or "rival" end
+  end
+  -- a friend is never ADDED as a rival (Arn, 14 Oct: "there should be a check if its friendly target
+  -- not a rival but a pal"); one already on the list can still be taken off
+  if not r and side ~= "rival" then
     -- a friend gets the PAL line instead (Arn, 14 Oct: "right click on and add a pal")
-    local p, pkey = RC.PalFor(db, unit)
+    local p, pkey
+    if type(unit) == "string" then p, pkey = RC.PalFor(db, unit) else p, pkey = RC.PalNamed(db, name) end
     say((p and "remove pal" or "add pal") .. " for " .. name .. " - friendly, so a pal, not a rival")
     if root.CreateDivider then root:CreateDivider() end
     root:CreateButton(p and "BiS: remove pal" or "BiS: add pal", function()
@@ -1446,15 +1492,17 @@ function RC.MenuLines(db, root, ctx)
           local ok, v = pcall(fn, ...)
           if ok and not hidden(v) then return v end
         end
-        RC.Pals(db)[name] = { guid = ask(UnitGUID, unit), added = time and time() or 0 }
+        RC.Pals(db)[name] = { guid = type(unit) == "string" and ask(UnitGUID, unit) or nil, added = time and time() or 0 }
         RC.SpotPals(db)
         NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
       end
     end)
-    return
+    if side == "pal" then return end
+    say("both lines for " .. name .. " - nothing here says friend or foe, so you pick")
+  else
+    say("added for " .. name)
+    if root.CreateDivider then root:CreateDivider() end
   end
-  say("added for " .. name)
-  if root.CreateDivider then root:CreateDivider() end
   root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
     if r then
       RC.Rivals(db)[key] = nil
@@ -1494,7 +1542,7 @@ RC.tags = {}                       -- menu kinds the line is in
 function RC.HookTag(db, kind)
   if RC.tags[kind] or not RC.MenuAllowed(kind) then return end
   RC.tags[kind] = true
-  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx, kind) end)
 end
 
 function RC.HookMenus(db)

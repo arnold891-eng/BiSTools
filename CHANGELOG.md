@@ -1,3 +1,15 @@
+## 0.9.0
+
+- **An overlay map, Diablo style.** Give it a key (Key Bindings > AddOns > BiS Tools > Overlay map - Alt+M works well) or type `/bist map`, and a faint map of your zone sits over the game. Clicks go straight through it, so you keep playing and fighting.
+  - **It sits top-left** and hangs from a small tab that only shows when your mouse is over it - drag the tab to put the map anywhere; `/bist map reset` puts it back.
+  - **Right-click the tab** for a quick menu: Show group, Lock map, Show all of the map, Grey, Opacity and Size with - and +, and All settings.
+  - **Your arrow** in gold, turning as you turn. **Show group**: your party and raid as dots in class colours, with their first names.
+  - **What it shows**: all of the zone (the explored parts painted over, as on the world map), or only what you've explored - the rest stays see-through and fills in as you go. A city is always shown whole.
+  - Defaults: all, grey, 30% of the screen, 50% solid. A dotted trail of where you walked is there too, off by default.
+- **Pals from the Friends list.** Right-click a friend and "BiS: add pal" is there - a Battle.net friend is added by their character's name, not their BattleTag. Same faction is a pal, the other faction a rival; when nothing says friend or foe (a name in chat), you get both lines and pick.
+- BiS Tools has an icon in the addon list (a wrench).
+- The shared BiS channel no longer hooks the summon popup on Forever, where hooking Blizzard's code can break it until a restart.
+
 ## 0.8.0
 
 - **The death recap, remade** (the BiS shape, 1.43:1): the three cards, then **who hit you** - a bar per attacker with their damage and share - and **what kind** (physical or magic, and which school), your health across the hits, all ten hits in two columns, and the total. The rivals list is no longer tucked under it.
