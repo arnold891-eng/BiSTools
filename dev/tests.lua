@@ -3108,6 +3108,30 @@ do
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
     root.click()
     ok(pals["Pal Guy"] and pals["Pal Guy"].guid == "Player-1-PAL", "clicked: a pal, GUID and all")
+    -- THE FRIENDS LIST (Arn, 14 Oct: "it thinks is a rival when its the same faction as me"): a
+    -- Battle.net friend's menu has no unit and names the BattleTag nickname; the character comes
+    -- from the account, and the line is the pal's
+    local keepBN = _G.C_BattleNet
+    _G.C_BattleNet = { GetAccountInfoByID = function(id)
+      if id == 77 then return { accountName = "ShinyPants", gameAccountInfo = { characterName = "Darthsidiouz Sithlord" } } end
+      if id == 78 then return { accountName = "Elsewhere", gameAccountInfo = {} } end
+    end }
+    root.lines, root.click = {}, nil
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
+    root.click()
+    ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
+    ok(root.lines[1] == "BiS: remove pal", "and next time it offers to take them off")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
+    ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
+    root.lines = {}
+    RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
+    ok(root.lines[1] == "BiS: add pal", "a character friend's menu: add pal too")
+    _G.C_BattleNet = keepBN
+    pals["Darthsidiouz Sithlord"] = nil
     -- and in the rivals & pals window's right column
     RC.BuildRivals(rdb2)
     RC.db = RC.db or rdb2

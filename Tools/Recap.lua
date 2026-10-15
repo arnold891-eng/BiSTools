@@ -1403,8 +1403,33 @@ function RC.MenuName(ctx)
   return first
 end
 
+-- the Friends list's menus: whoever is in them is a friend, so a pal - never a rival
+RC.FRIEND_MENUS = { FRIEND = true, FRIEND_OFFLINE = true, BN_FRIEND = true, BN_FRIEND_OFFLINE = true }
+
+--- A friend menu's character: a Battle.net friend through their account (the menu's own "name" is
+--- the BattleTag nickname - "ShinyPants" for "Darthsidiouz Sithlord"), a character friend by name.
+function RC.FriendName(ctx)
+  local id = field(ctx, "bnetIDAccount")
+  if id ~= nil and C_BattleNet and C_BattleNet.GetAccountInfoByID then
+    local ok, info = pcall(C_BattleNet.GetAccountInfoByID, id)
+    local game = ok and type(info) == "table" and not hidden(info) and field(info, "gameAccountInfo")
+    local char = type(game) == "table" and field(game, "characterName")
+    if type(char) == "string" and char ~= "" then return char end
+    return nil                         -- a Battle.net friend not in this game: nobody to pal
+  end
+  return RC.MenuName(ctx)
+end
+
+--- The pal a name belongs to: whole, or by its first word (a plate may give only that).
+function RC.PalNamed(db, name)
+  local list = RC.Pals(db)
+  if list[name] then return list[name], name end
+  local first = name:match("^(%S+)")
+  for k, e in pairs(list) do if k:match("^(%S+)") == first then return e, k end end
+end
+
 --- The lines for one menu: add, or remove, this player as a rival.
-function RC.MenuLines(db, root, ctx)
+function RC.MenuLines(db, root, ctx, kind)
   -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
   -- menu was PLAYER and joined, so the question left is what the line's own checks decided)
   local function say(why) RC.menuDecision = why end
@@ -1422,7 +1447,13 @@ function RC.MenuLines(db, root, ctx)
     if hidden(isPlayer) then return say("the game HID whether " .. unit .. " is a player") end
     if isPlayer ~= true then return say(unit .. " is not a player") end
   end
-  local name = RC.MenuName(ctx)
+  -- A FRIENDS-LIST MENU (Arn, 14 Oct, right-clicking a Battle.net friend: "it thinks is a rival when
+  -- its the same faction as me"): no unit to ask, so it fell through to rival. A friend's menu is a
+  -- pal's, always - and a Battle.net friend's "name" is the BattleTag nickname, so the character's
+  -- name comes from the friend's account instead.
+  local friendMenu = RC.FRIEND_MENUS[kind or ""] or field(ctx, "bnetIDAccount") ~= nil
+  local name
+  if friendMenu then name = RC.FriendName(ctx) else name = RC.MenuName(ctx) end
   if not name then
     local raw = field(ctx, "name")
     return say(raw == nil and "the menu gave no name (hidden by the game, or none)" or "it is your own menu")
@@ -1430,9 +1461,10 @@ function RC.MenuLines(db, root, ctx)
   local r, key = RC.Find(db, name)
   -- a friend is never ADDED (Arn, 14 Oct: "there should be a check if its friendly target not a
   -- rival but a pal - enemy hostile player rival"); one already on the list can still be taken off
-  if not r and type(unit) == "string" and RC.Friendly(unit) then
+  if not r and (friendMenu or (type(unit) == "string" and RC.Friendly(unit))) then
     -- a friend gets the PAL line instead (Arn, 14 Oct: "right click on and add a pal")
-    local p, pkey = RC.PalFor(db, unit)
+    local p, pkey
+    if type(unit) == "string" then p, pkey = RC.PalFor(db, unit) else p, pkey = RC.PalNamed(db, name) end
     say((p and "remove pal" or "add pal") .. " for " .. name .. " - friendly, so a pal, not a rival")
     if root.CreateDivider then root:CreateDivider() end
     root:CreateButton(p and "BiS: remove pal" or "BiS: add pal", function()
@@ -1446,7 +1478,7 @@ function RC.MenuLines(db, root, ctx)
           local ok, v = pcall(fn, ...)
           if ok and not hidden(v) then return v end
         end
-        RC.Pals(db)[name] = { guid = ask(UnitGUID, unit), added = time and time() or 0 }
+        RC.Pals(db)[name] = { guid = type(unit) == "string" and ask(UnitGUID, unit) or nil, added = time and time() or 0 }
         RC.SpotPals(db)
         NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
       end
@@ -1494,7 +1526,7 @@ RC.tags = {}                       -- menu kinds the line is in
 function RC.HookTag(db, kind)
   if RC.tags[kind] or not RC.MenuAllowed(kind) then return end
   RC.tags[kind] = true
-  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx) end)
+  pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) RC.MenuLines(db, root, ctx, kind) end)
 end
 
 function RC.HookMenus(db)
