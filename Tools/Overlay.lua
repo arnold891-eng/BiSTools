@@ -115,7 +115,7 @@ function O.Build()
   local label = tab:CreateFontString(nil, "OVERLAY")
   label:SetFont(STANDARD_TEXT_FONT, 10, "")
   label:SetPoint("CENTER", tab, "CENTER", 0, 0)
-  label:SetText("|cffb980ffBiS>|r map")
+  label:SetText(T.text("accent", "BiS>") .. " map")
   tab.label = label
   tab:SetAlpha(0)
   tab:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
@@ -152,7 +152,9 @@ function O.SavePos(db)
   local okL, l = pcall(function() return O.tab:GetLeft() end)
   local okT, t = pcall(function() return O.tab:GetTop() end)
   local okH, h = pcall(function() return UIParent:GetHeight() end)
-  l, t, h = okL and num(l), okT and num(t), okH and num(h)
+  l = okL and num(l) or nil
+  t = okT and num(t) or nil
+  h = okH and num(h) or nil
   if l and t and h then db.pos = { math.floor(l + 0.5), math.floor(t - h + 0.5) } end
   O.PlaceTab(db)
 end
