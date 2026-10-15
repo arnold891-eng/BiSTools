@@ -97,27 +97,36 @@ function O.Build()
   return f
 end
 
+-- one pool per draw layer: a texture is made in its layer and stays there (the base map in
+-- BORDER, the explored pieces over it in ARTWORK)
+O.pools = {}
 local function tex(layer)
-  local t = table.remove(O.art.pool or {})
-  if not t then t = O.frame:CreateTexture(nil, layer or "ARTWORK") end
+  layer = layer or "ARTWORK"
+  O.pools[layer] = O.pools[layer] or {}
+  local t = table.remove(O.pools[layer])
+  if not t then
+    t = O.frame:CreateTexture(nil, layer)
+    t.layer = layer
+  end
   t:Show()
   O.art[#O.art + 1] = t
   return t
 end
 
 local function clearArt()
-  O.art.pool = O.art.pool or {}
   for i = #O.art, 1, -1 do
-    O.art[i]:Hide()
-    O.art.pool[#O.art.pool + 1] = O.art[i]
+    local t = O.art[i]
+    t:Hide()
+    local p = O.pools[t.layer]
+    p[#p + 1] = t
     O.art[i] = nil
   end
 end
 
 --- One texture of map art at (x, y) in the art's own pixels, w x h of it shown, out of a file fw x fh.
-local function piece(file, x, y, w, h, fw, fh)
+local function piece(file, x, y, w, h, fw, fh, layer)
   local s = O.scale
-  local t = tex("ARTWORK")
+  local t = tex(layer)
   t:SetTexture(file)
   t:SetTexCoord(0, w / fw, 0, h / fh)
   t:SetSize(w * s, h * s)
@@ -156,19 +165,23 @@ function O.Draw(db)
   -- 1. what to draw, in the art's own pixels
   -- a city has no explored pieces at all (the game shows it whole): there, seen = all
   -- (Arn's Orgrimmar, 14 Oct: "nothing explored here yet" over an empty map)
-  local info = (O.Mode(db) ~= "full") and C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
+  local info = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
     and C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}
   if type(info) ~= "table" or hidden(info) then info = {} end
   local pieces = {}
+  -- "all": the base layer IS the fog of war on these maps (Arn, 14 Oct: "all setting is showing fog
+  -- of war") - the world map paints the explored pieces over it, so we do too. Ground never
+  -- explored stays fogged: the game hands addons only the pieces you have explored.
   if O.Mode(db) == "full" or #info == 0 then
     local tw, th = num(L.tileWidth) or O.TILE, num(L.tileHeight) or O.TILE
     local files = C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(mapID, 1) or {}
     local cols = math.ceil(lw / tw)
     for i, file in ipairs(files) do
       local c, r = (i - 1) % cols, math.floor((i - 1) / cols)
-      pieces[#pieces + 1] = { file, c * tw, r * th, tw, th, tw, th }
+      pieces[#pieces + 1] = { file, c * tw, r * th, tw, th, tw, th, "BORDER" }   -- under the pieces
     end
-  else
+  end
+  if #info > 0 then
     -- the explored pieces, cut the way the client cuts them: 256-pixel files, the last row and
     -- column only as big as what is left, in a file of the next power of two
     for _, e in ipairs(info) do
@@ -190,8 +203,9 @@ function O.Draw(db)
       end
     end
   end
-  -- 2. the land those pieces cover (inside the map's own edges)
+  -- 2. the land those pieces cover (inside the map's own edges); "all" is the whole map
   local x0, y0, x1, y1 = lw, lh, 0, 0
+  if O.Mode(db) == "full" then x0, y0, x1, y1 = 0, 0, lw, lh end
   for _, p in ipairs(pieces) do
     x0, y0 = math.min(x0, p[2]), math.min(y0, p[3])
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
@@ -209,7 +223,7 @@ function O.Draw(db)
   f:ClearAllPoints()
   f:SetPoint("CENTER", UIParent, "CENTER", (lw / 2 - (x0 + x1) / 2) * O.scale, ((y0 + y1) / 2 - lh / 2) * O.scale)
   O.land = { x0, y0, x1, y1 }
-  for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7]) end
+  for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8]) end
   O.DrawTrail(db)
   return true
 end

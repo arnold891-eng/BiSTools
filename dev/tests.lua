@@ -4996,12 +4996,20 @@ do
   local okS, errS = pcall(O.Tick)
   ok(okS and O.arrow.face == 1.5, "a secret facing is never used - the arrow keeps its last turn", errS)
   _G.GetPlayerFacing, _G.issecretvalue, _G.type = keep.face, keep.is, keep.type
-  -- full: the whole zone's 12 tiles
+  -- all: the zone's 12 base tiles - which ARE the fog of war on these maps - with the explored
+  -- pieces painted over them, as the world map does (Arn, 14 Oct: "all setting is showing fog of war")
   odb.mode = "full"
   O.Draw(odb)
   shown = 0
-  for _, t in ipairs(O.art) do if t.shown then shown = shown + 1 end end
-  ok(shown == 12, "full: all twelve tiles of the zone", shown)
+  local base, over = 0, 0
+  for _, t in ipairs(O.art) do
+    if t.shown then
+      shown = shown + 1
+      if t.layer == "BORDER" then base = base + 1 elseif t.layer == "ARTWORK" then over = over + 1 end
+    end
+  end
+  ok(shown == 14 and base == 12 and over == 2, "all: the 12 base tiles under, the 2 explored pieces over", base, over)
+  ok(f.point[4] == 0 and f.point[5] == 0, "all: the whole map, centred")
   -- (an "ink" look - BlendMode MOD - was tried and taken out, 14 Oct: Arn "ink wonky"; a MOD
   -- texture's transparent edges go black, so the explored pieces showed as dark boxes)
   odb.mode = nil
