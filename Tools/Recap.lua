@@ -1354,7 +1354,10 @@ RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_R
   -- Arn, 13 Oct: "i cant see the add rival when i right click them". A unit frame that opens its
   -- menu through the secure "togglemenu" action (EllesmereUI's do, to dodge 12.x's togglemenu gate)
   -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
-  "TARGET", "FOCUS" }
+  "TARGET", "FOCUS",
+  -- the Friends list (Arn, 14 Oct: no line on a Battle.net friend's first right-click after a
+  -- reload - a kind learned only when it opens misses that first time)
+  "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
 
 --- CAN A LINE GO INTO THE GAME'S RIGHT-CLICK MENU HERE? Not inside an instance. Arn's BugGrabber
 --- in a battleground, 13 Oct: "FrameUtil.lua:223: attempt to perform arithmetic on local 'frameLeft'
