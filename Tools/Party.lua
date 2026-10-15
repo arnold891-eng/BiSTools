@@ -278,6 +278,9 @@ P.events = ev
 
 R:Register({
   name = "party",
+  -- OFF until turned on (Arn, 15 Oct: "start with this option for the party in tools off so the BiS
+  -- toolbox is not overwhelming")
+  defaultOff = true,
   desc = "your usual group: invite them all, or disband, in one click",
   usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | disband]",
   defaults = {},

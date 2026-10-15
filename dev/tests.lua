@@ -1807,7 +1807,7 @@ do
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "8 of 9 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 9 on", "prompt slot counts the tools that are on (threat and party start off)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
@@ -1830,7 +1830,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "7 of 9 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 9 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1925,7 +1925,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "7 of 9 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 9 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -5268,6 +5268,8 @@ do
   local P, Bx = NS.Party, NS.Box
   local pdb = R:DBFor(R:Get("party"))
   P.db = pdb
+  ok(not R:Enabled("party"), "the party tool starts OFF (Arn: so the BiS> tools box is not overwhelming)")
+  R:SetEnabled("party", true)
   local sent = { invite = {}, uninvite = {}, left = 0, raid = 0 }
   local keepPI, keepLead, keepRaid, keepIn = _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid
   _G.C_PartyInfo = { InviteUnit = function(n) sent.invite[#sent.invite + 1] = n end,
@@ -5344,6 +5346,7 @@ do
   ok(n <= 150, "a roster change in a 40-man raid asks at most 150 things (measured 132: one roster walk): " .. n, Cost.Top and Cost.Top(by, 5))
   _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid = keepPI, keepLead, keepRaid, keepIn
   pdb.names = {}
+  R:SetEnabled("party", false)
   Bx.Refresh()
 end
 
