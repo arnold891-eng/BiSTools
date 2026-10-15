@@ -5004,7 +5004,25 @@ do
   ok(inEsc, "Escape closes the menu")
   local function row(label) for _, b in ipairs(menu.rows) do if b.def.label == label then return b end end end
   row("Lock map").scripts.OnClick(row("Lock map"))
-  ok(odb.locked == true and row("Lock map").text.text:find("Check", 1, true), "Lock map: ticked")
+  ok(odb.locked == true and row("Lock map").tick.shown, "Lock map: ticked")
+  -- every tick row UNTICKS too (Arn, 14 Oct: "cant unclick the grey" - "(not on) and false or nil"
+  -- is nil both ways), and the label never moves when it does ("everything shifts")
+  for _, label in ipairs({ "Show group", "Grey", "Show all of the map" }) do
+    local b = row(label)
+    local before = b.def.get(odb)
+    local at = b.text.anchor and b.text.anchor[4]
+    b.scripts.OnClick(b)
+    ok(b.def.get(odb) == not before and b.tick.shown == not before, label .. ": one click flips it", tostring(before))
+    b.scripts.OnClick(b)
+    ok(b.def.get(odb) == before and b.text.anchor[4] == at, label .. ": and back, the label in the same place")
+  end
+  local greyOpt
+  for _, o in ipairs(R:Get("map").options) do if o.label == "grey map" then greyOpt = o end end
+  local g0 = greyOpt.get(odb)
+  greyOpt.set(odb, true)
+  greyOpt.set(odb, false)
+  ok(greyOpt.get(odb) == false, "the options window's grey map unticks too")
+  greyOpt.set(odb, g0)
   O.tab.dragging = nil
   O.tab.scripts.OnDragStart(O.tab)
   ok(not O.tab.dragging, "a locked map does not drag")

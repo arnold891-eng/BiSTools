@@ -165,13 +165,14 @@ function O.MenuRows()
   local function redraw() if O.frame and O.frame:IsShown() then O.Draw(O.db) end end
   return {
     { kind = "check", label = "Show group", get = function(db) return db.group ~= false end,
-      set = function(db, on) db.group = (not on) and false or nil O.Group(true) end },
+      -- not "(not on) and false or nil": that is nil both ways (Arn, 14 Oct: "cant unclick the grey")
+      set = function(db, on) if on then db.group = nil else db.group = false end O.Group(true) end },
     { kind = "check", label = "Lock map", get = function(db) return db.locked == true end,
       set = function(db, on) db.locked = on and true or nil end },
     { kind = "check", label = "Show all of the map", get = function(db) return O.Mode(db) == "full" end,
       set = function(db, on) db.mode = (not on) and "explored" or nil redraw() end },
     { kind = "check", label = "Grey", get = function(db) return O.Grey(db) end,
-      set = function(db, on) db.grey = (not on) and false or nil redraw() end },
+      set = function(db, on) if on then db.grey = nil else db.grey = false end redraw() end },
     { kind = "step", label = "Opacity", get = function(db) return O.Alpha(db) end, min = 5, max = 90, step = 5,
       set = function(db, v) db.alpha = v redraw() end },
     { kind = "step", label = "Size", get = function(db) return O.Size(db) end, min = 30, max = 100, step = 10,
@@ -200,8 +201,16 @@ function O.BuildMenu()
     b.def = r
     local fs = b:CreateFontString(nil, "OVERLAY")
     fs:SetFont(STANDARD_TEXT_FONT, 11, "")
-    fs:SetPoint("LEFT", b, "LEFT", 4, 0)
+    -- every label starts at the same spot; the tick is its own picture beside it (Arn, 14 Oct:
+    -- "everything shifts when change states" - spaces stood in for an empty tick, narrower than it)
+    fs:SetPoint("LEFT", b, "LEFT", 22, 0)
     b.text = fs
+    local tick = b:CreateTexture(nil, "OVERLAY")
+    tick:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    tick:SetSize(14, 14)
+    tick:SetPoint("LEFT", b, "LEFT", 4, 0)
+    tick:Hide()
+    b.tick = tick
     if r.kind == "step" then
       for k, d in ipairs({ { "-", -1 }, { "+", 1 } }) do
         local s = CreateFrame("Button", nil, b)
@@ -235,12 +244,11 @@ end
 function O.PaintMenu()
   for _, b in ipairs(O.menu.rows) do
     local r = b.def
-    if r.kind == "check" then
-      b.text:SetText((r.get(O.db) and "|TInterface\\Buttons\\UI-CheckBox-Check:14:14|t " or "      ") .. r.label)
-    elseif r.kind == "step" then
-      b.text:SetText(("      %s  %d%%"):format(r.label, r.get(O.db)))
+    if r.kind == "check" and r.get(O.db) then b.tick:Show() else b.tick:Hide() end
+    if r.kind == "step" then
+      b.text:SetText(("%s  %d%%"):format(r.label, r.get(O.db)))
     else
-      b.text:SetText("      " .. r.label)
+      b.text:SetText(r.label)
     end
   end
 end
@@ -620,7 +628,7 @@ R:Register({
       show = function(db) return O.Alpha(db) .. "%" end },
     { kind = "toggle", label = "grey map", help = "Off: the map in its own colours, like the world map. On: grey with a cold tint, so it reads as a map and not as the world.",
       get = function(db) return O.Grey(db) end,
-      set = function(db, on) db.grey = (not on) and false or nil redraw() end },
+      set = function(db, on) if on then db.grey = nil else db.grey = false end redraw() end },
     { kind = "toggle", label = "trail", help = "A dotted trail of where you have walked on each map, like Diablo's. /bist map clear wipes this map's.",
       get = function(db) return O.TrailOn(db) end,
       set = function(db, on)
