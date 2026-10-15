@@ -5014,6 +5014,17 @@ do
   ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - landW / landH) < 0.001,
     "sized to the screen, the paper's torn edge cropped off", f.w .. "x" .. f.h)
   ok(math.abs(O.art[1].anchor[4] + (1002 * O.EDGE[1]) * (f.h / landH)) < 1e-6, "the first tile starts left of the frame - its edge is clipped away", O.art[1].anchor[4])
+  -- a capital with a measured box (Orgrimmar, 1454) is cut to it; the map above (1952) has none
+  ok(O.CROP[1952] == nil, "an unmeasured map keeps the light crop")
+  W.map = 1454
+  O.Draw(odb)
+  local bx = O.CROP[1454]
+  local cw, ch = 1002 * (bx[3] - bx[1]), 668 * (bx[4] - bx[2])
+  ok(math.abs(f.w / f.h - cw / ch) < 0.001, "Orgrimmar: the frame is its measured box", f.w .. "x" .. f.h)
+  local tx, ty = O.ToFrame(bx[1], bx[2])
+  ok(math.abs(tx) < 1e-6 and math.abs(ty) < 1e-6, "the box's corner is the frame's corner")
+  W.map = 1952
+  O.Draw(odb)
   -- one explored piece of 300 x 200 pixels at (100, 50): two 256 columns (256 + 44) and one row of 200
   W.explored = { { textureWidth = 300, textureHeight = 200, offsetX = 100, offsetY = 50,
                    isShownByMouseOver = false, fileDataIDs = { 7001, 7002 } } }

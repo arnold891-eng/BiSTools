@@ -453,6 +453,14 @@ end
 -- stays whole: the map's name banner sits there (Arn, 14 Oct, Durotar: "it cut off the map name")
 O.EDGE = { 0.03, 0, 0.045 }
 
+-- THE CAPITALS' BOXES (Arn, 14 Oct: "nothing we can do for the capital city map about all the extra
+-- parchment?"). The game cannot tell us where a city's drawing ends, so each box is measured by eye
+-- from a screenshot of that city: left, top, right, bottom as shares of the map. Only measured
+-- cities are here; any other map keeps O.EDGE alone.
+O.CROP = {
+  [1454] = { 0.10, 0.04, 0.85, 0.955 },   -- Orgrimmar: the empty band west, the crest's half east
+}
+
 --- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
 --- which starts O.land's x0, y0 into the map.
 function O.ToFrame(x, y)
@@ -538,6 +546,13 @@ function O.Draw(db)
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
   x0, y0 = math.max(x0, ex), math.max(y0, et)
   x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - eb)
+  -- a capital is one painted picture, parchment and city in the same pixels, so its box is measured
+  -- by eye, once per city (O.CROP)
+  local box = mapID and O.CROP[mapID]
+  if box then
+    x0, y0 = math.max(x0, lw * box[1]), math.max(y0, lh * box[2])
+    x1, y1 = math.min(x1, lw * box[3]), math.min(y1, lh * box[4])
+  end
   -- 3. size THAT land, not the canvas (Durotar sits right of the canvas's middle), and hang it from
   -- the tab: the land's top-left under the tab's bottom-left (Arn, 14 Oct: top left, draggable like
   -- the Zone Map). "map size" is the land's height as a share of the screen, never wider than it.
