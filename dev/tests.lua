@@ -5008,8 +5008,9 @@ do
   for _, t in ipairs(O.art) do if t.shown then whole = whole + 1 end end
   ok(whole == 12, "no explored pieces (a city): the whole map, faint", whole)
   -- 70% of a 768-tall screen; the frame is the land, the paper's edge cut off (O.EDGE: 3% each side,
-  -- 4.5% top and bottom - Arn, 14 Oct: "how come the map does not take out the extra stuff")
-  local landW, landH = 1002 * (1 - 2 * O.EDGE[1]), 668 * (1 - 2 * O.EDGE[2])
+  -- none off the top, where the name banner is, 4.5% off the bottom - Arn, 14 Oct)
+  local landW, landH = 1002 * (1 - 2 * O.EDGE[1]), 668 * (1 - O.EDGE[2] - O.EDGE[3])
+  ok(O.EDGE[2] == 0, "the top is never cropped: the map's name lives there")
   ok(math.abs(f.h - 768 * 0.70) < 0.01 and math.abs(f.w / f.h - landW / landH) < 0.001,
     "sized to the screen, the paper's torn edge cropped off", f.w .. "x" .. f.h)
   ok(math.abs(O.art[1].anchor[4] + (1002 * O.EDGE[1]) * (f.h / landH)) < 1e-6, "the first tile starts left of the frame - its edge is clipped away", O.art[1].anchor[4])

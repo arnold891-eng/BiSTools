@@ -449,8 +449,9 @@ local function fileSize(px)
   return f
 end
 
--- how much of the paper's edge never shows, as a share of the map: left/right, top/bottom
-O.EDGE = { 0.03, 0.045 }
+-- how much of the paper's edge never shows, as a share of the map: left/right, top, bottom. The top
+-- stays whole: the map's name banner sits there (Arn, 14 Oct, Durotar: "it cut off the map name")
+O.EDGE = { 0.03, 0, 0.045 }
 
 --- A spot on the map (0-1 each way) as an offset from the frame's top-left: the frame is the land,
 --- which starts O.land's x0, y0 into the map.
@@ -527,7 +528,7 @@ function O.Draw(db)
   -- Orgrimmar at 60%: "how come the map does not take out the extra stuff") - a city is one picture,
   -- parchment and all, so the most that can go is its border: the land stops O.EDGE inside each side,
   -- and the frame, which clips its children, shows that land and nothing past it.
-  local ex, ey = lw * O.EDGE[1], lh * O.EDGE[2]
+  local ex, et, eb = lw * O.EDGE[1], lh * O.EDGE[2], lh * O.EDGE[3]
   local x0, y0, x1, y1 = lw, lh, 0, 0
   if O.Mode(db) == "full" then x0, y0, x1, y1 = 0, 0, lw, lh end
   for _, p in ipairs(pieces) do
@@ -535,8 +536,8 @@ function O.Draw(db)
     x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
   end
   if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
-  x0, y0 = math.max(x0, ex), math.max(y0, ey)
-  x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - ey)
+  x0, y0 = math.max(x0, ex), math.max(y0, et)
+  x1, y1 = math.min(x1, lw - ex), math.min(y1, lh - eb)
   -- 3. size THAT land, not the canvas (Durotar sits right of the canvas's middle), and hang it from
   -- the tab: the land's top-left under the tab's bottom-left (Arn, 14 Oct: top left, draggable like
   -- the Zone Map). "map size" is the land's height as a share of the screen, never wider than it.
