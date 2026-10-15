@@ -230,6 +230,10 @@ local function Texture()
   end
   function t:Hide() self.shown = false end
   function t:Show() self.shown = true end
+  function t:SetAlpha(a)
+    if type(a) ~= "number" then error("SetAlpha wants a number", 2) end
+    self.alpha = a
+  end
   return t
 end
 -- EVERY LABEL, KEPT, WITH WHAT IT IS PINNED TO (6 Oct 2026). Arn's screenshot: "nothing here to
@@ -5056,11 +5060,15 @@ do
     "the frame IS the land, hanging under the tab", f.point[4], f.point[5])
   ok(O.tab.point[1] == "TOPLEFT" and O.tab.point[4] == 24 and O.tab.point[5] == -80, "the tab: top-left of the screen by default")
   -- the tab: invisible until hovered, and the one thing that takes the mouse (Arn: "only visible if you hover over")
-  ok(O.tab:IsShown() and O.tab.alpha == 0, "the tab shows with the map, invisible")
+  ok(O.tab:IsShown() and not O.tab.lit and O.tab.bg.alpha == 0 and O.tab.label.alpha == 0,
+    "the tab shows with the map, invisible")
+  ok(O.tab.hint.alpha == 1 and O.tab.hint.w == O.HINT_W and O.tab.hint.h == 2,
+    "but a short faint line marks where it is (Arn: 'a little line ____')")
   O.tab.scripts.OnEnter(O.tab)
-  ok(O.tab.alpha == 1, "hovered: it shows")
+  ok(O.tab.lit and O.tab.bg.alpha == 1 and O.tab.label.alpha == 1 and O.tab.hint.alpha == 0,
+    "hovered: the tab shows, the line steps aside")
   O.tab.scripts.OnLeave(O.tab)
-  ok(O.tab.alpha == 0, "the mouse leaves: gone again")
+  ok(not O.tab.lit and O.tab.bg.alpha == 0 and O.tab.hint.alpha == 1, "the mouse leaves: back to the line")
   ok(O.tab.scripts.OnDragStart and O.tab.scripts.OnDragStop, "it drags (the map hangs off it, so the map follows)")
   odb.pos = { 300, -200 }
   O.Draw(odb)
@@ -5070,7 +5078,7 @@ do
   -- right-click the tab: the quick menu (Arn, 14 Oct, the Zone Map's tab menu)
   O.tab.scripts.OnClick(O.tab, "RightButton")
   local menu = BiSToolsOverlayMapMenu
-  ok(menu and menu:IsShown() and O.tab.alpha == 1, "right-click the tab: the menu, and the tab stays visible")
+  ok(menu and menu:IsShown() and O.tab.lit, "right-click the tab: the menu, and the tab stays visible")
   local inEsc = false
   for _, n in ipairs(UISpecialFrames) do if n == "BiSToolsOverlayMapMenu" then inEsc = true end end
   ok(inEsc, "Escape closes the menu")

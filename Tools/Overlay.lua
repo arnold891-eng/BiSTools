@@ -130,11 +130,20 @@ function O.Build()
   label:SetFont(STANDARD_TEXT_FONT, 10, "")
   label:SetPoint("CENTER", tab, "CENTER", 0, 0)
   label:SetText(T.text("accent", "BiS>") .. " map")
-  tab.label = label
-  tab:SetAlpha(0)
-  tab:SetScript("OnEnter", function(self) self:SetAlpha(1) end)
+  tab.label, tab.bg = label, bg
+  -- THE HINT (Arn, 14 Oct: "maybe we do show like a little line ____ ... to let people know where its
+  -- at"): a short faint underline where the tab is, there while the tab is not - so the tab can be
+  -- found without sitting over the map all the time
+  local hint = tab:CreateTexture(nil, "ARTWORK")
+  hint:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 4, 0)
+  hint:SetSize(O.HINT_W, 2)
+  local hr, hg, hb = T.rgb("accent")
+  hint:SetColorTexture(hr or 1, hg or 0.82, hb or 0.3, O.HINT_A)
+  tab.hint = hint
+  O.Lit(false)
+  tab:SetScript("OnEnter", function() O.Lit(true) end)
   tab:SetScript("OnLeave", function(self)
-    if not self.dragging and not (O.menu and O.menu:IsShown()) then self:SetAlpha(0) end
+    if not self.dragging and not (O.menu and O.menu:IsShown()) then O.Lit(false) end
   end)
   tab:SetScript("OnDragStart", function(self)
     if O.db and O.db.locked then return end            -- the menu's "Lock map"
@@ -147,7 +156,7 @@ function O.Build()
   tab:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     self.dragging = nil
-    self:SetAlpha(0)
+    O.Lit(false)
     O.SavePos(O.db)
   end)
   tab:Hide()
@@ -156,6 +165,18 @@ end
 
 --- Where the tab sits: from the screen's top-left, x right and y down (negative). Default top-left.
 O.TAB_W, O.TAB_H = 70, 16
+O.HINT_W, O.HINT_A = 24, 0.5
+
+--- The tab lit (hovered, dragged, its menu open) or resting: lit shows the tab and hides the hint;
+--- resting is the other way round. The tab itself stays solid, so it always takes the mouse.
+function O.Lit(on)
+  local tab = O.tab
+  if not tab then return end
+  tab.lit = on and true or false
+  tab.bg:SetAlpha(on and 1 or 0)
+  tab.label:SetAlpha(on and 1 or 0)
+  tab.hint:SetAlpha(on and 0 or 1)
+end
 O.POS = { 24, -80 }
 function O.Pos(db)
   local p = type(db) == "table" and db.pos
@@ -251,7 +272,7 @@ function O.BuildMenu()
     m.rows[i] = b
   end
   m:SetSize(O.MENU_W, 8 + #m.rows * O.ROW_H)
-  m:SetScript("OnHide", function() if O.tab and not O.tab.dragging then O.tab:SetAlpha(0) end end)
+  m:SetScript("OnHide", function() if O.tab and not O.tab.dragging then O.Lit(false) end end)
   m:Hide()
   table.insert(UISpecialFrames, "BiSToolsOverlayMapMenu")       -- Escape closes it
   return m
@@ -276,7 +297,7 @@ function O.Menu()
   m:ClearAllPoints()
   m:SetPoint("TOPLEFT", O.tab, "BOTTOMLEFT", 0, -2)
   O.PaintMenu()
-  O.tab:SetAlpha(1)
+  O.Lit(true)
   m:Show()
   return true
 end
