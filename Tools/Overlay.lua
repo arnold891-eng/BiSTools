@@ -31,7 +31,9 @@ end
 local function num(v) if hidden(v) or type(v) ~= "number" then return nil end return v end
 
 function O.Size(db) return tonumber(db.size) or 70 end          -- % of the screen's height
-function O.Alpha(db) return tonumber(db.alpha) or 45 end        -- %
+-- Arn, 14 Oct (a world-map shot of Durotar): "a little color like this, alpha like 10%"
+function O.Alpha(db) return tonumber(db.alpha) or 10 end        -- %
+function O.Grey(db) return db.grey == true end                  -- off: the map's own colours
 function O.Mode(db) return db.mode == "full" and "full" or "explored" end
 function O.TrailOn(db) return db.trail ~= false end
 --- paper: the map art laid over the game, faint. ink: MULTIPLIED onto the game - light parchment
@@ -123,9 +125,9 @@ local function piece(file, x, y, w, h, fw, fh)
   t:SetSize(w * s, h * s)
   t:ClearAllPoints()
   t:SetPoint("TOPLEFT", O.frame, "TOPLEFT", x * s, -y * s)
-  if t.SetDesaturated then t:SetDesaturated(true) end
+  if t.SetDesaturated then t:SetDesaturated(O.Grey(O.db or {})) end
   if t.SetBlendMode then t:SetBlendMode(O.Look(O.db or {}) == "ink" and "MOD" or "BLEND") end
-  t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1)
+  if O.Grey(O.db or {}) then t:SetVertexColor(O.TINT[1], O.TINT[2], O.TINT[3], 1) else t:SetVertexColor(1, 1, 1, 1) end
   return t
 end
 
@@ -347,10 +349,13 @@ R:Register({
       get = function(db) return O.Size(db) end,
       set = function(db, v) db.size = v redraw() end,
       show = function(db) return O.Size(db) .. "%" end },
-    { kind = "step", label = "map faintness", help = "How solid the map is: low is barely there, high is easy to read.", min = 10, max = 90, step = 5,
+    { kind = "step", label = "map faintness", help = "How solid the map is: low is barely there, high is easy to read.", min = 5, max = 90, step = 5,
       get = function(db) return O.Alpha(db) end,
       set = function(db, v) db.alpha = v redraw() end,
       show = function(db) return O.Alpha(db) .. "%" end },
+    { kind = "toggle", label = "grey map", help = "Off: the map in its own colours, like the world map. On: grey with a cold tint, so it reads as a map and not as the world.",
+      get = function(db) return O.Grey(db) end,
+      set = function(db, on) db.grey = on and true or nil redraw() end },
     { kind = "toggle", label = "trail", help = "A dotted trail of where you have walked on each map, like Diablo's. /bist map clear wipes this map's.",
       get = function(db) return O.TrailOn(db) end,
       set = function(db, on)

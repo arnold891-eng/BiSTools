@@ -1842,9 +1842,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (6)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7)
   -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 6, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -4959,7 +4959,13 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
-  ok(O.art[1].desat and O.art[1].vertex, "desaturated and tinted, so it reads as a map")
+  ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
+  ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "10% solid by default (Arn: alpha like 10%)", f.alpha)
+  odb.grey = true
+  O.Draw(odb)
+  ok(O.art[1].desat == true and O.art[1].vertex[1] < 1, "grey map: desaturated and tinted")
+  odb.grey = nil
+  O.Draw(odb)
   -- the arrow: your spot and your facing
   f.scripts.OnUpdate(f, 0.2)
   ok(O.arrow.shown and O.arrow.face == 1.5 and O.arrow[1].shown and O.arrow[1].from, "your arrow - our own three lines, turned the way you face")
