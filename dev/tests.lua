@@ -4959,6 +4959,11 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == (100 + 256) * sc, "the last column only as wide as what is left, in its place")
+  -- the LAND is sized and centred, not the canvas (Arn, 14 Oct: Durotar sat right of centre at 100%):
+  -- the piece covers x 100-400, y 50-250 of the 1002 x 668 art
+  ok(math.abs(sc - 768 * 0.70 / 200) < 1e-9, "map size is the land's height on screen", sc)
+  ok(f.point[1] == "CENTER" and math.abs(f.point[4] - (501 - 250) * sc) < 1e-9 and math.abs(f.point[5] - (150 - 334) * sc) < 1e-9,
+    "the land's middle sits on the screen's middle", f.point[4], f.point[5])
   ok(O.art[1].desat == false and O.art[1].vertex[1] == 1 and O.art[1].vertex[3] == 1, "the map's own colours (Arn: a little color)")
   ok(math.abs((f.alpha or 0) - 0.10) < 1e-9, "10% solid by default (Arn: alpha like 10%)", f.alpha)
   odb.grey = true

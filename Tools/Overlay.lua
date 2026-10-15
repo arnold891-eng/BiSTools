@@ -151,30 +151,26 @@ function O.Draw(db)
     O.note:SetText("no map for this place")
     return false
   end
-  local okH, sh = pcall(function() return UIParent:GetHeight() end)
-  local H = ((okH and num(sh)) or 768) * O.Size(db) / 100
-  O.scale = H / lh
-  f:SetSize(lw * O.scale, H)
   f:SetAlpha(O.Alpha(db) / 100)
   O.note:SetText("")
+  -- 1. what to draw, in the art's own pixels
   -- a city has no explored pieces at all (the game shows it whole): there, seen = all
   -- (Arn's Orgrimmar, 14 Oct: "nothing explored here yet" over an empty map)
   local info = (O.Mode(db) ~= "full") and C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures
     and C_MapExplorationInfo.GetExploredMapTextures(mapID) or {}
   if type(info) ~= "table" or hidden(info) then info = {} end
-  local whole = O.Mode(db) == "full" or #info == 0
-  if whole then
+  local pieces = {}
+  if O.Mode(db) == "full" or #info == 0 then
     local tw, th = num(L.tileWidth) or O.TILE, num(L.tileHeight) or O.TILE
     local files = C_Map.GetMapArtLayerTextures and C_Map.GetMapArtLayerTextures(mapID, 1) or {}
     local cols = math.ceil(lw / tw)
     for i, file in ipairs(files) do
       local c, r = (i - 1) % cols, math.floor((i - 1) / cols)
-      piece(file, c * tw, r * th, tw, th, tw, th)
+      pieces[#pieces + 1] = { file, c * tw, r * th, tw, th, tw, th }
     end
   else
     -- the explored pieces, cut the way the client cuts them: 256-pixel files, the last row and
     -- column only as big as what is left, in a file of the next power of two
-    local drawn = 0
     for _, e in ipairs(info) do
       local W, Hh = num(e.textureWidth), num(e.textureHeight)
       local ox, oy = num(e.offsetX) or 0, num(e.offsetY) or 0
@@ -186,15 +182,34 @@ function O.Draw(db)
             local pw = (k < wide) and O.TILE or (W - O.TILE * (wide - 1))
             local file = e.fileDataIDs[(j - 1) * wide + k]
             if file then
-              piece(file, ox + O.TILE * (k - 1), oy + O.TILE * (j - 1), pw, ph,
-                (k < wide) and O.TILE or fileSize(pw), (j < tall) and O.TILE or fileSize(ph))
-              drawn = drawn + 1
+              pieces[#pieces + 1] = { file, ox + O.TILE * (k - 1), oy + O.TILE * (j - 1), pw, ph,
+                (k < wide) and O.TILE or fileSize(pw), (j < tall) and O.TILE or fileSize(ph) }
             end
           end
         end
       end
     end
   end
+  -- 2. the land those pieces cover (inside the map's own edges)
+  local x0, y0, x1, y1 = lw, lh, 0, 0
+  for _, p in ipairs(pieces) do
+    x0, y0 = math.min(x0, p[2]), math.min(y0, p[3])
+    x1, y1 = math.max(x1, math.min(lw, p[2] + p[4])), math.max(y1, math.min(lh, p[3] + p[5]))
+  end
+  if x1 <= x0 or y1 <= y0 then x0, y0, x1, y1 = 0, 0, lw, lh end
+  -- 3. size THAT land, not the canvas, and centre it on the screen (Arn, 14 Oct, at 100%: "would
+  -- be nice to keep it centered" - Durotar sits right of the canvas's middle). "map size" is the
+  -- land's height as a share of the screen, never wider than the screen.
+  local okH, sh = pcall(function() return UIParent:GetHeight() end)
+  local okW, sw = pcall(function() return UIParent:GetWidth() end)
+  sh = (okH and num(sh)) or 768
+  sw = (okW and num(sw)) or 1024
+  O.scale = math.min(sh * O.Size(db) / 100 / (y1 - y0), sw * 0.95 / (x1 - x0))
+  f:SetSize(lw * O.scale, lh * O.scale)
+  f:ClearAllPoints()
+  f:SetPoint("CENTER", UIParent, "CENTER", (lw / 2 - (x0 + x1) / 2) * O.scale, ((y0 + y1) / 2 - lh / 2) * O.scale)
+  O.land = { x0, y0, x1, y1 }
+  for _, p in ipairs(pieces) do piece(p[1], p[2], p[3], p[4], p[5], p[6], p[7]) end
   O.DrawTrail(db)
   return true
 end
