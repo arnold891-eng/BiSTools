@@ -1799,19 +1799,20 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 8, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 9, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
-     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map")
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map" and hub.rows[9].key == "party",
+     "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map, party")
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 8 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "8 of 9 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 8 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 9 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1829,7 +1830,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 8 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "7 of 9 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1852,9 +1853,10 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7)
-  -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7),
+  -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
+  -- the party list, 15 Oct)
+  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 2, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1923,7 +1925,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 8 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "7 of 9 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -5258,6 +5260,91 @@ do
   _G.GetNumGroupMembers, _G.IsInRaid = keepN2, keepRaid2
   _G.BiSTools_ToggleOverlayMap()
   W.explored = {}
+end
+
+-- THE PARTY LIST (Arn, 15 Oct: "the saved list to invite is nice and a disband button" - "its own
+-- list" - "when in a party or in a raid new option to add to party list ... when right click")
+do
+  local P, Bx = NS.Party, NS.Box
+  local pdb = R:DBFor(R:Get("party"))
+  P.db = pdb
+  local sent = { invite = {}, uninvite = {}, left = 0, raid = 0 }
+  local keepPI, keepLead, keepRaid, keepIn = _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid
+  _G.C_PartyInfo = { InviteUnit = function(n) sent.invite[#sent.invite + 1] = n end,
+                     UninviteUnit = function(n) sent.uninvite[#sent.uninvite + 1] = n end,
+                     LeaveParty = function() sent.left = sent.left + 1 end,
+                     ConvertToRaid = function() sent.raid = sent.raid + 1 end }
+  local lead = true
+  _G.UnitIsGroupLeader = function() return lead end
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" }, { name = "Kumlust" } }, true
+  -- save the group: everyone but you
+  SlashCmdList.BISTOOLS("party save")
+  ok(#pdb.names == 2 and P.Has(pdb, "Tobi") and P.Has(pdb, "kumlust") and not P.Has(pdb, "Me"),
+    "/bist party save: whoever you're grouped with is the list (never you)", #pdb.names)
+  ok(P.Add(pdb, "Zed") and not P.Add(pdb, "zed"), "add a name once; the same name twice is refused")
+  -- grouped with someone on the list: Disband shows; Invite shows for the one missing
+  Bx.Refresh()
+  ok(P.dbtn:IsShown() and P.ibtn:IsShown(), "grouped with listed players: Disband, and Invite for the one missing")
+  P.Invite(pdb)
+  ok(#sent.invite == 1 and sent.invite[1] == "Zed", "Invite asks only the ones not with you", #sent.invite)
+  -- leading: Disband removes everyone; not leading: you leave
+  P.Disband()
+  ok(#sent.uninvite == 2 and sent.left == 0, "the leader's Disband: everyone out", #sent.uninvite)
+  lead = false
+  P.Disband()
+  ok(sent.left == 1, "not the leader: Disband leaves the group")
+  ok(not P.ShowInvite(pdb), "not leading: no Invite button (only a leader can invite)")
+  -- solo with a list: Invite only
+  W.raid, W.inRaid, lead = { { name = "Me" } }, false, true
+  Bx.Refresh()
+  ok(P.ibtn:IsShown() and not P.dbtn:IsShown(), "solo with a list: Invite, no Disband")
+  sent.invite = {}
+  P.Invite(pdb)
+  ok(#sent.invite == 3, "solo: the whole list asked", #sent.invite)
+  -- grouped with strangers: nothing of the list's shows
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Stranger" } }, true
+  Bx.Refresh()
+  ok(not P.ibtn:IsShown() and not P.dbtn:IsShown(), "grouped with nobody on the list: neither button")
+  -- the right-click line on a group member, outside instances only
+  local m = { lines = {} }
+  function m:CreateButton(text, fn) self.lines[#self.lines + 1] = { text = text, fn = fn } end
+  function m:CreateDivider() end
+  local keepUIR, keepII = _G.UnitInRaid, _G.IsInInstance
+  _G.UnitInRaid = function(u) return u == "raid2" end
+  _G.IsInInstance = function() return false, "none" end
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(#m.lines == 1 and m.lines[1].text == "BiS: add to party list", "right-click a raid member: BiS: add to party list", m.lines[1] and m.lines[1].text)
+  m.lines[1].fn()
+  ok(P.Has(pdb, "Stranger"), "and it adds them")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(m.lines[1] and m.lines[1].text == "BiS: remove from party list", "on the list already: the line removes")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "target" })
+  ok(#m.lines == 0, "someone not in your group: no line")
+  _G.IsInInstance = function() return true, "party" end
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(#m.lines == 0, "inside an instance: no line (it breaks the game's menu there)")
+  _G.UnitInRaid, _G.IsInInstance = keepUIR, keepII
+  -- more than a party holds: a party you lead becomes a raid first
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" } }, false
+  pdb.names = { "Tobi", "A", "B", "C", "D" }
+  _G.UnitExists = (function(ue) return function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] ~= nil end return ue(u) end end)(_G.UnitExists)
+  local keepUN = _G.UnitName
+  _G.UnitName = function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] and W.raid[tonumber(i) + 1].name end return keepUN(u) end
+  P.Invite(pdb)
+  ok(sent.raid == 1, "six of you: the party becomes a raid before the invites", sent.raid)
+  _G.UnitName = keepUN
+  -- cost: a group change in a 40-man raid with a full list re-asks the box, once
+  W.raid, W.inRaid = { { name = "Me" } }, true
+  pdb.names = {}
+  for i = 2, 40 do W.raid[i] = { name = "R" .. i } pdb.names[#pdb.names + 1] = "R" .. i end
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE") end)
+  ok(n <= 150, "a roster change in a 40-man raid asks at most 150 things (measured 132: one roster walk): " .. n, Cost.Top and Cost.Top(by, 5))
+  _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid = keepPI, keepLead, keepRaid, keepIn
+  pdb.names = {}
+  Bx.Refresh()
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
