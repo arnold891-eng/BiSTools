@@ -167,6 +167,8 @@ function O.MenuRows()
     { kind = "check", label = "Show group", get = function(db) return db.group ~= false end,
       -- not "(not on) and false or nil": that is nil both ways (Arn, 14 Oct: "cant unclick the grey")
       set = function(db, on) if on then db.group = nil else db.group = false end O.Group(true) end },
+    { kind = "check", label = "Show guild", get = function(db) return db.guildDots ~= false end,
+      set = function(db, on) if on then db.guildDots = nil else db.guildDots = false end O.Group(true) end },
     { kind = "check", label = "Lock map", get = function(db) return db.locked == true end,
       set = function(db, on) db.locked = on and true or nil end },
     { kind = "check", label = "Show all of the map", get = function(db) return O.Mode(db) == "full" end,
@@ -281,11 +283,45 @@ local function groupUnits()
   return out
 end
 
+--- One dot (the i-th of the pool) at a map spot, with a small name in its colour.
+local function dot(i, x, y, c, nm, size)
+  local d = O.gdots[i]
+  if not d then
+    d = O.frame:CreateTexture(nil, "OVERLAY")
+    O.gdots[i] = d
+  end
+  d:SetSize(size, size)
+  d:SetColorTexture(c.r, c.g, c.b, 1)
+  d:ClearAllPoints()
+  d:SetPoint("CENTER", O.frame, "TOPLEFT", x * O.frame:GetWidth(), -y * O.frame:GetHeight())
+  d:Show()
+  -- a small name beside the dot (Arn, 14 Oct: "since its ours maybe we can add small name"):
+  -- the first name only, in the dot's colour; no name is just the dot
+  if not d.name then
+    d.name = O.frame:CreateFontString(nil, "OVERLAY")
+    d.name:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
+    d.name:SetPoint("LEFT", d, "RIGHT", 2, 0)
+  end
+  if nm then
+    d.name:SetText(nm)
+    d.name:SetTextColor(c.r, c.g, c.b)
+    d.name:Show()
+  end
+end
+
+--- The group's dots (answers how many), then the guild's (O.guildShown) - see "the guild" below.
 function O.Group(force)
   O.gdots = O.gdots or {}
   for _, d in ipairs(O.gdots) do d:Hide() if d.name then d.name:Hide() end end
-  if not (O.db and O.db.group ~= false and O.frame and O.frame:IsShown()) then return 0 end
-  local W, H = O.frame:GetWidth(), O.frame:GetHeight()
+  O.guildShown = 0
+  if not (O.db and O.frame and O.frame:IsShown()) then return 0 end
+  local shown, drawn = 0, {}
+  if O.db.group ~= false then shown = O.GroupDots(drawn) end
+  if O.db.guildDots ~= false then O.guildShown = O.GuildDots(shown, drawn) end
+  return shown
+end
+
+function O.GroupDots(drawn)
   local shown = 0
   for _, u in ipairs(groupUnits()) do
     local okU, me = pcall(UnitIsUnit, u, "player")
@@ -303,36 +339,53 @@ function O.Group(force)
     end
     if x and y and not (x == 0 and y == 0) then
       shown = shown + 1
-      local d = O.gdots[shown]
-      if not d then
-        d = O.frame:CreateTexture(nil, "OVERLAY")
-        d:SetSize(7, 7)
-        O.gdots[shown] = d
-      end
       local okC, _, class = pcall(UnitClass, u)
       if not okC then class = nil end
       local c = (type(class) == "string" and not hidden(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]) or { r = 0.9, g = 0.9, b = 0.9 }
-      d:SetColorTexture(c.r, c.g, c.b, 1)
-      d:ClearAllPoints()
-      d:SetPoint("CENTER", O.frame, "TOPLEFT", x * W, -y * H)
-      d:Show()
-      -- a small name beside the dot (Arn, 14 Oct: "since its ours maybe we can add small name"):
-      -- the first name only, in the class colour; a hidden name is just the dot
-      if not d.name then
-        d.name = O.frame:CreateFontString(nil, "OVERLAY")
-        d.name:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
-        d.name:SetPoint("LEFT", d, "RIGHT", 2, 0)
-      end
       local okN, nm = pcall(UnitName, u)
       nm = okN and not hidden(nm) and type(nm) == "string" and nm:match("^(%S+)") or nil
-      if nm then
-        d.name:SetText(nm)
-        d.name:SetTextColor(c.r, c.g, c.b)
-        d.name:Show()
-      end
+      if nm then drawn[nm] = true end
+      dot(shown, x, y, c, nm, 7)
     end
   end
   return shown
+end
+
+------------------------------------------------------------------ the guild --
+-- Arn, 14 Oct: "what are the chances we can show all guild locations?" - the game gives an addon the
+-- GROUP's positions only, so every BiS addon shares its player's spot over LibBiSComm's guild channel
+-- (minor 12, SPOT: while moving, cascading 15/30/60 s by guild size, never inside an instance; ONE
+-- switch for all of them, /biscomm share on|off - "or does it go in a library?"). This map only
+-- DRAWS what the lib heard: guildmates on the map you are looking at, amber dots with first names.
+O.GUILD = { r = 1.00, g = 0.62, b = 0.10 }   -- the family's guild amber (guild rivals wear it too)
+
+local function commLib() return NS.Comm and NS.Comm.Lib and NS.Comm.Lib() end
+
+function O.Sharing()
+  local l = commLib()
+  return l and l.Sharing and l:Sharing() or false
+end
+function O.SetSharing(on)
+  local l = commLib()
+  if l and l.SetSharing then l:SetSharing(on) end
+end
+
+--- The guild's dots on the map you are looking at, after the group's (the i-th dot on); a
+--- guildmate already drawn as a groupmate is not drawn twice.
+function O.GuildDots(from, drawn)
+  local l = commLib()
+  if not (l and l.Spots) then return 0 end
+  local n = 0
+  for sender, s in pairs(l:Spots()) do
+    if s.map == O.mapID then
+      local nm = type(sender) == "string" and sender:match("^([^%-%s]+)")
+      if nm and not drawn[nm] then
+        n = n + 1
+        dot(from + n, s.x, s.y, O.GUILD, nm, 6)
+      end
+    end
+  end
+  return n
 end
 
 --- After a drag: keep the tab's top-left, from the screen's top-left.
@@ -643,6 +696,9 @@ R:Register({
     { kind = "toggle", label = "grey map", help = "Off: the map in its own colours, like the world map. On: grey with a cold tint, so it reads as a map and not as the world.",
       get = function(db) return O.Grey(db) end,
       set = function(db, on) if on then db.grey = nil else db.grey = false end redraw() end },
+    { kind = "toggle", label = "share my spot", help = "Your guildmates running a BiS addon see where you are on their map (while you move, never inside an instance). The same switch as /biscomm share on|off, for every BiS addon.",
+      get = function() return O.Sharing() end,
+      set = function(_, on) O.SetSharing(on) end },
     { kind = "toggle", label = "trail", help = "A dotted trail of where you have walked on each map, like Diablo's. /bist map clear wipes this map's.",
       get = function(db) return O.TrailOn(db) end,
       set = function(db, on)

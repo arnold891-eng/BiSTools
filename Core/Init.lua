@@ -5,7 +5,7 @@ _G.BiSTools = NS
 
 -- version from the TOC, never a literal that drifts (house law); the literal is the
 -- fallback only and the harness holds it equal to ## Version
-local VERSION_FALLBACK = "0.9.0"   -- == ## Version in the TOC; the harness scans for this
+local VERSION_FALLBACK = "0.10.0"   -- == ## Version in the TOC; the harness scans for this
 NS.VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(ADDON, "Version"))
   or (GetAddOnMetadata and GetAddOnMetadata(ADDON, "Version")) or VERSION_FALLBACK
 
@@ -61,11 +61,13 @@ function NS.Comm.Boot()
   if not lib then return end
   lib:RegisterAddon(ADDON, NS.VERSION)
   if BiSToolsDB.comm == false then lib:SetEnabled(false) end
+  if BiSToolsDB.commShare == false and lib.SetSharing then lib:SetSharing(false) end   -- /biscomm share off (minor 12)
   lib:Boot()
 end
 function NS.Comm.Save()
   local lib = _G.LibBiSComm
   if lib and BiSToolsDB then BiSToolsDB.comm = lib:Enabled() and true or false end
+  if lib and BiSToolsDB and lib.Sharing then BiSToolsDB.commShare = lib:Sharing() end
 end
 
 local f = CreateFrame("Frame")

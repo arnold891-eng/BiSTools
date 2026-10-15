@@ -975,7 +975,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 11 and lib._booted, "LibBiSComm 1.0 minor 11 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 12 and lib._booted, "LibBiSComm 1.0 minor 12 loaded and booted from Core/Init")
 -- Minor 8 sends one message a second, as the client allows. This suite is about summons and
 -- farming, fires dozens of sends with the clock standing still and jumps it without running
 -- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
@@ -1842,9 +1842,9 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (6)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7)
   -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 6, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -5092,6 +5092,28 @@ do
   ok(O.gdots[1].color[1] == 0.67 and O.gdots[1].anchor[4] == 0.30 * f.w, "a dot in class colour, at their spot")
   ok(O.gdots[1].name and O.gdots[1].name.shown and O.gdots[1].name.text == "Mos",
     "a small name beside the dot - the first name only (Arn: 'maybe we can add small name')", O.gdots[1].name and O.gdots[1].name.text)
+  -- THE GUILD (Arn, 14 Oct: "show all guild locations"): the lib (minor 12) hears guildmates' SPOTs;
+  -- the map draws those on the map you are looking at, amber, first names, never a groupmate twice
+  local lib = _G.LibBiSComm
+  lib.spots["Kelvar-Dreamscythe"] = { map = 1952, x = 0.70, y = 0.20, at = GetTime() }
+  lib.spots["Mos"] = { map = 1952, x = 0.31, y = 0.41, at = GetTime() }          -- in the group already
+  lib.spots["Faraway"] = { map = 9999, x = 0.5, y = 0.5, at = GetTime() }       -- another zone
+  O.Group()
+  ok(O.guildShown == 1, "one guildmate on this map (the groupmate is not drawn twice, the other zone not at all)", O.guildShown)
+  local gd = O.gdots[3]
+  ok(gd and gd.shown and gd.color[1] == 1.00 and gd.color[2] == 0.62 and gd.name.text == "Kelvar", "an amber dot, named Kelvar")
+  odb.guildDots = false
+  O.Group()
+  ok(O.guildShown == 0, "Show guild off: no guild dots")
+  odb.guildDots = nil
+  lib.spots = {}
+  -- the share switch in the options is the lib's, for every BiS addon
+  local shareOpt
+  for _, o in ipairs(R:Get("map").options) do if o.label == "share my spot" then shareOpt = o end end
+  ok(shareOpt and shareOpt.get(odb) == true, "share my spot: on by default")
+  shareOpt.set(odb, false)
+  ok(lib:Sharing() == false, "off here is off in the lib - /biscomm share off")
+  shareOpt.set(odb, true)
   odb.group = false
   ok(O.Group() == 0 and not O.gdots[1].shown and not O.gdots[1].name.shown, "Show group off: no dots, no names")
   odb.group = nil

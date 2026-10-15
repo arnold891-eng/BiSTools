@@ -1,3 +1,8 @@
+## 0.10.0
+
+- **Your guild on the map.** Guildmates running any BiS addon show on the overlay map as small amber dots with their first names, on the zone you're looking at (your group keeps its class-coloured dots, and nobody is drawn twice). "Show guild" in the map tab's right-click menu hides them.
+- **Sharing your spot is on by default, and one switch rules every BiS addon**: "share my spot" in the map options, or `/biscomm share off` / `on`. It's sent only while you move - every 15 seconds in a small guild, 30 with more than 20 online, once a minute past 50 - and never from inside an instance.
+
 ## 0.9.0
 
 - **An overlay map, Diablo style.** Give it a key (Key Bindings > AddOns > BiS Tools > Overlay map - Alt+M works well) or type `/bist map`, and a faint map of your zone sits over the game. Clicks go straight through it, so you keep playing and fighting.
