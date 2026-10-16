@@ -5395,13 +5395,46 @@ do
       table.sort(sent.invite)
       ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "Send: everyone left on the list invited", table.concat(sent.invite, ","))
       ok(box.runView:IsShown() and not cv:IsShown(), "and the box plays the invites")
+      -- IN WAVES (Arn, 15 Oct: "can leave it open, it regenerates with new people ... click invite again")
+      W.raid, W.inRaid = { { name = "Me" }, { name = "Nebeon" } }, true          -- Nebeon accepted
       for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      ok(box:IsShown() and cv:IsShown() and P.wave, "after the invites: back to the list, still open")
+      local now = {}
+      for _, l in ipairs(cv.lines) do if l.shown then now[#now + 1] = l.text.text end end
+      ok(table.concat(now, ","):find("Already with you (1)", 1, true) and table.concat(now, ","):find("Nebeon", 1, true)
+         and cv.send.label.text == "Send 1 invite", "who joined moved down; who didn't is still there to send", table.concat(now, ", "))
+      -- x someone: they stay out through every rebuild
+      for _, l in ipairs(cv.lines) do if l.shown and l.text.text == "Ariarie" then l.x.scripts.OnClick(l.x) end end
+      roster[6] = { "Newcomer-Realm", "Raider", 3, true, "Mage", "MAGE" }      -- logs on mid-wave
+      P.waveEvents.scripts.OnEvent(P.waveEvents, "GUILD_ROSTER_UPDATE")
+      W.runAfters(P.REGEN_GAP + 0.1)
+      now = {}
+      for _, l in ipairs(cv.lines) do if l.shown then now[#now + 1] = l.text.text end end
+      local joined = table.concat(now, ",")
+      ok(joined:find("Newcomer", 1, true) and not joined:find("Ariarie", 1, true) and cv.send.label.text == "Send 1 invite",
+        "a new login appears by itself; the x'd one stays out", joined)
+      ok(cv.refresh and cv.refresh.label.text == "Refresh" and cv.cancel.label.text == "Close", "Refresh, and Close")
+      -- Send | Refresh | Close along the bottom, apart: Send from 12, Close ends 12 from the right
+      local sendR = 12 + cv.send.w
+      local closeL = P.W - 12 - cv.cancel.w
+      local refreshL = closeL - 6 - cv.refresh.w
+      ok(sendR < refreshL and cv.send.label:GetStringWidth() <= cv.send.w - 4, "the three buttons do not touch, and Send's words fit",
+        sendR .. " < " .. refreshL)
+      sent.invite = {}
+      cv.send.scripts.OnClick(cv.send)
+      ok(sent.invite[1] == "Newcomer", "the next wave: Send again", table.concat(sent.invite, ","))
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      cv.cancel.scripts.OnClick(cv.cancel)
+      ok(not box:IsShown() and P.wave == nil, "Close ends the wave")
+      roster[6] = nil
+      W.raid, W.inRaid = { { name = "Me" } }, false
       sent.invite = {}
       SlashCmdList.BISTOOLS("party rank officer")
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
       cv.send.scripts.OnClick(cv.send)
       ok(sent.invite[1] == "Grux", "/bist party rank officer - any case, through the same confirm", table.concat(sent.invite, ","))
       for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      cv.cancel.scripts.OnClick(cv.cancel)
       w.guildBtn.scripts.OnClick(w.guildBtn)
       ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)

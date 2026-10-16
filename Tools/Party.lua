@@ -385,10 +385,16 @@ function P.BuildConfirm(f)
     b:SetScript("OnClick", onClick)
     return b
   end
-  cv.send = btn("Send", 150, "good", function() P.SendPending() end)
+  cv.send = btn("Send", 120, "good", function() P.SendPending() end)
   cv.send:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 8)
-  cv.cancel = btn("Cancel", 70, "ink2", function() P.EndShow() end)
+  cv.cancel = btn("Close", 70, "ink2", function() P.EndShow() end)
+  cv.refresh = btn("Refresh", 70, "accent", function()
+    local ask = (C_GuildInfo and C_GuildInfo.GuildRoster) or GuildRoster
+    if ask then pcall(ask) end                 -- the roster answers with GUILD_ROSTER_UPDATE
+    P.Regenerate()
+  end)
   cv.cancel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 8)
+  cv.refresh:SetPoint("RIGHT", cv.cancel, "LEFT", -6, 0)
   cv:EnableMouseWheel(true)
   cv:SetScript("OnMouseWheel", function(_, delta)
     P.confOffset = math.max(0, (P.confOffset or 0) - delta * P.CONF_ROWS)
@@ -462,6 +468,7 @@ end
 
 --- One off the list (they are not raiding tonight).
 function P.Drop(entry)
+  if P.wave and entry and entry.name then P.wave.dropped[P.Key(entry.name) or "?"] = true end
   for i, e in ipairs(P.pending or {}) do
     if e == entry then table.remove(P.pending, i) break end
   end
@@ -519,7 +526,10 @@ function P.SendPending()
   local db, names = P.pendingDb or P.db, {}
   for _, e in ipairs(P.pending or {}) do names[#names + 1] = e.name end
   P.pending = nil
-  if #names == 0 then P.EndShow() return 0 end
+  if #names == 0 then
+    if P.wave then P.Regenerate() else P.EndShow() end     -- a wave stays open with nobody to send
+    return 0
+  end
   local n = P.InviteNames(db, names)
   if db.show == false then P.EndShow() end
   return n
@@ -558,7 +568,15 @@ function P.Step(dt)
   if not (run and f) then return end
   run.t = run.t + (dt or 0)
   if run.done then
-    if run.t >= run.len + P.LINGER then P.EndShow() end
+    if run.t >= run.len + P.LINGER then
+      if P.wave then
+        P.run = nil
+        P.ShowConfirm()
+        P.Regenerate()
+      else
+        P.EndShow()
+      end
+    end
     return
   end
   local frac = math.min(1, run.t / run.len)
@@ -646,7 +664,7 @@ do
 end
 
 function P.EndShow()
-  P.run, P.pending = nil, nil
+  P.run, P.pending, P.wave = nil, nil, nil
   if P.box then P.box:Hide() end
 end
 
@@ -946,6 +964,19 @@ function P.InviteRank(db, rank)
     if not r then NS.Print("party list: no rank number %d online (/bist party rank lists them)", nth) return 0 end
     rank = r.rank:lower()
   end
+  local entries, inGroup, found, label = P.RankPeople(rank)
+  if not found then NS.Print("party list: nobody online with the rank %s", rank) return 0 end
+  if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
+  -- A WAVE (Arn, 15 Oct: "the raid leader generates a list, sends out invites, can leave it open -
+  -- it regenerates with new people that log on ... and can click invite again"): the list stays
+  -- open across sends, rebuilt from the same rank; whoever was x'd stays out for the session
+  local same = P.wave and P.wave.rank == rank
+  P.wave = { db = db, rank = rank, label = label, dropped = same and P.wave.dropped or {} }
+  return P.Confirm(db, label, P.WithoutDropped(entries), inGroup)
+end
+
+--- That rank's people online: those to invite, those already with you, whether any, its label.
+function P.RankPeople(rank)
   local here = { [P.Key(UnitName("player")) or "?"] = true }
   for _, m in ipairs(P.Members()) do here[m.key] = true end
   local entries, inGroup, found, label = {}, {}, false, nil
@@ -955,9 +986,47 @@ function P.InviteRank(db, rank)
       if not here[P.Key(m.name) or "?"] then entries[#entries + 1] = m else inGroup[#inGroup + 1] = m end
     end
   end
-  if not found then NS.Print("party list: nobody online with the rank %s", rank) return 0 end
-  if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
-  return P.Confirm(db, label, entries, inGroup)
+  return entries, inGroup, found, label
+end
+
+function P.WithoutDropped(entries)
+  local d, out = P.wave and P.wave.dropped or {}, {}
+  for _, e in ipairs(entries) do if not d[P.Key(e.name) or "?"] then out[#out + 1] = e end end
+  return out
+end
+
+--- The wave's list again, from the roster as it is now (new logins in, joiners moved down).
+function P.Regenerate()
+  local w = P.wave
+  if not w then return false end
+  local entries, inGroup = P.RankPeople(w.rank)
+  P.pending, P.pendingHere, P.pendingLabel, P.pendingDb = P.WithoutDropped(entries), inGroup, w.label, w.db
+  P.PaintConfirm()
+  return true
+end
+
+--- Soon, not at once: roster and group events come in bursts.
+function P.RegenerateSoon()
+  if P.regenPending or not P.wave then return end
+  P.regenPending = true
+  local after = C_Timer and C_Timer.After
+  if not after then P.regenPending = nil P.Regenerate() return end
+  after(P.REGEN_GAP, function()
+    P.regenPending = nil
+    local cv = P.box and P.box.confirmView
+    if cv and cv:IsShown() then P.Regenerate() end
+  end)
+end
+P.REGEN_GAP = 1.5
+do
+  local ev = CreateFrame("Frame")
+  ev:RegisterEvent("GUILD_ROSTER_UPDATE")
+  ev:RegisterEvent("GROUP_ROSTER_UPDATE")
+  ev:SetScript("OnEvent", function()
+    local cv = P.box and P.box.confirmView
+    if P.wave and cv and cv:IsShown() then P.RegenerateSoon() end
+  end)
+  P.waveEvents = ev
 end
 
 --- Repaint: your list (with you now = green), or the guild to pick from (on the list = green, a tick).
