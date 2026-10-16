@@ -609,11 +609,11 @@ function F.MenuLines(db, root, ctx)
   if RC and RC.MenuSafe and not RC.MenuSafe() then return end
   local name = F.MenuMob(ctx)
   if not name then return end
-  if root.CreateDivider then root:CreateDivider() end
+  if RC and RC.Section then RC.Section(root) elseif root.CreateDivider then root:CreateDivider() end
   if db.active == name then
-    root:CreateButton("BiS: stop farming", function() F.Clear(db) end)
+    root:CreateButton("Stop farming", function() F.Clear(db) end)
   else
-    root:CreateButton("BiS: track in farm", function()
+    root:CreateButton("Track in farm", function()
       F.Search(db, name)                       -- what /bist farm add <name> does
       F.Toggle(db, true)
     end)

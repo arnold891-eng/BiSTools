@@ -175,6 +175,13 @@ _G.GetRaidTargetIndex = function(u)
 end
 W.tickers = {}
 _G.C_Timer = { After = function(delay, fn) W.afters[#W.afters + 1] = { at = W.now + delay, fn = fn } end,
+  -- a one-shot timer that can be cancelled, as the client's (the party list's invite batches)
+  NewTimer = function(delay, fn)
+    local t = { alive = true }
+    function t:Cancel() self.alive = false end
+    W.afters[#W.afters + 1] = { at = W.now + delay, fn = function() if t.alive then fn(t) end end }
+    return t
+  end,
   NewTicker = function(iv, fn)
   local t = { iv = iv, fn = fn, alive = true }
   function t:Cancel() self.alive = false end
@@ -3115,7 +3122,7 @@ do
     local root = { lines = {} }
     function root:CreateButton(t) self.lines[#self.lines + 1] = t end
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
-    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
+    ok(root.lines[1] == "Add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
        "the right-click menu offers 'add pal' on them, never 'add rival'", RC.menuDecision)
     -- PALS (Arn: "a freindly list too ... puts a tiny little heart green ... only works out of combat")
     local pals = RC.Pals(rdb2)
@@ -3137,23 +3144,23 @@ do
     end }
     root.lines, root.click = {}, nil
     RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
+    ok(root.lines[1] == "Add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
     root.click()
     ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: remove pal", "and next time it offers to take them off")
+    ok(root.lines[1] == "Remove pal", "and next time it offers to take them off")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
     ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
+    ok(root.lines[1] == "Add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
     root.lines = {}
     -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
     -- (Arn, 14 Oct: "if we cant see we add both?")
     RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
-    ok(root.lines[1] == "BiS: add pal" and root.lines[2] == "BiS: add rival" and #root.lines == 2,
+    ok(root.lines[1] == "Add pal" and root.lines[2] == "Add rival" and #root.lines == 2,
       "can't tell: both lines", table.concat(root.lines, " / "))
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Chatty" }, "CHAT_ROSTER")
@@ -3558,19 +3565,19 @@ do
   _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
   local m = root()
   hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: add rival", "an enemy's menu says: BiS: add rival", m.lines[2])
+  ok(m.lines[2] == "Add rival", "an enemy's menu says, in the BiS section: Add rival", table.concat(m.lines, "|") .. " why=" .. tostring(RC.menuDecision))
   m.click()
   ok(rivals["Dai Joubu"] and rivals["Dai Joubu"].active and rivals["Dai Joubu"].class == "ROGUE"
      and rivals["Dai Joubu"].guid == "Player-4619-00DA1", "clicked: Dai Joubu is a gold rival, with class and GUID")
   ok(tb.attrs.macrotext:find("/target Dai Joubu", 1, true), "and the target button knows them at once")
   m = root()
   hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: remove rival", "the next time: BiS: remove rival")
+  ok(m.lines[2] == "Remove rival", "the next time: BiS: remove rival")
   m.click()
   ok(rivals["Dai Joubu"] == nil, "and that takes them off")
   m = root()
   hookedMenus.MENU_UNIT_FRIEND(nil, m, { name = "Hunting" })   -- a name in chat, no surname given
-  ok(m.lines[2] == "BiS: remove rival", "a chat name finds the rival by the character name alone")
+  ok(m.lines[2] == "Remove rival", "a chat name finds the rival by the character name alone")
   m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = "Me" })
   ok(#m.lines == 0, "no line on your own menu")
   m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = setmetatable({}, { __index = function() error("secret") end }) })
@@ -3584,7 +3591,7 @@ do
   -- as TARGET - the line must be there too, and only for players
   ok(hookedMenus.MENU_UNIT_TARGET and hookedMenus.MENU_UNIT_FOCUS, "the TARGET and FOCUS menus carry the line too")
   m = root() hookedMenus.MENU_UNIT_TARGET(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
+  ok(m.lines[2] == "Add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
   -- A BATTLEGROUND MENU CARRIES NO NAME (Arn, 13 Oct: "the menu gave no name" on Grape Sprite's PLAYER
   -- menu) - the unit answers instead: GetUnitName with the surname, else UnitName
   do
@@ -3592,7 +3599,7 @@ do
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
     _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
     m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape Sprite",
+    ok(m.lines[2] == "Add rival" and RC.menuDecision == "added for Grape Sprite",
        "a battleground menu with no name: the name comes from the unit, surname and all", RC.menuDecision)
     m.click()
     ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active, "clicked: Grape Sprite is a gold rival")
@@ -3601,7 +3608,7 @@ do
     local keepIs = _G.issecretvalue
     _G.issecretvalue = function(v) return type(v) == "table" end
     m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape",
+    ok(m.lines[2] == "Add rival" and RC.menuDecision == "added for Grape",
        "GetUnitName hidden: UnitName's plain name still does", RC.menuDecision)
     m.click()
     _G.issecretvalue = keepIs
@@ -3679,7 +3686,7 @@ do
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
     local mo = strictRoot()
     hookedMenus.MENU_UNIT_PLAYER(nil, mo, { name = "Grape", unit = "target" })
-    ok(mo.lines[1] == "BiS: add rival", "out in the world: the menu line, as before")
+    ok(mo.lines[1] == "Add rival", "out in the world: the menu line, as before")
     _G.GetUnitName, _G.IsInInstance, W.target = keepGUN, keepInst, keepT
   end
   W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
@@ -3736,7 +3743,7 @@ do
     W.target = { name = "Dalaran Summoner", guid = "Creature-0-0-0-0-1915-00A1" }
     local m = root()
     menus.MENU_UNIT_TARGET(nil, m, { unit = "target", name = "Dalaran Summoner" })
-    ok(m.lines[1] == "--" and m.lines[2] == "BiS: track in farm", "a mob's menu says: BiS: track in farm", m.lines[2])
+    ok(m.lines[1] == "--" and m.lines[2] == "Track in farm", "a mob's menu says, in the BiS section: Track in farm", m.lines[2])
     BiSToolsFarm:Hide()
     m.click()
     ok(db.active == "Dalaran Summoner" and db.custom == "Dalaran Summoner",
@@ -3744,7 +3751,7 @@ do
     ok(BiSToolsFarm:IsShown(), "and the farm window opens")
     m = root()
     menus.MENU_UNIT_FOCUS(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: stop farming", "the next time: BiS: stop farming", m.lines[2])
+    ok(m.lines[2] == "Stop farming", "the next time: Stop farming", m.lines[2])
     m.click()
     ok(db.active == nil, "and that stops it")
     W.target = { name = "Kumlance", player = true }
@@ -3783,7 +3790,7 @@ do
   W.target = { name = "Kill", player = true }                -- the menu is about a player on target
   RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
   W.target = keepT
-  ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
+  ok(mg.lines[3] == "Add guild rival", "the menu offers a guild rival too", mg.lines[3])
   _G.UnitClass = function() return "Mage", "MAGE" end
   mg.click()
   _G.UnitClass = keepClass
@@ -5390,18 +5397,49 @@ do
   _G.UnitInRaid = function(u) return u == "raid2" end
   _G.IsInInstance = function() return false, "none" end
   P.MenuLine(pdb, m, { unit = "raid2" })
-  ok(#m.lines == 1 and m.lines[1].text == "BiS: add to party list", "right-click a raid member: BiS: add to party list", m.lines[1] and m.lines[1].text)
+  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "right-click a raid member: BiS: add to party list", m.lines[1] and m.lines[1].text)
   m.lines[1].fn()
   ok(P.Has(pdb, "Stranger"), "and it adds them")
   m.lines = {}
   P.MenuLine(pdb, m, { unit = "raid2" })
-  ok(m.lines[1] and m.lines[1].text == "BiS: remove from party list", "on the list already: the line removes")
+  ok(m.lines[1] and m.lines[1].text == "Remove from party list", "on the list already: the line removes")
   m.lines = {}
   P.MenuLine(pdb, m, { unit = "target" })
   ok(#m.lines == 0, "someone not in your group: no line")
   _G.IsInInstance = function() return true, "party" end
   P.MenuLine(pdb, m, { unit = "raid2" })
   ok(#m.lines == 0, "inside an instance: no line (it breaks the game's menu there)")
+  _G.IsInInstance = function() return false, "none" end
+  -- A FRIEND, from the Friends list (Arn, 15 Oct: "can it add the Darthsidiouz sithlord to the party
+  -- list?" ... "another sub section to our section"): one BiS section - a divider, a title - holding
+  -- the rivals tool's pal line and the party line together
+  do
+    local f = { lines = {} }
+    function f:CreateDivider() self.lines[#self.lines + 1] = "--" end
+    function f:CreateTitle(t) self.lines[#self.lines + 1] = "title:" .. tostring(t) end
+    function f:CreateButton(text, fn) self.lines[#self.lines + 1] = text self["fn" .. #self.lines] = fn end
+    local ctx = { name = "Darthsidiouz", surname = "Sithlord" }
+    NS.Recap.MenuLines(R:DBFor(R:Get("recap")), f, ctx, "FRIEND")
+    P.MenuLine(pdb, f, ctx, "FRIEND")
+    local dividers, titles = 0, 0
+    for _, l in ipairs(f.lines) do
+      if l == "--" then dividers = dividers + 1 end
+      if tostring(l):find("^title:") then titles = titles + 1 end
+    end
+    ok(dividers == 1 and titles == 1 and f.lines[2]:find("BiS", 1, true), "one BiS section: one divider, one title", table.concat(f.lines, " | "))
+    ok(f.lines[#f.lines] == "Add to party list" and #f.lines == 5, "pal, rival (no faction seen: both) and the party line, together under it", table.concat(f.lines, " | "))
+    f["fn" .. #f.lines]()
+    ok(P.Has(pdb, "Darthsidiouz Sithlord"), "a friend goes on the list, surname and all")
+    sent.invite = {}
+    W.raid, W.inRaid = { { name = "Me" } }, false
+    P.Invite(pdb)
+    W.runAfters(P.PUMP_GAP + 0.1)             -- four at a time: the fifth goes in the next batch
+    local asked = false
+    for _, n in ipairs(sent.invite) do if n == "Darthsidiouz" then asked = true end end
+    ok(asked, "and the invite goes to Darthsidiouz - the game's name, never the surname", table.concat(sent.invite, ","))
+    ok(P.Key("Darthsidiouz Sithlord") == P.Key("darthsidiouz") and P.Key("Tobi-Realm") == "tobi", "compared by first name: no surname, no realm, any case")
+    P.Remove(pdb, "Darthsidiouz")
+  end
   _G.UnitInRaid, _G.IsInInstance = keepUIR, keepII
   -- more than a party holds: a party you lead becomes a raid first
   W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" } }, false

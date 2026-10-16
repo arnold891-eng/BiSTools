@@ -7,7 +7,7 @@
   in a raid new option to add to party list ... when right click".
 
   - The list: `db.names`, your group's names (at most P.MAX). Filled by `/bist party save` (whoever
-    you are grouped with now), `/bist party add|remove <name>`, or "BiS: add to party list" on a
+    you are grouped with now), `/bist party add|remove <name>`, or "Add to party list" (BiS section) on a
     party or raid member's right-click menu (outside instances: inside one an addon line breaks the
     game's menu - RC.MenuSafe).
   - Two buttons in the BiS> tools box (Box.lua):
@@ -29,11 +29,18 @@ local function plain(v)
   return v
 end
 
---- The name a list entry is compared by: no realm, any case.
+--- The name a list entry is compared by: the first name - no surname (Forever's "Darthsidiouz
+--- Sithlord" is Darthsidiouz to the game), no realm, any case.
 function P.Key(name)
   name = plain(name)
   if type(name) ~= "string" or name == "" then return nil end
-  return (name:gsub("%-.*$", "")):lower()
+  local first = name:match("^([^%s%-]+)")
+  return first and first:lower() or nil
+end
+
+--- What an invite is sent to: the character's own name, never the surname after it.
+function P.InviteName(name)
+  return type(name) == "string" and (name:match("^(%S+)") or name) or name
 end
 
 function P.List(db)
@@ -125,7 +132,7 @@ end
 P.queue = {}
 local function send(name)
   local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
-  if invite then pcall(invite, name) end
+  if invite then pcall(invite, P.InviteName(name)) end
 end
 
 --- A few at a time: a burst of invites is what gets a player's messages throttled.
@@ -588,30 +595,40 @@ function P.Toggle(db, show, recenter)
 end
 
 ------------------------------------------------------------- the right-click line --
--- "BiS: add to party list" on a party or raid member's menu (Arn, 15 Oct). The game's own
+-- "Add to party list", in the BiS section of a party or raid member's menu (Arn, 15 Oct). The game's own
 -- Menu.ModifyMenu, as the rivals' lines are; never inside an instance (RC.MenuSafe).
-P.MENUS = { "PARTY", "RAID_PLAYER", "RAID", "TARGET", "FOCUS", "PLAYER" }
+P.MENUS = { "PARTY", "RAID_PLAYER", "RAID", "TARGET", "FOCUS", "PLAYER",
+  -- the Friends list too (Arn, 15 Oct, a Battle.net friend: "can it add the Darthsidiouz sithlord
+  -- to the party list?" - he asked for shift-click; that would mean hooking Blizzard's own list
+  -- buttons, which is what breaks the client on Forever, so it is the right-click line instead)
+  "FRIEND", "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
 
 local function field(ctx, k)
   local ok, v = pcall(function() return ctx[k] end)
   return ok and plain(v) or nil
 end
 
-function P.MenuLine(db, root, ctx)
+function P.MenuLine(db, root, ctx, kind)
   if not (R:Enabled("party") and root and root.CreateButton) then return end
   local RC = NS.Recap
   if RC and RC.MenuSafe and not RC.MenuSafe() then return end
-  local unit = field(ctx, "unit")
-  if type(unit) ~= "string" then return end
-  local okIn, inGroup = pcall(function()
-    return (UnitInParty and UnitInParty(unit)) or (UnitInRaid and UnitInRaid(unit))
-  end)
-  if not okIn or not plain(inGroup) or UnitIsUnit(unit, "player") then return end
-  local name = plain(GetUnitName and GetUnitName(unit, true) or UnitName(unit))
+  local name
+  if (RC and RC.FRIEND_MENUS and RC.FRIEND_MENUS[kind or ""]) or field(ctx, "bnetIDAccount") ~= nil then
+    -- a friend: whoever it is (a Battle.net friend by the character they're playing in this game)
+    name = RC and RC.FriendName and RC.FriendName(ctx)
+  else
+    local unit = field(ctx, "unit")
+    if type(unit) ~= "string" then return end
+    local okIn, inGroup = pcall(function()
+      return (UnitInParty and UnitInParty(unit)) or (UnitInRaid and UnitInRaid(unit))
+    end)
+    if not okIn or not plain(inGroup) or UnitIsUnit(unit, "player") then return end
+    name = plain(GetUnitName and GetUnitName(unit, true) or UnitName(unit))
+  end
   if not P.Key(name) then return end
   local on = P.Has(db, name)
-  if root.CreateDivider then root:CreateDivider() end
-  root:CreateButton(on and "BiS: remove from party list" or "BiS: add to party list", function()
+  if RC and RC.Section then RC.Section(root) elseif root.CreateDivider then root:CreateDivider() end
+  root:CreateButton(on and "Remove from party list" or "Add to party list", function()
     if on then P.Remove(db, name) else P.Add(db, name) end
     NS.Print("party list: %s %s (%d on it)", name, on and "removed" or "added", #P.List(db))
     P.Changed()
@@ -622,7 +639,7 @@ function P.HookMenus(db)
   if P.menusHooked or not (Menu and type(Menu.ModifyMenu) == "function") then return false end
   P.menusHooked = true
   for _, kind in ipairs(P.MENUS) do
-    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) P.MenuLine(db, root, ctx) end)
+    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) P.MenuLine(db, root, ctx, kind) end)
   end
   return true
 end
