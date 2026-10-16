@@ -389,6 +389,7 @@ P.REPLIES = {
   { "ERR_ALREADY_IN_GROUP_S", "%s is already in a group", true },
   { "ERR_BAD_PLAYER_NAME_S", "can't find %s (offline?)", true },
   { "ERR_INVITE_PLAYER_S", "%s: invite received", false },
+  { "ERR_DECLINE_GROUP_S", "%s declined", true },              -- "Darthsidiouz Sithlord declines your group invitation."
 }
 local function pattern(fmt)
   if type(fmt) ~= "string" then return nil end

@@ -5428,6 +5428,16 @@ do
       ok(l.wrap == false and not (l.text or ""):find("Sithlord", 1, true), "one line each, by first name (no surname to wrap)", l.text)
     end
     for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    -- and the game's words as Arn pasted them (15 Oct): invited, then declined - whole names
+    _G.ERR_DECLINE_GROUP_S = "%s declines your group invitation."
+    P.Show({ "Darthsidiouz Sithlord" })
+    P.Heard("You have invited Darthsidiouz Sithlord to join your group.")
+    P.Heard("Darthsidiouz Sithlord declines your group invitation.")
+    local got = table.concat(shown(), " / ")
+    ok(got:find("Darthsidiouz: invite received", 1, true) and got:find("Darthsidiouz declined", 1, true),
+      "invited, then declined: both in the box, by first name", got)
+    for _ = 1, 80 do box.scripts.OnUpdate(box, 0.05) end
+    _G.ERR_DECLINE_GROUP_S = nil
     ok(not P.run and not P.Heard("Somebody is already in a group."), "a system line while no box is up: left alone")
     -- A REFUSED INVITE IS SAID (Arn, 15 Oct: "i dont think it is sending any invites" - the pcall had
     -- eaten the error): in the box's log, and once in chat
