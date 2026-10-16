@@ -5328,7 +5328,7 @@ do
     w.add:SetText("Zed")
     w.add.scripts.OnEnterPressed(w.add)
     ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
-    ok(w.buttons.save and w.buttons.invite and w.buttons.ranks and w.buttons.disband and w.buttons.clear, "save, invite, ranks, disband, clear")
+    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and w.buttons.clear, "save, invite, guild, disband, clear")
     for name, b in pairs(w.buttons) do ok(b.label:GetStringWidth() <= b.w - 4, "the " .. name .. " label fits its button", b.label:GetStringWidth()) end
     -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
     -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole
@@ -5341,14 +5341,22 @@ do
       _G.IsInGuild = function() return true end
       _G.GetNumGuildMembers = function() return #roster, 4 end
       _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, "Shaman", "", "", "", m[4] end
+      local keepGCN, keepGCR = _G.GuildControlGetNumRanks, _G.GuildControlGetRankName
+      local ladder = { "Guild Master", "Officer", "Veteran", "Raider" }
+      _G.GuildControlGetNumRanks = function() return #ladder end
+      _G.GuildControlGetRankName = function(i) return ladder[i] end
       w.guildBtn.scripts.OnClick(w.guildBtn)
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
-      ok(texts[1] == "invite all <Officer> (1)" and texts[2] == "invite all <Raider> (2)" and #texts == 2,
-        "ranks: the ranks with someone online, highest first, and how many (never you, never the offline)", table.concat(texts, ", "))
+      ok(texts[1] == "<Guild Master> (nobody else online)" and texts[2] == "invite all <Officer> (1)"
+         and texts[3] == "<Veteran> (nobody else online)" and texts[4] == "invite all <Raider> (2)" and #texts == 4,
+        "ranks: every rank, highest first; who else is online, never you, never the offline", table.concat(texts, ", "))
+      sent.invite = {}
+      w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
+      ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
       sent.invite = {}
       W.raid, W.inRaid = { { name = "Me" } }, false
-      w.rows[2].pick.scripts.OnClick(w.rows[2].pick)
+      w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
       W.runAfters(P.PUMP_GAP + 0.1)
       table.sort(sent.invite)
       ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "click a rank: everyone online with it invited", table.concat(sent.invite, ","))
@@ -5356,7 +5364,7 @@ do
       SlashCmdList.BISTOOLS("party rank officer")
       ok(sent.invite[1] == "Grux", "/bist party rank officer - any case", table.concat(sent.invite, ","))
       w.guildBtn.scripts.OnClick(w.guildBtn)
-      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "ranks", "the button again (it read 'list'): back to your list")
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
       local keepMenu, hooked = _G.Menu, {}
       _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
@@ -5381,6 +5389,7 @@ do
       P.Remove(pdb, "Nebeon")
       if P.box then P.EndShow() end
       _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo = keepIG, keepGN, keepGR
+      _G.GuildControlGetNumRanks, _G.GuildControlGetRankName = keepGCN, keepGCR
       W.raid, W.inRaid = keepRaidG, keepInG
       sent.invite = {}
     end

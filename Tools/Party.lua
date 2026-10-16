@@ -595,7 +595,7 @@ function P.BuildWindow(db)
     r.pick = CreateFrame("Button", nil, r)
     r.pick:SetAllPoints(r)
     r.pick:SetScript("OnClick", function()
-      if r.rank then P.InviteRank(db, r.rank) return end
+      if r.rank then if not r.empty then P.InviteRank(db, r.rank) end return end
       if not r.who then return end
       if P.Has(db, r.who) then P.Remove(db, r.who) else P.Add(db, r.who) end
       P.Changed()
@@ -642,7 +642,7 @@ function P.BuildWindow(db)
   local acts = {
     { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
     { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
-    { "ranks", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
+    { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
       "Your guild's ranks with someone online: click a rank to invite all of them. Click again for your list." },
     { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
     { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
@@ -653,7 +653,7 @@ function P.BuildWindow(db)
     b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (i - 1) * (bw + 3), 6)
     f.buttons[a[1]] = b
   end
-  f.guildBtn = f.buttons.ranks
+  f.guildBtn = f.buttons.guild
   f:Hide()
   return f
 end
@@ -685,6 +685,18 @@ end
 --- rank"): the ranks with someone online, highest first, and how many.
 function P.Ranks(online)
   local by, out = {}, {}
+  -- EVERY RANK, even with nobody else online (Arn, 15 Oct: "im an officer and it does not show that
+  -- rank" - he was the only Officer on, and you are never counted): the guild's own ladder first
+  local okN, nr = pcall(function() return GuildControlGetNumRanks and GuildControlGetNumRanks() end)
+  nr = okN and plain(nr) or 0
+  for i = 1, (type(nr) == "number" and nr or 0) do
+    local okR, name = pcall(GuildControlGetRankName, i)
+    name = okR and plain(name)
+    if type(name) == "string" and name ~= "" and not by[name] then
+      by[name] = { rank = name, index = i - 1, n = 0 }      -- the roster's rankIndex starts at 0
+      out[#out + 1] = by[name]
+    end
+  end
   for _, m in ipairs(online or P.GuildOnline()) do
     if m.rank then
       local r = by[m.rank]
@@ -724,8 +736,8 @@ function P.PaintWindow()
   local f, db = P.win, P.db
   if not (f and db and f:IsShown()) then return end
   local guild = P.view == "guild"
-  f.con:Set("name", guild and "Party: ranks" or "Party", "accent")
-  f.guildBtn.label:SetText(guild and "list" or "ranks")
+  f.con:Set("name", guild and "Party: guild" or "Party", "accent")
+  f.guildBtn.label:SetText(guild and "list" or "guild")        -- Arn, 15 Oct: "this should say guild"
   local names, here = P.List(db), {}
   local entries
   if guild then
@@ -742,8 +754,9 @@ function P.PaintWindow()
     r.who, r.rank = n, guild and e and e.rank or nil
     if e then
       if r.rank then
-        r.name:SetText(("invite all <%s> (%d)"):format(r.rank, e.n))
-        r.name:SetTextColor(NS.Farm.color("accent"))
+        r.empty = e.n == 0
+        r.name:SetText(r.empty and ("<%s> (nobody else online)"):format(r.rank) or ("invite all <%s> (%d)"):format(r.rank, e.n))
+        r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or "accent"))
       else
         local on = guild and P.Has(db, n)
         r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+")) or n)
