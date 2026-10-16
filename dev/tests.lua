@@ -391,6 +391,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   end
   function f:SetMovable() end
   function f:EnableMouse() end
+  function f:EnableMouseWheel(on) self.wheel = on end
   function f:SetClampedToScreen() end
   function f:RegisterForDrag() end
   function f:RegisterForClicks(c) self.clicks = c end
@@ -5356,13 +5357,44 @@ do
       ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
       sent.invite = {}
       W.raid, W.inRaid = { { name = "Me" } }, false
+      -- LOOK BEFORE IT GOES (Arn, 15 Oct): a rank click prepares, then waits on a confirm list by
+      -- class - nothing is sent until Send; x leaves someone out; who is already in shows apart
+      roster[1][5], roster[1][6] = "Paladin", "PALADIN"
+      roster[3][5], roster[3][6] = "Shaman", "SHAMAN"
+      roster[2][5], roster[2][6] = "Warrior", "WARRIOR"
+      _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, m[5] or "Shaman", "", "", "", m[4], 0, m[6] or "SHAMAN" end
+      W.raid, W.inRaid = { { name = "Me" }, { name = "Ariarie" } }, true       -- one Raider already in (a wave before)
       w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
+      ok(#sent.invite == 0 and P.run and P.run.prep, "a rank click sends nothing yet: it prepares", #sent.invite)
+      local box = BiSToolsPartyLoading
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      local cv = box.confirmView
+      ok(cv:IsShown() and not box.runView:IsShown(), "then the confirm view")
+      local seen = {}
+      for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text end end
+      ok(seen[1] == "Paladin (1)" and seen[2] == "Nebeon" and seen[3] == "Already with you (1)" and seen[4] == "Ariarie",
+        "by class, then who is already with you - dimmed, apart", table.concat(seen, ", "))
+      ok(cv.lines[2].x.shown and not cv.lines[4].x.shown, "an x on who would be invited; none on who is already in")
+      ok(cv.send.label.text == "Send 1 invite", "Send says how many", cv.send.label.text)
+      cv.lines[2].x.scripts.OnClick(cv.lines[2].x)
+      ok(#P.pending == 0 and cv.send.label.text == "Nobody left", "x: Nebeon is not raiding tonight", cv.send.label.text)
+      cv.cancel.scripts.OnClick(cv.cancel)
+      ok(not box:IsShown() and #sent.invite == 0, "Cancel: nobody invited")
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      cv.send.scripts.OnClick(cv.send)
       W.runAfters(P.PUMP_GAP + 0.1)
       table.sort(sent.invite)
-      ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "click a rank: everyone online with it invited", table.concat(sent.invite, ","))
+      ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "Send: everyone left on the list invited", table.concat(sent.invite, ","))
+      ok(box.runView:IsShown() and not cv:IsShown(), "and the box plays the invites")
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
       sent.invite = {}
       SlashCmdList.BISTOOLS("party rank officer")
-      ok(sent.invite[1] == "Grux", "/bist party rank officer - any case", table.concat(sent.invite, ","))
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      cv.send.scripts.OnClick(cv.send)
+      ok(sent.invite[1] == "Grux", "/bist party rank officer - any case, through the same confirm", table.concat(sent.invite, ","))
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
       w.guildBtn.scripts.OnClick(w.guildBtn)
       ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)

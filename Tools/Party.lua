@@ -259,8 +259,12 @@ function P.BuildShow()
   f.title = K.fs(f, T.text("accent", "BiS>") .. " invite", 13, "ink")
   f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -8)
   local inner = P.W - 24
+  -- the working view (bars, log, note); the confirm view (P.BuildConfirm) takes its place
+  local rv = CreateFrame("Frame", nil, f)
+  rv:SetAllPoints(f)
+  f.runView = rv
   local function bar(y, w)
-    local b = CreateFrame("Frame", nil, f)
+    local b = CreateFrame("Frame", nil, rv)
     b:SetSize(w, 16)
     b:SetPoint("TOPLEFT", f, "TOPLEFT", 12, y)
     K.tex(b, "BACKGROUND", "sunken", 1)
@@ -277,24 +281,24 @@ function P.BuildShow()
     return b
   end
   -- the whole run: what it is doing, and how far
-  f.status = K.fs(f, "", 11, "ink2")
+  f.status = K.fs(rv, "", 11, "ink2")
   f.status:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
   f.all = bar(-46, inner)
   f.blocks = f.all.blocks
   -- the player now: the machine talking to them (the newest line at the bottom), time left, a bar
   f.log = {}
   for i = 1, P.LOG_ROWS do
-    local l = K.fs(f, "", 11, i == P.LOG_ROWS and "ink2" or "muted")
+    local l = K.fs(rv, "", 11, i == P.LOG_ROWS and "ink2" or "muted")
     l:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70 - (i - 1) * 14)
     l:SetWidth(inner)
     l:SetJustifyH("LEFT")
     l:SetWordWrap(false)                     -- one line each, never over the line below
     f.log[i] = l
   end
-  f.left = K.fs(f, "", 11, "muted")
+  f.left = K.fs(rv, "", 11, "muted")
   f.left:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70 - P.LOG_ROWS * 14)
   f.one = bar(-88 - P.LOG_ROWS * 14, inner - 66)
-  local cancel = CreateFrame("Button", nil, f)
+  local cancel = CreateFrame("Button", nil, rv)
   cancel:SetSize(56, 16)
   cancel:SetPoint("LEFT", f.one, "RIGHT", 10, 0)
   K.tex(cancel, "BACKGROUND", "sunken", 1)
@@ -304,17 +308,198 @@ function P.BuildShow()
   cancel:SetScript("OnClick", function() P.EndShow() end)
   f.cancel = cancel
   -- a rule, and the note under it (the reference's "this server is VAC-secured")
-  local rule = f:CreateTexture(nil, "ARTWORK")
+  local rule = rv:CreateTexture(nil, "ARTWORK")
   rule:SetColorTexture(T.rgb("line2"))
   rule:SetSize(inner, 1)
   rule:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -114 - P.LOG_ROWS * 14)
-  f.note = K.fs(f, "", 11, "ink2")
+  f.note = K.fs(rv, "", 11, "ink2")
   f.note:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -122 - P.LOG_ROWS * 14)
   f.note:SetWidth(inner)
   f.note:SetJustifyH("LEFT")
+  P.BuildConfirm(f)
   f:SetScript("OnUpdate", function(_, dt) P.Step(dt) end)
   f:Hide()
   return f
+end
+
+------------------------------------------------------------- the confirm view --
+-- LOOK BEFORE IT GOES (Arn, 15 Oct: "right now as soon as i click the rank the invites go out
+-- instantly ... make it seem like its working, split into classes, and we can remove people that
+-- are raiders but arent raiding"). A rank click plays the working view as "preparing" (P.Confirm),
+-- then stops here: who would be invited, by class, an x on each; Send, or Cancel and nobody is.
+P.CONF_COLS, P.CONF_ROWS, P.CONF_LINE = 3, 9, 14
+P.PREP_LEN = 1.6
+
+function P.BuildConfirm(f)
+  local K = NS.Farm
+  local cv = CreateFrame("Frame", nil, f)
+  cv:SetAllPoints(f)
+  f.confirmView = cv
+  cv.head = K.fs(cv, "", 11, "ink2")
+  cv.head:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
+  local inner = P.W - 24
+  local colW = inner / P.CONF_COLS
+  cv.lines = {}
+  for i = 1, P.CONF_COLS * P.CONF_ROWS do
+    local col, row = math.floor((i - 1) / P.CONF_ROWS), (i - 1) % P.CONF_ROWS
+    local l = CreateFrame("Frame", nil, cv)
+    l:SetSize(colW - 4, P.CONF_LINE)
+    l:SetPoint("TOPLEFT", f, "TOPLEFT", 12 + col * colW, -48 - row * P.CONF_LINE)
+    l.text = K.fs(l, "", 10, "ink")
+    l.text:SetPoint("LEFT", l, "LEFT", 0, 0)
+    l.text:SetWidth(colW - 18)
+    l.text:SetJustifyH("LEFT")
+    l.text:SetWordWrap(false)
+    l.x = CreateFrame("Button", nil, l)
+    l.x:SetSize(12, 12)
+    l.x:SetPoint("RIGHT", l, "RIGHT", 0, 0)
+    l.x.label = K.fs(l.x, "x", 9, "warn")
+    l.x.label:SetPoint("CENTER")
+    l.x:SetScript("OnClick", function() if l.entry then P.Drop(l.entry) end end)
+    l:Hide()
+    cv.lines[i] = l
+  end
+  cv.more = K.fs(cv, "", 9, "dim")
+  cv.more:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 32)
+  local function btn(label, w, colour, onClick)
+    local b = CreateFrame("Button", nil, cv)
+    b:SetSize(w, 18)
+    K.tex(b, "BACKGROUND", "sunken", 1)
+    b.edge = K.border(b, colour, 1)
+    b.label = K.fs(b, label, 11, colour)
+    b.label:SetPoint("CENTER")
+    b:SetScript("OnClick", onClick)
+    return b
+  end
+  cv.send = btn("Send", 150, "good", function() P.SendPending() end)
+  cv.send:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 8)
+  cv.cancel = btn("Cancel", 70, "ink2", function() P.EndShow() end)
+  cv.cancel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 8)
+  cv:EnableMouseWheel(true)
+  cv:SetScript("OnMouseWheel", function(_, delta)
+    P.confOffset = math.max(0, (P.confOffset or 0) - delta * P.CONF_ROWS)
+    P.PaintConfirm()
+  end)
+  cv:Hide()
+end
+
+--- A class's colour, or the family's ink.
+local function classColour(file)
+  local c = file and RAID_CLASS_COLORS and RAID_CLASS_COLORS[file]
+  if type(c) == "table" and type(c.r) == "number" then return c.r, c.g, c.b end
+  return NS.Farm.color("ink")
+end
+
+--- The lines: a heading per class (most first), then its players.
+function P.ConfirmLines()
+  local by, order = {}, {}
+  for _, e in ipairs(P.pending or {}) do
+    local k = e.classFile or e.class or "?"
+    if not by[k] then by[k] = { file = e.classFile, class = e.class or k, list = {} } order[#order + 1] = by[k] end
+    table.insert(by[k].list, e)
+  end
+  table.sort(order, function(a, b)
+    if #a.list ~= #b.list then return #a.list > #b.list end
+    return tostring(a.class) < tostring(b.class)
+  end)
+  local out = {}
+  for _, g in ipairs(order) do
+    out[#out + 1] = { head = true, text = ("%s (%d)"):format(g.class, #g.list), file = g.file }
+    table.sort(g.list, function(a, b) return a.name < b.name end)
+    for _, e in ipairs(g.list) do out[#out + 1] = { entry = e, text = P.Short(e.name), file = g.file } end
+  end
+  -- IN WAVES (Arn, 15 Oct: "the raid leader sends out invites in waves, so once someone is in the
+  -- raid or party it should have another column of already in the raid"): last, dimmed, no x
+  local here = P.pendingHere or {}
+  if #here > 0 then
+    out[#out + 1] = { head = true, here = true, text = ("Already with you (%d)"):format(#here) }
+    local sorted = {}
+    for _, e in ipairs(here) do sorted[#sorted + 1] = e end
+    table.sort(sorted, function(a, b) return a.name < b.name end)
+    for _, e in ipairs(sorted) do out[#out + 1] = { here = true, text = P.Short(e.name) } end
+  end
+  return out
+end
+
+function P.PaintConfirm()
+  local f = P.box
+  local cv = f and f.confirmView
+  if not (cv and cv:IsShown()) then return end
+  local lines, n = P.ConfirmLines(), #(P.pending or {})
+  local fit = #cv.lines
+  P.confOffset = math.min(P.confOffset or 0, math.max(0, #lines - fit))
+  for i, l in ipairs(cv.lines) do
+    local d = lines[i + P.confOffset]
+    l.entry = d and d.entry
+    if d then
+      l.text:SetText(d.text)
+      if d.here then l.text:SetTextColor(NS.Farm.color("dim")) else l.text:SetTextColor(classColour(d.file)) end
+      if d.head or d.here then l.x:Hide() else l.x:Show() end
+      l:Show()
+    else
+      l:Hide()
+    end
+  end
+  cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+  local below = #lines - fit - P.confOffset
+  cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or "")
+  cv.send.label:SetText(n > 0 and ("Send %d invite%s"):format(n, n == 1 and "" or "s") or "Nobody left")
+end
+
+--- One off the list (they are not raiding tonight).
+function P.Drop(entry)
+  for i, e in ipairs(P.pending or {}) do
+    if e == entry then table.remove(P.pending, i) break end
+  end
+  P.PaintConfirm()
+end
+
+function P.ShowConfirm()
+  local f = P.BuildShow()
+  f.runView:Hide()
+  f.confirmView:Show()
+  P.confOffset = 0
+  f:Show()
+  P.PaintConfirm()
+end
+
+--- Prepare, then confirm: the working view reads the roster, then the list waits for Send.
+function P.Confirm(db, label, entries, inGroup)
+  if #entries == 0 then NS.Print("party list: everyone %s is already with you", label) return 0 end
+  P.pendingHere = inGroup or {}
+  P.pending, P.pendingLabel, P.pendingDb = entries, label, db
+  if db.show == false then P.ShowConfirm() return #entries end
+  local f = P.BuildShow()
+  local counts, classes = {}, {}
+  for _, e in ipairs(entries) do
+    local c = e.class or "?"
+    if not counts[c] then counts[c] = 0 classes[#classes + 1] = c end
+    counts[c] = counts[c] + 1
+  end
+  local parts = {}
+  for _, c in ipairs(classes) do parts[#parts + 1] = ("%d %s"):format(counts[c], c) end
+  P.Show({})
+  P.pending, P.pendingLabel, P.pendingDb = entries, label, db
+  P.run = { prep = true, names = entries, t = 0, said = 0, len = P.PREP_LEN,
+            script = { "Reading the guild roster...",
+                       ("Found %d %s online"):format(#entries, label),
+                       "Sorting by class: " .. table.concat(parts, ", "),
+                       "Checking who is already with you...",
+                       "Ready. Look it over." } }
+  f.status:SetText(("Preparing invites: %s..."):format(label))
+  P.Step(0)
+  return #entries
+end
+
+--- Send: the names left go out, and the box plays the invites as usual.
+function P.SendPending()
+  local db, names = P.pendingDb or P.db, {}
+  for _, e in ipairs(P.pending or {}) do names[#names + 1] = e.name end
+  P.pending = nil
+  if #names == 0 then P.EndShow() return 0 end
+  local n = P.InviteNames(db, names)
+  if db.show == false then P.EndShow() end
+  return n
 end
 
 --- One more line at the bottom of the log; the rest move up one.
@@ -330,6 +515,8 @@ end
 --- Start it: the script spread over the run, the bar filling with the clock.
 function P.Show(names)
   local f = P.BuildShow()
+  f.runView:Show()
+  f.confirmView:Hide()
   local script = P.Script(names)
   P.run = { names = names, script = script, t = 0, said = 0,
             len = math.min(P.SHOW_MAX, P.SHOW_MIN + P.SHOW_PER * #names) }
@@ -367,6 +554,11 @@ function P.Step(dt)
   while run.said < due do
     run.said = run.said + 1
     P.Say(run.script[run.said])
+  end
+  if frac >= 1 and run.prep then
+    P.run = nil
+    P.ShowConfirm()
+    return
   end
   if frac >= 1 then
     run.done = true
@@ -431,7 +623,7 @@ do
 end
 
 function P.EndShow()
-  P.run = nil
+  P.run, P.pending = nil, nil
   if P.box then P.box:Hide() end
 end
 
@@ -666,15 +858,19 @@ function P.GuildOnline()
   n = okN and plain(n) or 0
   local me = P.Key(UnitName("player"))
   for i = 1, (type(n) == "number" and n or 0) do
-    local ok, name, rank, rankIndex, _, _, _, _, _, online = pcall(GetGuildRosterInfo, i)
+    local ok, name, rank, rankIndex, _, class, _, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
     if not ok then name = nil end
+    class = plain(class)
+    classFile = plain(classFile)
     name = plain(name)
     rank = plain(rank)
     rankIndex = plain(rankIndex)
     online = plain(online)
     if type(name) == "string" and online and P.Key(name) ~= me then
       out[#out + 1] = { name = (name:gsub("%-.*$", "")), rank = type(rank) == "string" and rank or nil,
-                        rankIndex = tonumber(rankIndex) or 99 }
+                        rankIndex = tonumber(rankIndex) or 99,
+                        class = type(class) == "string" and class or nil,
+                        classFile = type(classFile) == "string" and classFile or nil }
     end
   end
   table.sort(out, function(a, b) return a.name < b.name end)
@@ -720,15 +916,16 @@ function P.InviteRank(db, rank)
   end
   local here = { [P.Key(UnitName("player")) or "?"] = true }
   for _, m in ipairs(P.Members()) do here[m.key] = true end
-  local names, found = {}, false
+  local entries, inGroup, found, label = {}, {}, false, nil
   for _, m in ipairs(P.GuildOnline()) do
     if m.rank and m.rank:lower() == rank then
-      found = true
-      if not here[P.Key(m.name) or "?"] then names[#names + 1] = m.name end
+      found, label = true, "<" .. m.rank .. ">"
+      if not here[P.Key(m.name) or "?"] then entries[#entries + 1] = m else inGroup[#inGroup + 1] = m end
     end
   end
   if not found then NS.Print("party list: nobody online with the rank %s", rank) return 0 end
-  return P.InviteNames(db, names)
+  if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
+  return P.Confirm(db, label, entries, inGroup)
 end
 
 --- Repaint: your list (with you now = green), or the guild to pick from (on the list = green, a tick).
