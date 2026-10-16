@@ -1,3 +1,15 @@
+## 0.11.0
+
+- **A party list (new tool, off until you switch it on: `/bist on party`).** Your usual group, in its own window: click "party" in the tools list or type `/bist party`.
+  - **Fill it** with "save" (whoever you're grouped with now), by typing a name, or with **Add to party list** on any friendly player's right-click - in the world, in chat, or in your Friends list (a Battle.net friend adds the character they're playing).
+  - **Invite** asks everyone on it who isn't with you yet; **disband** clears your group (or leaves it, if you're not the leader). Invites go to the whole name, surname and all - that's how WoW Forever finds a player.
+  - **guild** lists your guild's ranks: click one and it reads the roster, then shows everyone online with that rank, **by class, with an x** to leave out who isn't raiding tonight. **Send** invites them - and the list stays open: it rebuilds as people log on or join, so the next wave is one more Send. **Refresh**, **Close**.
+  - **The inviting box**: a little loading window talks you through the invites and shows the game's real answers - received, declined, already in a group, can't find. Drag it where you like; switch the show off in the options if you'd rather not.
+  - **In the BiS> tools box**: green Invite (shift-click - it opens the list to look over first; never shown in battlegrounds) and red Disband.
+- **One BiS section on right-click menus.** Every BiS line - pal, rival, party list, "Track in farm" - now sits together under a "BiS" title, the way the game groups its own.
+- **The overlay map shows where you are**, Diablo style: the zone and subzone in capitals in its corner.
+- **Newly explored places fill in at once** on the overlay map - no more closing and opening it.
+
 ## 0.10.1
 
 - **The overlay map fades out at its edges** instead of ending in a hard box, so it melts into the game. Your arrow and the dots stay sharp. (A new file: restart the game once after updating, a /reload won't pick it up.)

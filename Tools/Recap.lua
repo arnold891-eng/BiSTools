@@ -1432,6 +1432,18 @@ function RC.PalNamed(db, name)
   for k, e in pairs(list) do if k:match("^(%S+)") == first then return e, k end end
 end
 
+--- ONE BiS SECTION PER MENU (Arn, 15 Oct, a friend's menu showing "Remove pal": "need
+--- another sub section to our section to also add from this list"). Every BiS line in a menu - the
+--- rivals tool's, the party list's - goes under one divider and one "BiS" title, the way the game
+--- groups "Interact" and "Other Options"; the first tool to add a line opens it, the rest join.
+--- The root is a fresh object each time a menu opens, so the mark lives on it.
+function RC.Section(root)
+  if not root or root.__bisSection then return end
+  root.__bisSection = true
+  if root.CreateDivider then root:CreateDivider() end
+  if root.CreateTitle then root:CreateTitle(NS.T.text("accent", "BiS")) end
+end
+
 --- The lines for one menu: add, or remove, this player as a rival.
 function RC.MenuLines(db, root, ctx, kind)
   -- WHY the line was or was not added, kept for /bist recap why (Arn in a battleground, 13 Oct: the
@@ -1480,8 +1492,8 @@ function RC.MenuLines(db, root, ctx, kind)
     local p, pkey
     if type(unit) == "string" then p, pkey = RC.PalFor(db, unit) else p, pkey = RC.PalNamed(db, name) end
     say((p and "remove pal" or "add pal") .. " for " .. name .. " - friendly, so a pal, not a rival")
-    if root.CreateDivider then root:CreateDivider() end
-    root:CreateButton(p and "BiS: remove pal" or "BiS: add pal", function()
+    RC.Section(root)
+    root:CreateButton(p and "Remove pal" or "Add pal", function()
       if p then
         RC.Pals(db)[pkey] = nil
         RC.ClearPals() RC.SpotPals(db)
@@ -1501,9 +1513,9 @@ function RC.MenuLines(db, root, ctx, kind)
     say("both lines for " .. name .. " - nothing here says friend or foe, so you pick")
   else
     say("added for " .. name)
-    if root.CreateDivider then root:CreateDivider() end
+    RC.Section(root)
   end
-  root:CreateButton(r and "BiS: remove rival" or "BiS: add rival", function()
+  root:CreateButton(r and "Remove rival" or "Add rival", function()
     if r then
       RC.Rivals(db)[key] = nil
       RC.UnmarkRival(key)
@@ -1525,7 +1537,7 @@ function RC.MenuLines(db, root, ctx, kind)
   -- and the guild's list, for a player in a guild with the guild rivals on
   if IsInGuild and IsInGuild() and db.guildShow ~= false then
     local g, gkey = RC.FindGuild(db, name)
-    root:CreateButton(g and "BiS: remove guild rival" or "BiS: add guild rival", function()
+    root:CreateButton(g and "Remove guild rival" or "Add guild rival", function()
       if g then RC.GuildDel(db, gkey) return end
       local unit, class = field(ctx, "unit"), nil
       if type(unit) == "string" then

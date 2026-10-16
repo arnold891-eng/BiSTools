@@ -175,6 +175,13 @@ _G.GetRaidTargetIndex = function(u)
 end
 W.tickers = {}
 _G.C_Timer = { After = function(delay, fn) W.afters[#W.afters + 1] = { at = W.now + delay, fn = fn } end,
+  -- a one-shot timer that can be cancelled, as the client's (the party list's invite batches)
+  NewTimer = function(delay, fn)
+    local t = { alive = true }
+    function t:Cancel() self.alive = false end
+    W.afters[#W.afters + 1] = { at = W.now + delay, fn = function() if t.alive then fn(t) end end }
+    return t
+  end,
   NewTicker = function(iv, fn)
   local t = { iv = iv, fn = fn, alive = true }
   function t:Cancel() self.alive = false end
@@ -257,6 +264,12 @@ local function FontString()
   function s:GetText() return self.text end
   function s:SetAlpha(a) self.alpha = a end
   function s:GetParent() return self.parent end
+  function s:SetWidth(w) if type(w) ~= "number" then error("SetWidth wants a number", 2) end self.w = w end
+  function s:SetWordWrap(on) self.wrap = on and true or false end
+  function s:SetJustifyH(j)
+    if j ~= "LEFT" and j ~= "CENTER" and j ~= "RIGHT" then error("SetJustifyH wants LEFT, CENTER or RIGHT", 2) end
+    self.justify = j
+  end
   function s:SetTextColor(r, g, b, a)
     if not num3(r, g, b) then error("SetTextColor wants r,g,b numbers") end
     self.color = { r, g, b, a }
@@ -378,6 +391,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   end
   function f:SetMovable() end
   function f:EnableMouse() end
+  function f:EnableMouseWheel(on) self.wheel = on end
   function f:SetClampedToScreen() end
   function f:RegisterForDrag() end
   function f:RegisterForClicks(c) self.clicks = c end
@@ -1799,19 +1813,20 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 8, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 9, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
-     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map", "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map")
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map" and hub.rows[9].key == "party",
+     "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map, party")
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 8 on", "prompt slot counts the tools that are on (threat is a beta: off until turned on)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 9 on", "prompt slot counts the tools that are on (threat and party start off)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 8 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 9 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1829,7 +1844,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 8 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 9 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1852,9 +1867,10 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7)
-  -- (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct)
-  ok(#opt.rows == 9 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7, "one row per section header and per option", #opt.rows)
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7),
+  -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
+  -- the party list, 15 Oct)
+  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1923,7 +1939,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 8 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 9 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -3108,7 +3124,7 @@ do
     local root = { lines = {} }
     function root:CreateButton(t) self.lines[#self.lines + 1] = t end
     RC.MenuLines(rdb2, root, { unit = "target", name = "Pal Guy" })
-    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
+    ok(root.lines[1] == "Add pal" and #root.lines == 1 and RC.menuDecision:find("friendly", 1, true),
        "the right-click menu offers 'add pal' on them, never 'add rival'", RC.menuDecision)
     -- PALS (Arn: "a freindly list too ... puts a tiny little heart green ... only works out of combat")
     local pals = RC.Pals(rdb2)
@@ -3130,23 +3146,23 @@ do
     end }
     root.lines, root.click = {}, nil
     RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
+    ok(root.lines[1] == "Add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
     root.click()
     ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: remove pal", "and next time it offers to take them off")
+    ok(root.lines[1] == "Remove pal", "and next time it offers to take them off")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
     ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
-    ok(root.lines[1] == "BiS: add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
+    ok(root.lines[1] == "Add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
     root.lines = {}
     -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
     -- (Arn, 14 Oct: "if we cant see we add both?")
     RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
-    ok(root.lines[1] == "BiS: add pal" and root.lines[2] == "BiS: add rival" and #root.lines == 2,
+    ok(root.lines[1] == "Add pal" and root.lines[2] == "Add rival" and #root.lines == 2,
       "can't tell: both lines", table.concat(root.lines, " / "))
     root.lines = {}
     RC.MenuLines(rdb2, root, { name = "Chatty" }, "CHAT_ROSTER")
@@ -3551,19 +3567,19 @@ do
   _G.UnitGUID = function(u) if u == "target" then return "Player-4619-00DA1" end end
   local m = root()
   hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: add rival", "an enemy's menu says: BiS: add rival", m.lines[2])
+  ok(m.lines[2] == "Add rival", "an enemy's menu says, in the BiS section: Add rival", table.concat(m.lines, "|") .. " why=" .. tostring(RC.menuDecision))
   m.click()
   ok(rivals["Dai Joubu"] and rivals["Dai Joubu"].active and rivals["Dai Joubu"].class == "ROGUE"
      and rivals["Dai Joubu"].guid == "Player-4619-00DA1", "clicked: Dai Joubu is a gold rival, with class and GUID")
   ok(tb.attrs.macrotext:find("/target Dai Joubu", 1, true), "and the target button knows them at once")
   m = root()
   hookedMenus.MENU_UNIT_ENEMY_PLAYER(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: remove rival", "the next time: BiS: remove rival")
+  ok(m.lines[2] == "Remove rival", "the next time: BiS: remove rival")
   m.click()
   ok(rivals["Dai Joubu"] == nil, "and that takes them off")
   m = root()
   hookedMenus.MENU_UNIT_FRIEND(nil, m, { name = "Hunting" })   -- a name in chat, no surname given
-  ok(m.lines[2] == "BiS: remove rival", "a chat name finds the rival by the character name alone")
+  ok(m.lines[2] == "Remove rival", "a chat name finds the rival by the character name alone")
   m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = "Me" })
   ok(#m.lines == 0, "no line on your own menu")
   m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { name = setmetatable({}, { __index = function() error("secret") end }) })
@@ -3577,7 +3593,7 @@ do
   -- as TARGET - the line must be there too, and only for players
   ok(hookedMenus.MENU_UNIT_TARGET and hookedMenus.MENU_UNIT_FOCUS, "the TARGET and FOCUS menus carry the line too")
   m = root() hookedMenus.MENU_UNIT_TARGET(nil, m, { name = "Dai", surname = "Joubu", unit = "target" })
-  ok(m.lines[2] == "BiS: add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
+  ok(m.lines[2] == "Add rival", "a player's TARGET menu: BiS: add rival", m.lines[2])
   -- A BATTLEGROUND MENU CARRIES NO NAME (Arn, 13 Oct: "the menu gave no name" on Grape Sprite's PLAYER
   -- menu) - the unit answers instead: GetUnitName with the surname, else UnitName
   do
@@ -3585,7 +3601,7 @@ do
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
     _G.GetUnitName = function(u) if u == "target" then return "Grape Sprite" end end
     m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape Sprite",
+    ok(m.lines[2] == "Add rival" and RC.menuDecision == "added for Grape Sprite",
        "a battleground menu with no name: the name comes from the unit, surname and all", RC.menuDecision)
     m.click()
     ok(rivals["Grape Sprite"] and rivals["Grape Sprite"].active, "clicked: Grape Sprite is a gold rival")
@@ -3594,7 +3610,7 @@ do
     local keepIs = _G.issecretvalue
     _G.issecretvalue = function(v) return type(v) == "table" end
     m = root() hookedMenus.MENU_UNIT_PLAYER(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: add rival" and RC.menuDecision == "added for Grape",
+    ok(m.lines[2] == "Add rival" and RC.menuDecision == "added for Grape",
        "GetUnitName hidden: UnitName's plain name still does", RC.menuDecision)
     m.click()
     _G.issecretvalue = keepIs
@@ -3672,7 +3688,7 @@ do
     W.target = { name = "Grape", player = true, guid = "Player-4619-0BG01" }
     local mo = strictRoot()
     hookedMenus.MENU_UNIT_PLAYER(nil, mo, { name = "Grape", unit = "target" })
-    ok(mo.lines[1] == "BiS: add rival", "out in the world: the menu line, as before")
+    ok(mo.lines[1] == "Add rival", "out in the world: the menu line, as before")
     _G.GetUnitName, _G.IsInInstance, W.target = keepGUN, keepInst, keepT
   end
   W.target = { name = "Defias Thug", guid = "Creature-0-0-0-0-38-1" }
@@ -3729,7 +3745,7 @@ do
     W.target = { name = "Dalaran Summoner", guid = "Creature-0-0-0-0-1915-00A1" }
     local m = root()
     menus.MENU_UNIT_TARGET(nil, m, { unit = "target", name = "Dalaran Summoner" })
-    ok(m.lines[1] == "--" and m.lines[2] == "BiS: track in farm", "a mob's menu says: BiS: track in farm", m.lines[2])
+    ok(m.lines[1] == "--" and m.lines[2] == "Track in farm", "a mob's menu says, in the BiS section: Track in farm", m.lines[2])
     BiSToolsFarm:Hide()
     m.click()
     ok(db.active == "Dalaran Summoner" and db.custom == "Dalaran Summoner",
@@ -3737,7 +3753,7 @@ do
     ok(BiSToolsFarm:IsShown(), "and the farm window opens")
     m = root()
     menus.MENU_UNIT_FOCUS(nil, m, { unit = "target" })
-    ok(m.lines[2] == "BiS: stop farming", "the next time: BiS: stop farming", m.lines[2])
+    ok(m.lines[2] == "Stop farming", "the next time: Stop farming", m.lines[2])
     m.click()
     ok(db.active == nil, "and that stops it")
     W.target = { name = "Kumlance", player = true }
@@ -3776,7 +3792,7 @@ do
   W.target = { name = "Kill", player = true }                -- the menu is about a player on target
   RC.MenuLines(rdb2, mg, { name = "Kill", surname = "Er", unit = "target" })
   W.target = keepT
-  ok(mg.lines[3] == "BiS: add guild rival", "the menu offers a guild rival too", mg.lines[3])
+  ok(mg.lines[3] == "Add guild rival", "the menu offers a guild rival too", mg.lines[3])
   _G.UnitClass = function() return "Mage", "MAGE" end
   mg.click()
   _G.UnitClass = keepClass
@@ -5051,6 +5067,32 @@ do
   ok(shown == 2 and O.art[1].file == 7001 and O.art[2].file == 7002, "an explored piece draws as the client cuts it", shown)
   local sc = O.scale
   ok(math.abs(O.art[2].w - 44 * sc) < 0.01 and O.art[2].anchor[4] == 256 * sc, "the last column only as wide as what is left, in its place (from the land's corner)")
+  -- WHERE YOU ARE, in the corner (Arn, 15 Oct, Diablo II's "Rogue Encampment")
+  do
+    local keepZ, keepS = _G.GetZoneText, _G.GetSubZoneText
+    _G.GetZoneText, _G.GetSubZoneText = function() return "Durotar" end, function() return "Razor Hill" end
+    O.events.scripts.OnEvent(O.events, "ZONE_CHANGED")
+    ok(O.place.text == "DUROTAR - RAZOR HILL", "the zone and the subzone, in capitals, in the map's corner", O.place.text)
+    _G.GetSubZoneText = function() return "" end
+    O.PaintPlace()
+    ok(O.place.text == "DUROTAR", "no subzone: the zone alone", O.place.text)
+    _G.GetZoneText = function() return setmetatable({}, { __index = function() error("secret") end }) end
+    O.PaintPlace()
+    ok(O.place.text == "", "a name we may not read: nothing, never an error", O.place.text)
+    _G.GetZoneText, _G.GetSubZoneText = keepZ, keepS
+  end
+  -- A NEW PLACE FOUND, on the same map, fills in without closing the map (Arn, 15 Oct)
+  do
+    local keepEx = W.explored
+    W.explored = { keepEx[1], { textureWidth = 100, textureHeight = 100, offsetX = 500, offsetY = 300,
+                                isShownByMouseOver = false, fileDataIDs = { 7003 } } }
+    local function count() local n = 0 for _, t in ipairs(O.art) do if t.shown then n = n + 1 end end return n end
+    O.events.scripts.OnEvent(O.events, "MAP_EXPLORATION_UPDATED")
+    ok(count() == 3, "the client says the map was explored: the new piece is drawn at once", count())
+    W.explored = keepEx
+    O.events.scripts.OnEvent(O.events, "ZONE_CHANGED")
+    ok(count() == 2, "and a new subzone redraws too, in explored mode", count())
+  end
   -- the LAND is sized, not the canvas (Durotar sits right of the canvas's middle), and hangs from the
   -- tab, top-left (Arn, 14 Oct: "top left ... like zone map so we can drag"): the piece covers
   -- x 100-400, y 50-250 of the 1002 x 668 art
@@ -5246,6 +5288,402 @@ do
   _G.GetNumGroupMembers, _G.IsInRaid = keepN2, keepRaid2
   _G.BiSTools_ToggleOverlayMap()
   W.explored = {}
+end
+
+-- THE PARTY LIST (Arn, 15 Oct: "the saved list to invite is nice and a disband button" - "its own
+-- list" - "when in a party or in a raid new option to add to party list ... when right click")
+do
+  local P, Bx = NS.Party, NS.Box
+  local pdb = R:DBFor(R:Get("party"))
+  P.db = pdb
+  ok(not R:Enabled("party"), "the party tool starts OFF (Arn: so the BiS> tools box is not overwhelming)")
+  R:SetEnabled("party", true)
+  local sent = { invite = {}, uninvite = {}, left = 0, raid = 0 }
+  local keepPI, keepLead, keepRaid, keepIn = _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid
+  _G.C_PartyInfo = { InviteUnit = function(n) sent.invite[#sent.invite + 1] = n end,
+                     UninviteUnit = function(n) sent.uninvite[#sent.uninvite + 1] = n end,
+                     LeaveParty = function() sent.left = sent.left + 1 end,
+                     ConvertToRaid = function() sent.raid = sent.raid + 1 end }
+  local lead = true
+  _G.UnitIsGroupLeader = function() return lead end
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" }, { name = "Kumlust" } }, true
+  -- save the group: everyone but you
+  SlashCmdList.BISTOOLS("party save")
+  ok(#pdb.names == 2 and P.Has(pdb, "Tobi") and P.Has(pdb, "kumlust") and not P.Has(pdb, "Me"),
+    "/bist party save: whoever you're grouped with is the list (never you)", #pdb.names)
+  ok(P.Add(pdb, "Zed") and not P.Add(pdb, "zed"), "add a name once; the same name twice is refused")
+  -- THE WINDOW (Arn, 15 Oct: "i dont see the party frame when i click the button on the list")
+  do
+    local tool = R:Get("party")
+    ok(tool.OnOpen, "the party tool has a window for the tools list to open")
+    tool:OnOpen(pdb, true)
+    local w = BiSToolsParty
+    ok(w and w:IsShown() and math.abs(w.w / w.h - 1.43) < 0.01, "a click on its row opens it, at 1.43:1", w and (w.w .. "x" .. w.h))
+    ok(w.scale == 1.2, "20% bigger, every part with it (Arn: the g was too small to see)", w.scale)
+    local names = {}
+    for _, r in ipairs(w.rows) do if r.shown then names[#names + 1] = r.name.text end end
+    ok(#names == 3 and names[1] == "Tobi" and names[3] == "Zed", "the names, in list order", table.concat(names, ","))
+    ok(w.rows[1].name.color and w.rows[1].name.color[2] > w.rows[1].name.color[1], "Tobi, with you now, in green")
+    w.rows[3].x.scripts.OnClick(w.rows[3].x)
+    ok(not P.Has(pdb, "Zed") and not w.rows[3].shown, "x takes a name off, and the window follows")
+    w.add:SetText("Zed")
+    w.add.scripts.OnEnterPressed(w.add)
+    ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
+    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and w.buttons.clear, "save, invite, guild, disband, clear")
+    for name, b in pairs(w.buttons) do ok(b.label:GetStringWidth() <= b.w - 4, "the " .. name .. " label fits its button", b.label:GetStringWidth()) end
+    -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
+    -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole
+    do
+      local keepIG, keepGN, keepGR = _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo
+      local keepRaidG, keepInG = W.raid, W.inRaid
+      local roster = { { "Nebeon-Realm", "Raider", 3, true }, { "Grux-Realm", "Officer", 1, true },
+                       { "Ariarie-Realm", "Raider", 3, true }, { "Asleep-Realm", "Raider", 3, false },
+                       { "Me-Realm", "Raider", 3, true } }
+      _G.IsInGuild = function() return true end
+      _G.GetNumGuildMembers = function() return #roster, 4 end
+      _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, "Shaman", "", "", "", m[4] end
+      local keepGCN, keepGCR = _G.GuildControlGetNumRanks, _G.GuildControlGetRankName
+      local ladder = { "Guild Master", "Officer", "Veteran", "Raider" }
+      _G.GuildControlGetNumRanks = function() return #ladder end
+      _G.GuildControlGetRankName = function(i) return ladder[i] end
+      w.guildBtn.scripts.OnClick(w.guildBtn)
+      local texts = {}
+      for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
+      ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "invite all <Officer> (1)"
+         and texts[3] == "<Veteran>  nobody else online" and texts[4] == "invite all <Raider> (2)" and #texts == 4,
+        "ranks: every rank, highest first; who else is online, never you, never the offline", table.concat(texts, ", "))
+      -- one full-width line each: a long rank name fits (Arn's "<Altezza's Bruhs>" ran into the next column)
+      ladder[3] = "Altezza's Bruhs Extra"
+      w.guildBtn.scripts.OnClick(w.guildBtn) w.guildBtn.scripts.OnClick(w.guildBtn)
+      for _, r in ipairs(w.rows) do
+        if r.shown then ok(r.name:GetStringWidth() <= r.w, "a rank line fits its width: " .. tostring(r.name.text), r.name:GetStringWidth() .. " in " .. r.w) end
+      end
+      ladder[3] = "Veteran"
+      sent.invite = {}
+      w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
+      ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
+      sent.invite = {}
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      -- LOOK BEFORE IT GOES (Arn, 15 Oct): a rank click prepares, then waits on a confirm list by
+      -- class - nothing is sent until Send; x leaves someone out; who is already in shows apart
+      roster[1][5], roster[1][6] = "Paladin", "PALADIN"
+      roster[3][5], roster[3][6] = "Shaman", "SHAMAN"
+      roster[2][5], roster[2][6] = "Warrior", "WARRIOR"
+      _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, m[5] or "Shaman", "", "", "", m[4], 0, m[6] or "SHAMAN" end
+      W.raid, W.inRaid = { { name = "Me" }, { name = "Ariarie" } }, true       -- one Raider already in (a wave before)
+      w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
+      ok(#sent.invite == 0 and P.run and P.run.prep, "a rank click sends nothing yet: it prepares", #sent.invite)
+      local box = BiSToolsPartyLoading
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      local cv = box.confirmView
+      ok(cv:IsShown() and not box.runView:IsShown(), "then the confirm view")
+      local seen = {}
+      for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text end end
+      ok(seen[1] == "Paladin (1)" and seen[2] == "Nebeon" and seen[3] == "Already with you (1)" and seen[4] == "Ariarie",
+        "by class, then who is already with you - dimmed, apart", table.concat(seen, ", "))
+      ok(cv.lines[2].x.shown and not cv.lines[4].x.shown, "an x on who would be invited; none on who is already in")
+      ok(cv.send.label.text == "Send 1 invite", "Send says how many", cv.send.label.text)
+      cv.lines[2].x.scripts.OnClick(cv.lines[2].x)
+      ok(#P.pending == 0 and cv.send.label.text == "Nobody left", "x: Nebeon is not raiding tonight", cv.send.label.text)
+      cv.cancel.scripts.OnClick(cv.cancel)
+      ok(not box:IsShown() and #sent.invite == 0, "Cancel: nobody invited")
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      cv.send.scripts.OnClick(cv.send)
+      W.runAfters(P.PUMP_GAP + 0.1)
+      table.sort(sent.invite)
+      ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "Send: everyone left on the list invited", table.concat(sent.invite, ","))
+      ok(box.runView:IsShown() and not cv:IsShown(), "and the box plays the invites")
+      -- IN WAVES (Arn, 15 Oct: "can leave it open, it regenerates with new people ... click invite again")
+      W.raid, W.inRaid = { { name = "Me" }, { name = "Nebeon" } }, true          -- Nebeon accepted
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      ok(box:IsShown() and cv:IsShown() and P.wave, "after the invites: back to the list, still open")
+      local now = {}
+      for _, l in ipairs(cv.lines) do if l.shown then now[#now + 1] = l.text.text end end
+      ok(table.concat(now, ","):find("Already with you (1)", 1, true) and table.concat(now, ","):find("Nebeon", 1, true)
+         and cv.send.label.text == "Send 1 invite", "who joined moved down; who didn't is still there to send", table.concat(now, ", "))
+      -- x someone: they stay out through every rebuild
+      for _, l in ipairs(cv.lines) do if l.shown and l.text.text == "Ariarie" then l.x.scripts.OnClick(l.x) end end
+      roster[6] = { "Newcomer-Realm", "Raider", 3, true, "Mage", "MAGE" }      -- logs on mid-wave
+      P.waveEvents.scripts.OnEvent(P.waveEvents, "GUILD_ROSTER_UPDATE")
+      W.runAfters(P.REGEN_GAP + 0.1)
+      now = {}
+      for _, l in ipairs(cv.lines) do if l.shown then now[#now + 1] = l.text.text end end
+      local joined = table.concat(now, ",")
+      ok(joined:find("Newcomer", 1, true) and not joined:find("Ariarie", 1, true) and cv.send.label.text == "Send 1 invite",
+        "a new login appears by itself; the x'd one stays out", joined)
+      ok(cv.refresh and cv.refresh.label.text == "Refresh" and cv.cancel.label.text == "Close", "Refresh, and Close")
+      -- Send | Refresh | Close along the bottom, apart: Send from 12, Close ends 12 from the right
+      local sendR = 12 + cv.send.w
+      local closeL = P.W - 12 - cv.cancel.w
+      local refreshL = closeL - 6 - cv.refresh.w
+      ok(sendR < refreshL and cv.send.label:GetStringWidth() <= cv.send.w - 4, "the three buttons do not touch, and Send's words fit",
+        sendR .. " < " .. refreshL)
+      sent.invite = {}
+      cv.send.scripts.OnClick(cv.send)
+      ok(sent.invite[1] == "Newcomer", "the next wave: Send again", table.concat(sent.invite, ","))
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      cv.cancel.scripts.OnClick(cv.cancel)
+      ok(not box:IsShown() and P.wave == nil, "Close ends the wave")
+      roster[6] = nil
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      sent.invite = {}
+      SlashCmdList.BISTOOLS("party rank officer")
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      cv.send.scripts.OnClick(cv.send)
+      ok(sent.invite[1] == "Grux", "/bist party rank officer - any case, through the same confirm", table.concat(sent.invite, ","))
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      cv.cancel.scripts.OnClick(cv.cancel)
+      w.guildBtn.scripts.OnClick(w.guildBtn)
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
+      -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
+      local keepMenu, hooked = _G.Menu, {}
+      _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
+      P.guildHooked = nil
+      pdb.guildMenu = nil
+      ok(not P.HookGuildMenus(pdb) and not next(hooked), "switched off (the default): the guild menu is never even hooked")
+      pdb.guildMenu = true
+      ok(P.HookGuildMenus(pdb) and hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER, "switched on: hooked at once")
+      local gm = { lines = {} }
+      function gm:CreateDivider() self.lines[#self.lines + 1] = "--" end
+      function gm:CreateTitle(t) self.lines[#self.lines + 1] = "title" end
+      function gm:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.fn = fn end
+      hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, gm, { name = "Nebeon", surname = "Nolightforu" })
+      ok(gm.lines[#gm.lines] == "Add to party list", "a guildmate's right-click in the guild window: Add to party list", table.concat(gm.lines, "|"))
+      gm.fn()
+      ok(P.Has(pdb, "Nebeon"), "and it adds them")
+      pdb.guildMenu = false
+      gm.lines = {}
+      hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, gm, { name = "Nebeon" })
+      ok(#gm.lines == 0, "switched off again: no line (the hook goes at the next /reload)")
+      _G.Menu, P.guildHooked, pdb.guildMenu = keepMenu, nil, nil
+      P.Remove(pdb, "Nebeon")
+      if P.box then P.EndShow() end
+      _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo = keepIG, keepGN, keepGR
+      _G.GuildControlGetNumRanks, _G.GuildControlGetRankName = keepGCN, keepGCR
+      W.raid, W.inRaid = keepRaidG, keepInG
+      sent.invite = {}
+    end
+    SlashCmdList.BISTOOLS("party")
+    ok(not w:IsShown(), "/bist party toggles it")
+  end
+  -- grouped with someone on the list: Disband shows; Invite shows for the one missing
+  Bx.Refresh()
+  ok(P.dbtn:IsShown() and P.ibtn:IsShown(), "grouped with listed players: Disband, and Invite for the one missing")
+  P.Invite(pdb)
+  ok(#sent.invite == 1 and sent.invite[1] == "Zed", "Invite asks only the ones not with you", #sent.invite)
+  -- THE LITTLE SHOW (Arn, 15 Oct): the invite has already gone; a box fills, its log scrolls with
+  -- the machine talking to each player - on the window, never in chat - then it closes itself
+  do
+    local box = BiSToolsPartyLoading
+    ok(box and box:IsShown() and P.run, "Invite: the inviting box comes up")
+    -- it drags, and stays where it was put (Arn, 15 Oct)
+    ok(box.scripts.OnDragStart and box.scripts.OnDragStop, "the box can be dragged")
+    box.scripts.OnDragStop(box)            -- the mock's GetPoint answers TOPLEFT 12, -34
+    ok(pdb.boxPos and pdb.boxPos[1] == "TOPLEFT" and pdb.boxPos[2] == 12 and pdb.boxPos[3] == -34, "and its place is kept", pdb.boxPos and pdb.boxPos[2])
+    local chat = 0
+    local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
+    DEFAULT_CHAT_FRAME.AddMessage = function() chat = chat + 1 end
+    local function shown() local t = {} for _, l in ipairs(box.log) do if l.text and l.text ~= "" then t[#t + 1] = l.text end end return t end
+    for _ = 1, 30 do box.scripts.OnUpdate(box, 0.05) end        -- 1.5 s in
+    local mid = shown()
+    local saysZed = false
+    for _, l in ipairs(mid) do if l:find("Zed", 1, true) then saysZed = true end end
+    ok(#mid >= 2 and saysZed, "the log scrolls with lines about the player being invited", table.concat(mid, " / "))
+    local lit = 0
+    for _, b in ipairs(box.blocks) do if b.shown then lit = lit + 1 end end
+    ok(lit > 0, "the bar fills with blocks", lit)
+    for _ = 1, 60 do box.scripts.OnUpdate(box, 0.05) end        -- past the end and the linger
+    ok(not box:IsShown() and P.run == nil, "it closes itself")
+    ok(chat == 0, "and nothing of it went to chat (Arn: 'on the window')", chat)
+    DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+    -- WHAT THE GAME SAYS BACK (Arn, 15 Oct: "he is in a group, should also throw an error on here")
+    _G.ERR_ALREADY_IN_GROUP_S = "%s is already in a group."
+    _G.ERR_INVITE_PLAYER_S = "You have invited %s to join your group."
+    P.Show({ "Darthsidiouz Sithlord" })
+    P.heard.scripts.OnEvent(P.heard, "CHAT_MSG_SYSTEM", "Darthsidiouz is already in a group.")
+    local warned = false
+    for _, l in ipairs(box.log) do if (l.text or ""):find("Darthsidiouz is already in a group", 1, true) then warned = true end end
+    ok(warned, "the game's 'already in a group' lands in the box's log", table.concat(shown(), " / "))
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    local last = box.log[#box.log].text or ""
+    ok(last:find("Done. 0 of 1 invited", 1, true), "and the last line counts it", last)
+    for _, l in ipairs(box.log) do
+      ok(l.wrap == false and not (l.text or ""):find("Sithlord", 1, true), "one line each, by first name (no surname to wrap)", l.text)
+    end
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    -- and the game's words as Arn pasted them (15 Oct): invited, then declined - whole names
+    _G.ERR_DECLINE_GROUP_S = "%s declines your group invitation."
+    P.Show({ "Darthsidiouz Sithlord" })
+    P.Heard("You have invited Darthsidiouz Sithlord to join your group.")
+    P.Heard("Darthsidiouz Sithlord declines your group invitation.")
+    local got = table.concat(shown(), " / ")
+    ok(got:find("Darthsidiouz: invite received", 1, true) and got:find("Darthsidiouz declined", 1, true),
+      "invited, then declined: both in the box, by first name", got)
+    for _ = 1, 80 do box.scripts.OnUpdate(box, 0.05) end
+    _G.ERR_DECLINE_GROUP_S = nil
+    ok(not P.run and not P.Heard("Somebody is already in a group."), "a system line while no box is up: left alone")
+    -- A REFUSED INVITE IS SAID (Arn, 15 Oct: "i dont think it is sending any invites" - the pcall had
+    -- eaten the error): in the box's log, and once in chat
+    do
+      local keepPI2 = _G.C_PartyInfo
+      local keepRaid2, keepIn2 = W.raid, W.inRaid
+      _G.C_PartyInfo = { InviteUnit = function() error("Interface/AddOns/x.lua:1: you may not invite") end }
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      local said = W.lastMsg
+      P.InviteNames(pdb, { "Nebeon" })
+      local refused = false
+      for _, l in ipairs(box.log) do if (l.text or ""):find("Nebeon: the game refused (you may not invite)", 1, true) then refused = true end end
+      ok(refused, "the game's refusal, in the box's log", table.concat(shown(), " / "))
+      ok(W.lastMsg ~= said and tostring(W.lastMsg):find("refused an invite", 1, true), "and once in chat", W.lastMsg)
+      for _ = 1, 80 do box.scripts.OnUpdate(box, 0.05) end
+      _G.C_PartyInfo = keepPI2
+      W.raid, W.inRaid = keepRaid2, keepIn2
+    end
+    _G.ERR_ALREADY_IN_GROUP_S, _G.ERR_INVITE_PLAYER_S = nil, nil      -- the client's strings, ours only for the test
+    P.Show({ "A", "B" })
+    box.cancel.scripts.OnClick(box.cancel)
+    ok(not box:IsShown() and P.run == nil, "Cancel closes it (the invites went anyway)")
+    -- lean: a whole run asks the client nothing (our own textures and text)
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    P.Show({ "A", "B", "C" })
+    local n, by = Cost.Count(function() for _ = 1, 120 do box.scripts.OnUpdate(box, 0.05) end end)
+    ok(n <= 10 and not box:IsShown(), "a whole inviting show asks at most 10 things: " .. n, Cost.Top and Cost.Top(by, 5))
+    pdb.show = false
+    P.Show = (function(show) return function(...) P.showCalled = true return show(...) end end)(P.Show)
+    P.showCalled = nil
+    P.Invite(pdb)
+    ok(not P.showCalled, "the show switched off: invites go with no box")
+    pdb.show = nil
+  end
+  -- leading: Disband removes everyone; not leading: you leave
+  P.Disband()
+  ok(#sent.uninvite == 2 and sent.left == 0, "the leader's Disband: everyone out", #sent.uninvite)
+  lead = false
+  P.Disband()
+  ok(sent.left == 1, "not the leader: Disband leaves the group")
+  ok(not P.ShowInvite(pdb), "not leading: no Invite button (only a leader can invite)")
+  -- solo with a list: Invite only
+  W.raid, W.inRaid, lead = { { name = "Me" } }, false, true
+  Bx.Refresh()
+  ok(P.ibtn:IsShown() and not P.dbtn:IsShown(), "solo with a list: Invite, no Disband")
+  -- the BOX's Invite confirms first, and never shows in a battleground (Arn, 15 Oct: a stray click
+  -- in the heat of battle)
+  do
+    sent.invite = {}
+    P.ibtn.scripts.OnClick(P.ibtn)
+    ok(#sent.invite == 0 and not P.run and tostring(W.lastMsg):find("shift-click", 1, true),
+      "a plain click on the box's Invite: nothing, but a reminder (Arn: shift-click only)", W.lastMsg)
+    W.shift = true
+    P.ibtn.scripts.OnClick(P.ibtn)
+    W.shift = false
+    ok(#sent.invite == 0 and P.run and P.run.prep, "shift-click: the confirm list, still nothing sent", #sent.invite)
+    local box = BiSToolsPartyLoading
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    ok(box.confirmView:IsShown() and box.confirmView.lines[1].text.text == "Party list (3)", "your party list, to look over",
+      box.confirmView.lines[1].text.text)
+    box.confirmView.cancel.scripts.OnClick(box.confirmView.cancel)
+    ok(#sent.invite == 0, "and Cancel sends nobody")
+    local keepII3 = _G.IsInInstance
+    _G.IsInInstance = function() return true, "pvp" end
+    Bx.Refresh()
+    ok(not P.ibtn:IsShown(), "in a battleground: no Invite button in the box at all")
+    _G.IsInInstance = keepII3
+    Bx.Refresh()
+  end
+  sent.invite = {}
+  P.Invite(pdb)
+  ok(#sent.invite == 3, "solo: the whole list asked", #sent.invite)
+  -- grouped with strangers: nothing of the list's shows
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Stranger" } }, true
+  Bx.Refresh()
+  ok(not P.ibtn:IsShown() and not P.dbtn:IsShown(), "grouped with nobody on the list: neither button")
+  -- the right-click line on ANY friendly player - a raid member or a stranger in town (Arn, 15 Oct:
+  -- "why cant i add them to the party list? is that only for people in the party?") - outside
+  -- instances only; never the other faction, never you
+  local m = { lines = {} }
+  function m:CreateButton(text, fn) self.lines[#self.lines + 1] = { text = text, fn = fn } end
+  function m:CreateDivider() end
+  local keepUIR, keepII = _G.UnitInRaid, _G.IsInInstance
+  local keepUIP, keepUIF, keepUN2 = _G.UnitIsPlayer, _G.UnitIsFriend, _G.UnitName
+  local people = { raid2 = { name = "Stranger", friend = true }, target = { name = "Richer", friend = true },
+                   focus = { name = "Horde Guy", friend = false } }
+  _G.UnitIsPlayer = function(u) return u == "player" or people[u] ~= nil end
+  _G.UnitIsFriend = function(_, u) return people[u] ~= nil and people[u].friend end
+  _G.UnitName = function(u) if people[u] then return people[u].name end return keepUN2(u) end
+  _G.IsInInstance = function() return false, "none" end
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "right-click a raid member: Add to party list", m.lines[1] and m.lines[1].text)
+  m.lines[1].fn()
+  ok(P.Has(pdb, "Stranger"), "and it adds them")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(m.lines[1] and m.lines[1].text == "Remove from party list", "on the list already: the line removes")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "target" })
+  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "a friendly stranger you right-click: the line too")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "focus" })
+  ok(#m.lines == 0, "the other faction: no line (you could not invite them)")
+  P.MenuLine(pdb, m, { unit = "player" })
+  ok(#m.lines == 0, "your own menu: no line")
+  _G.IsInInstance = function() return true, "party" end
+  P.MenuLine(pdb, m, { unit = "raid2" })
+  ok(#m.lines == 0, "inside an instance: no line (it breaks the game's menu there)")
+  _G.IsInInstance = function() return false, "none" end
+  _G.UnitIsPlayer, _G.UnitIsFriend, _G.UnitName = keepUIP, keepUIF, keepUN2
+  -- A FRIEND, from the Friends list (Arn, 15 Oct: "can it add the Darthsidiouz sithlord to the party
+  -- list?" ... "another sub section to our section"): one BiS section - a divider, a title - holding
+  -- the rivals tool's pal line and the party line together
+  do
+    local f = { lines = {} }
+    function f:CreateDivider() self.lines[#self.lines + 1] = "--" end
+    function f:CreateTitle(t) self.lines[#self.lines + 1] = "title:" .. tostring(t) end
+    function f:CreateButton(text, fn) self.lines[#self.lines + 1] = text self["fn" .. #self.lines] = fn end
+    local ctx = { name = "Darthsidiouz", surname = "Sithlord" }
+    NS.Recap.MenuLines(R:DBFor(R:Get("recap")), f, ctx, "FRIEND")
+    P.MenuLine(pdb, f, ctx, "FRIEND")
+    local dividers, titles = 0, 0
+    for _, l in ipairs(f.lines) do
+      if l == "--" then dividers = dividers + 1 end
+      if tostring(l):find("^title:") then titles = titles + 1 end
+    end
+    ok(dividers == 1 and titles == 1 and f.lines[2]:find("BiS", 1, true), "one BiS section: one divider, one title", table.concat(f.lines, " | "))
+    ok(f.lines[#f.lines] == "Add to party list" and #f.lines == 5, "pal, rival (no faction seen: both) and the party line, together under it", table.concat(f.lines, " | "))
+    f["fn" .. #f.lines]()
+    ok(P.Has(pdb, "Darthsidiouz Sithlord"), "a friend goes on the list, surname and all")
+    sent.invite = {}
+    W.raid, W.inRaid = { { name = "Me" } }, false
+    P.Invite(pdb)
+    W.runAfters(P.PUMP_GAP + 0.1)             -- four at a time: the fifth goes in the next batch
+    local asked = false
+    for _, n in ipairs(sent.invite) do if n == "Darthsidiouz Sithlord" then asked = true end end
+    ok(asked, "and the invite goes to Darthsidiouz Sithlord - Forever's whole name (Arn: /invite Nebeon completes to Nebeon Nolightforu)", table.concat(sent.invite, ","))
+    ok(P.Key("Darthsidiouz Sithlord") == P.Key("darthsidiouz") and P.Key("Tobi-Realm") == "tobi", "compared by first name: no surname, no realm, any case")
+    P.Remove(pdb, "Darthsidiouz")
+  end
+  _G.UnitInRaid, _G.IsInInstance = keepUIR, keepII
+  -- more than a party holds: a party you lead becomes a raid first
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" } }, false
+  pdb.names = { "Tobi", "A", "B", "C", "D" }
+  _G.UnitExists = (function(ue) return function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] ~= nil end return ue(u) end end)(_G.UnitExists)
+  local keepUN = _G.UnitName
+  _G.UnitName = function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] and W.raid[tonumber(i) + 1].name end return keepUN(u) end
+  P.Invite(pdb)
+  ok(sent.raid == 1, "six of you: the party becomes a raid before the invites", sent.raid)
+  _G.UnitName = keepUN
+  -- cost: a group change in a 40-man raid with a full list re-asks the box, once
+  W.raid, W.inRaid = { { name = "Me" } }, true
+  pdb.names = {}
+  for i = 2, 40 do W.raid[i] = { name = "R" .. i } pdb.names[#pdb.names + 1] = "R" .. i end
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE") end)
+  ok(n <= 150, "a roster change in a 40-man raid asks at most 150 things (measured 132: one roster walk): " .. n, Cost.Top and Cost.Top(by, 5))
+  _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid = keepPI, keepLead, keepRaid, keepIn
+  pdb.names = {}
+  R:SetEnabled("party", false)
+  Bx.Refresh()
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,

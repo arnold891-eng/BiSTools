@@ -173,6 +173,17 @@ function B.Buttons()
     B.Colour(mb, BG.WHITE)
     out[#out + 1] = { b = mb, show = R:Enabled("bg") and BG.InBG() and true or false }
   end
+  -- your party list (Arn, 15 Oct: "the saved list to invite is nice and a disband button"): GREEN
+  -- invites, RED disbands - each only when it means something now (Party.lua)
+  local P = NS.Party
+  if P and P.Buttons then
+    local ib, db_ = P.Buttons()
+    B.Colour(ib, P.GREEN)
+    B.Colour(db_, P.RED)
+    local members = P.Members()            -- one walk of the roster for both questions
+    out[#out + 1] = { b = ib, show = P.ShowInvite(P.db, members) }
+    out[#out + 1] = { b = db_, show = P.ShowDisband(P.db, members) }
+  end
   return out
 end
 
