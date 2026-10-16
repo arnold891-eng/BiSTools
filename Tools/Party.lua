@@ -415,6 +415,178 @@ function P.Buttons()
   return P.ibtn, P.dbtn
 end
 
+------------------------------------------------------------- the window --
+-- THE LIST, WHERE YOU CAN SEE IT (Arn, 15 Oct: "i dont see the party frame when i click the button
+-- on the list" - the tools list opens a tool's window, and this tool had none). The farm window's
+-- frame and header (the BiS> prompt, x to close), at the family's 1.43:1: the names in two columns
+-- (green = with you now, x = off the list), a box to add one, and the four things you do with it.
+P.WIN_W, P.WIN_H = 230, 161                  -- 1.43:1
+P.ROWS, P.ROW_H, P.HEADER = 6, 14, 16
+
+local function button(parent, label, w, colour, onClick, tip)
+  local F = NS.Farm
+  local b = CreateFrame("Button", nil, parent)
+  b:SetSize(w, 16)
+  F.tex(b, "BACKGROUND", "field", 0.95)
+  b.edge = F.border(b, colour or "edge", 1)
+  b.label = F.fs(b, label, 9, colour or "ink")
+  b.label:SetPoint("CENTER")
+  b:SetScript("OnClick", onClick)
+  b:SetScript("OnEnter", function(self)
+    b.edge:set("accent", 1)
+    if GameTooltip and tip then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(label)
+      GameTooltip:AddLine(tip, 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  b:SetScript("OnLeave", function() b.edge:set(colour or "edge", 1) if GameTooltip then GameTooltip:Hide() end end)
+  return b
+end
+
+function P.BuildWindow(db)
+  if P.win then return P.win end
+  local F = NS.Farm
+  local f = CreateFrame("Frame", "BiSToolsParty", UIParent)
+  P.win = f
+  f:SetSize(P.WIN_W, P.WIN_H)
+  f:SetFrameStrata("MEDIUM")
+  f:SetMovable(true)
+  f:EnableMouse(true)
+  f:SetClampedToScreen(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  f:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, rel, x, y = self:GetPoint(1)
+    db.pos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" }
+  end)
+  F.tex(f, "BACKGROUND", "frame", F.BODY_A)
+  F.border(f, "edge", 0.35)
+  local head = CreateFrame("Frame", nil, f)
+  head:SetPoint("TOPLEFT") head:SetPoint("TOPRIGHT")
+  head:SetHeight(P.HEADER)
+  F.tex(head, "BACKGROUND", "header", F.HEAD_A)
+  f.title = F.fs(head, "", 8, "ink")
+  f.title:SetPoint("LEFT", head, "LEFT", 4, 0)
+  f.con = BiSTheme.Console(f.title, { width = P.WIN_W - 17 - 8 })
+  f.con:Set("name", "Party", "accent")
+  local acc = 0
+  f:SetScript("OnUpdate", function(_, dt)          -- the prompt's cursor; only while shown
+    acc = acc + (dt or 0)
+    if acc >= 0.1 then acc = 0 f.con:Paint() end
+  end)
+  f.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist party reopens it.", function() f:Hide() end, "warn")
+  -- the names: two columns of P.ROWS
+  f.rows = {}
+  local colW = (P.WIN_W - 12) / 2
+  for i = 1, P.ROWS * 2 do
+    local col, row = math.floor((i - 1) / P.ROWS), (i - 1) % P.ROWS
+    local r = CreateFrame("Frame", nil, f)
+    r:SetSize(colW - 4, P.ROW_H)
+    r:SetPoint("TOPLEFT", f, "TOPLEFT", 6 + col * colW, -(P.HEADER + 4) - row * P.ROW_H)
+    r.name = F.fs(r, "", 9, "ink")
+    r.name:SetPoint("LEFT", r, "LEFT", 2, 0)
+    r.x = CreateFrame("Button", nil, r)
+    r.x:SetSize(12, 12)
+    r.x:SetPoint("RIGHT", r, "RIGHT", -2, 0)
+    r.x.label = F.fs(r.x, "x", 8, "warn")
+    r.x.label:SetPoint("CENTER")
+    r.x:SetScript("OnClick", function() if r.who then P.Remove(db, r.who) P.Changed() end end)
+    r:Hide()
+    f.rows[i] = r
+  end
+  f.more = F.fs(f, "", 8, "dim")
+  f.more:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -(P.HEADER + 4) - P.ROWS * P.ROW_H)
+  -- add a name
+  local well = CreateFrame("Frame", nil, f)
+  well:SetSize(P.WIN_W - 12, 16)
+  well:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6, 26)
+  F.tex(well, "BACKGROUND", "field", 0.9)
+  well.edge = F.border(well, "edge", 1)
+  local eb = CreateFrame("EditBox", "BiSToolsPartyAdd", well)
+  eb:SetAllPoints()
+  eb:SetTextInsets(4, 4, 0, 0)
+  eb:SetFont(STANDARD_TEXT_FONT, 9, "")
+  eb:SetAutoFocus(false)
+  eb:SetMaxLetters(48)
+  local ph = F.fs(well, "add a name, Enter...", 9, "dim")
+  ph:SetPoint("LEFT", 4, 0)
+  eb:SetScript("OnEditFocusGained", function() ph:Hide() well.edge:set("accent", 1) end)
+  eb:SetScript("OnEditFocusLost", function(self)
+    well.edge:set("edge", 1)
+    if (self:GetText() or "") == "" then ph:Show() end
+  end)
+  eb:SetScript("OnEnterPressed", function(self)
+    local name = (self:GetText() or ""):match("^%s*(.-)%s*$")
+    local ok, why = P.Add(db, name)
+    if not ok and name ~= "" then NS.Print("party list: %s", tostring(why)) end
+    self:SetText("")
+    self:ClearFocus()
+    P.Changed()
+  end)
+  eb:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
+  f.add = eb
+  -- what you do with the list
+  local bw = (P.WIN_W - 12 - 9) / 4
+  local acts = {
+    { "save group", "good", function() P.SaveGroup(db) P.Changed() end, "Everyone you're grouped with now becomes the list." },
+    { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
+    { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
+    { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
+  }
+  f.buttons = {}
+  for i, a in ipairs(acts) do
+    local b = button(f, a[1], bw, a[2], a[3], a[4])
+    b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (i - 1) * (bw + 3), 6)
+    f.buttons[a[1]] = b
+  end
+  f:Hide()
+  return f
+end
+
+--- Repaint the names (with you now = green), and the "+N more" line.
+function P.PaintWindow()
+  local f, db = P.win, P.db
+  if not (f and db and f:IsShown()) then return end
+  local list, here = P.List(db), {}
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  for i, r in ipairs(f.rows) do
+    local n = list[i]
+    r.who = n
+    if n then
+      r.name:SetText(n)
+      local r_, g, b = NS.Farm.color(here[P.Key(n) or "?"] and "good" or "ink")
+      r.name:SetTextColor(r_, g, b, 1)
+      r:Show()
+    else
+      r:Hide()
+    end
+  end
+  local extra = #list - #f.rows
+  f.more:SetText(#list == 0 and "empty - save your group, or right-click a party member"
+    or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
+end
+
+--- The list changed: the window and the box look again.
+function P.Changed()
+  P.PaintWindow()
+  if NS.Box and NS.Box.Refresh then NS.Box.Refresh() end
+end
+
+function P.Toggle(db, show, recenter)
+  local f = P.BuildWindow(db)
+  if show == nil then show = not f:IsShown() end
+  if not show then f:Hide() return end
+  f:ClearAllPoints()
+  local p = db.pos
+  if recenter or type(p) ~= "table" then f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+  else f:SetPoint(p[1], UIParent, p[4] or p[1], p[2] or 0, p[3] or 0) end
+  f:Show()
+  P.PaintWindow()
+end
+
 ------------------------------------------------------------- the right-click line --
 -- "BiS: add to party list" on a party or raid member's menu (Arn, 15 Oct). The game's own
 -- Menu.ModifyMenu, as the rivals' lines are; never inside an instance (RC.MenuSafe).
@@ -442,7 +614,7 @@ function P.MenuLine(db, root, ctx)
   root:CreateButton(on and "BiS: remove from party list" or "BiS: add to party list", function()
     if on then P.Remove(db, name) else P.Add(db, name) end
     NS.Print("party list: %s %s (%d on it)", name, on and "removed" or "added", #P.List(db))
-    if NS.Box and NS.Box.Refresh then NS.Box.Refresh() end
+    P.Changed()
   end)
 end
 
@@ -457,7 +629,7 @@ end
 
 ------------------------------------------------------------------ the tool --
 
-local function refresh() if NS.Box and NS.Box.Refresh then NS.Box.Refresh() end end
+local function refresh() P.Changed() end
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -485,6 +657,7 @@ R:Register({
       button = "clear", action = function(db) db.names = {} NS.Print("party list: cleared") refresh() end },
   },
   OnInit = function(_, db) P.db = db end,
+  OnOpen = function(_, db, recenter) P.db = db P.Toggle(db, true, recenter) end,
   OnLogin = function(_, db) P.db = db P.HookMenus(db) refresh() end,
   OnSlash = function(_, db, args)
     P.db = db
@@ -505,6 +678,8 @@ R:Register({
       P.Invite(db)
     elseif verb == "disband" then
       if not P.Disband() then NS.Print("party list: you're not in a group") end
+    elseif verb == "" then
+      P.Toggle(db)
     else
       local list = P.List(db)
       NS.Print("party list (%d): %s", #list, #list > 0 and table.concat(list, ", ") or "empty - /bist party save, or right-click a party member")

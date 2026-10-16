@@ -5303,6 +5303,26 @@ do
   ok(#pdb.names == 2 and P.Has(pdb, "Tobi") and P.Has(pdb, "kumlust") and not P.Has(pdb, "Me"),
     "/bist party save: whoever you're grouped with is the list (never you)", #pdb.names)
   ok(P.Add(pdb, "Zed") and not P.Add(pdb, "zed"), "add a name once; the same name twice is refused")
+  -- THE WINDOW (Arn, 15 Oct: "i dont see the party frame when i click the button on the list")
+  do
+    local tool = R:Get("party")
+    ok(tool.OnOpen, "the party tool has a window for the tools list to open")
+    tool:OnOpen(pdb, true)
+    local w = BiSToolsParty
+    ok(w and w:IsShown() and math.abs(w.w / w.h - 1.43) < 0.01, "a click on its row opens it, at 1.43:1", w and (w.w .. "x" .. w.h))
+    local names = {}
+    for _, r in ipairs(w.rows) do if r.shown then names[#names + 1] = r.name.text end end
+    ok(#names == 3 and names[1] == "Tobi" and names[3] == "Zed", "the names, in list order", table.concat(names, ","))
+    ok(w.rows[1].name.color and w.rows[1].name.color[2] > w.rows[1].name.color[1], "Tobi, with you now, in green")
+    w.rows[3].x.scripts.OnClick(w.rows[3].x)
+    ok(not P.Has(pdb, "Zed") and not w.rows[3].shown, "x takes a name off, and the window follows")
+    w.add:SetText("Zed")
+    w.add.scripts.OnEnterPressed(w.add)
+    ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
+    ok(w.buttons["save group"] and w.buttons.invite and w.buttons.disband and w.buttons.clear, "save group, invite, disband, clear")
+    SlashCmdList.BISTOOLS("party")
+    ok(not w:IsShown(), "/bist party toggles it")
+  end
   -- grouped with someone on the list: Disband shows; Invite shows for the one missing
   Bx.Refresh()
   ok(P.dbtn:IsShown() and P.ibtn:IsShown(), "grouped with listed players: Disband, and Invite for the one missing")
