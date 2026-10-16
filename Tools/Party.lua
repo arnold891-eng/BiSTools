@@ -252,7 +252,21 @@ function P.BuildShow()
   local f = CreateFrame("Frame", "BiSToolsPartyLoading", UIParent)
   P.box = f
   f:SetSize(P.W, P.H)
-  f:SetPoint("CENTER", UIParent, "CENTER", 0, 140)
+  -- WHERE YOU PUT IT (Arn, 15 Oct: "nice in the middle but would be nice to be able to move it"):
+  -- dragged anywhere, kept in the party tool's settings; the middle until then
+  local bp = P.db and P.db.boxPos
+  if type(bp) == "table" and bp[1] then f:SetPoint(bp[1], UIParent, bp[4] or bp[1], bp[2] or 0, bp[3] or 0)
+  else f:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end
+  f:SetMovable(true)
+  f:EnableMouse(true)
+  f:SetClampedToScreen(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  f:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    local point, _, rel, x, y = self:GetPoint(1)
+    if P.db then P.db.boxPos = { point or "CENTER", x or 0, y or 0, rel or point or "CENTER" } end
+  end)
   f:SetFrameStrata("DIALOG")
   K.tex(f, "BACKGROUND", "surface", 0.97)
   f.edge = K.border(f, "accent", 0.8)

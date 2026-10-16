@@ -5445,6 +5445,10 @@ do
   do
     local box = BiSToolsPartyLoading
     ok(box and box:IsShown() and P.run, "Invite: the inviting box comes up")
+    -- it drags, and stays where it was put (Arn, 15 Oct)
+    ok(box.scripts.OnDragStart and box.scripts.OnDragStop, "the box can be dragged")
+    box.scripts.OnDragStop(box)            -- the mock's GetPoint answers TOPLEFT 12, -34
+    ok(pdb.boxPos and pdb.boxPos[1] == "TOPLEFT" and pdb.boxPos[2] == 12 and pdb.boxPos[3] == -34, "and its place is kept", pdb.boxPos and pdb.boxPos[2])
     local chat = 0
     local keepAdd = DEFAULT_CHAT_FRAME.AddMessage
     DEFAULT_CHAT_FRAME.AddMessage = function() chat = chat + 1 end
