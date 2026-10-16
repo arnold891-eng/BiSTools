@@ -5529,7 +5529,12 @@ do
   do
     sent.invite = {}
     P.ibtn.scripts.OnClick(P.ibtn)
-    ok(#sent.invite == 0 and P.run and P.run.prep, "the box's Invite sends nothing: it goes to the confirm list", #sent.invite)
+    ok(#sent.invite == 0 and not P.run and tostring(W.lastMsg):find("shift-click", 1, true),
+      "a plain click on the box's Invite: nothing, but a reminder (Arn: shift-click only)", W.lastMsg)
+    W.shift = true
+    P.ibtn.scripts.OnClick(P.ibtn)
+    W.shift = false
+    ok(#sent.invite == 0 and P.run and P.run.prep, "shift-click: the confirm list, still nothing sent", #sent.invite)
     local box = BiSToolsPartyLoading
     for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
     ok(box.confirmView:IsShown() and box.confirmView.lines[1].text.text == "Party list (3)", "your party list, to look over",
