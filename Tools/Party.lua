@@ -503,7 +503,7 @@ end
 -- on the list" - the tools list opens a tool's window, and this tool had none). The farm window's
 -- frame and header (the BiS> prompt, x to close), at the family's 1.43:1: the names in two columns
 -- (green = with you now, x = off the list), a box to add one, and the four things you do with it.
-P.WIN_W, P.WIN_H = 230, 161                  -- 1.43:1
+P.WIN_W, P.WIN_H = 250, 175                  -- 1.43:1 (wide enough for five buttons)
 P.ROWS, P.ROW_H, P.HEADER = 6, 14, 16
 
 local function button(parent, label, w, colour, onClick, tip)
@@ -564,8 +564,7 @@ function P.BuildWindow(db)
   -- WHOLE RANKS (Arn, 15 Oct: "the guild feature will be invite all raiders button etc"): g shows
   -- the guild's ranks with someone online; a click invites that whole rank. Single guildmates go on
   -- the list from the guild window's own right-click (P.GUILD_MENUS, behind its switch).
-  f.guildBtn = F.HeaderButton(head, -17, "g", "Guild ranks", "Invite a whole rank of your guild at once. g again goes back to your list.",
-    function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end)
+
   -- the names: two columns of P.ROWS
   f.rows = {}
   local colW = (P.WIN_W - 12) / 2
@@ -627,10 +626,14 @@ function P.BuildWindow(db)
   eb:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
   f.add = eb
   -- what you do with the list
-  local bw = (P.WIN_W - 12 - 9) / 4
+  -- five along the bottom (Arn, 15 Oct: "from this window a button that shows all the guild ranks,
+  -- i click the ranks and it sends out invites"): ranks swaps the names for the guild's ranks
+  local bw = (P.WIN_W - 12 - 12) / 5
   local acts = {
-    { "save group", "good", function() P.SaveGroup(db) P.Changed() end, "Everyone you're grouped with now becomes the list." },
+    { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
     { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
+    { "ranks", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
+      "Your guild's ranks with someone online: click a rank to invite all of them. Click again for your list." },
     { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
     { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
   }
@@ -640,6 +643,7 @@ function P.BuildWindow(db)
     b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (i - 1) * (bw + 3), 6)
     f.buttons[a[1]] = b
   end
+  f.guildBtn = f.buttons.ranks
   f:Hide()
   return f
 end
@@ -710,7 +714,8 @@ function P.PaintWindow()
   local f, db = P.win, P.db
   if not (f and db and f:IsShown()) then return end
   local guild = P.view == "guild"
-  f.con:Set("name", guild and "Party: guild" or "Party", "accent")
+  f.con:Set("name", guild and "Party: ranks" or "Party", "accent")
+  f.guildBtn.label:SetText(guild and "list" or "ranks")
   local names, here = P.List(db), {}
   local entries
   if guild then

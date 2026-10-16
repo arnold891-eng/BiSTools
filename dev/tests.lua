@@ -5327,7 +5327,8 @@ do
     w.add:SetText("Zed")
     w.add.scripts.OnEnterPressed(w.add)
     ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
-    ok(w.buttons["save group"] and w.buttons.invite and w.buttons.disband and w.buttons.clear, "save group, invite, disband, clear")
+    ok(w.buttons.save and w.buttons.invite and w.buttons.ranks and w.buttons.disband and w.buttons.clear, "save, invite, ranks, disband, clear")
+    for name, b in pairs(w.buttons) do ok(b.label:GetStringWidth() <= b.w - 4, "the " .. name .. " label fits its button", b.label:GetStringWidth()) end
     -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
     -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole
     do
@@ -5343,7 +5344,7 @@ do
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
       ok(texts[1] == "invite all <Officer> (1)" and texts[2] == "invite all <Raider> (2)" and #texts == 2,
-        "g: the ranks with someone online, highest first, and how many (never you, never the offline)", table.concat(texts, ", "))
+        "ranks: the ranks with someone online, highest first, and how many (never you, never the offline)", table.concat(texts, ", "))
       sent.invite = {}
       W.raid, W.inRaid = { { name = "Me" } }, false
       w.rows[2].pick.scripts.OnClick(w.rows[2].pick)
@@ -5354,7 +5355,7 @@ do
       SlashCmdList.BISTOOLS("party rank officer")
       ok(sent.invite[1] == "Grux", "/bist party rank officer - any case", table.concat(sent.invite, ","))
       w.guildBtn.scripts.OnClick(w.guildBtn)
-      ok(w.rows[1].name.text ~= "invite all <Officer> (1)", "g again: back to your list")
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "ranks", "the button again (it read 'list'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
       local keepMenu, hooked = _G.Menu, {}
       _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
