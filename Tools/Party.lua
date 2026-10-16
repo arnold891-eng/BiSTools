@@ -130,9 +130,26 @@ end
 ------------------------------------------------------------- invite / disband --
 
 P.queue = {}
+-- SAID, NOT SWALLOWED (Arn, 15 Oct: "i dont think it is sending any invites" - the box ran, the game
+-- said nothing, and the pcall had eaten whatever went wrong). A refusal lands in the box's log and
+-- once in chat, with the game's own words.
 local function send(name)
   local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
-  if invite then pcall(invite, P.InviteName(name)) end
+  if not invite then P.Refused(name, "this client has no invite call") return end
+  local ok, err = pcall(invite, P.InviteName(name))
+  if not ok then P.Refused(name, err) end
+end
+
+function P.Refused(name, why)
+  why = tostring(why or "?")
+  repeat local n why, n = why:gsub("^[^%s]-:%d+: ", "") until n == 0      -- no "file.lua:12: " in front
+  P.lastError = why
+  P.failed = (P.failed or 0) + 1
+  if P.run and P.box then P.Say(NS.T.text("warn", ("%s: the game refused (%s)"):format(P.InviteName(name) or "?", why))) end
+  if not P.saidError then
+    P.saidError = true
+    NS.Print("party list: the game refused an invite - %s", why)
+  end
 end
 
 --- A few at a time: a burst of invites is what gets a player's messages throttled.
@@ -309,7 +326,7 @@ function P.Show(names)
   local script = P.Script(names)
   P.run = { names = names, script = script, t = 0, said = 0,
             len = math.min(P.SHOW_MAX, P.SHOW_MIN + P.SHOW_PER * #names) }
-  P.shown, P.failed = {}, 0
+  P.shown, P.failed, P.saidError = {}, 0, nil
   for _, b in ipairs(f.all.blocks) do b:Hide() end
   for _, b in ipairs(f.one.blocks) do b:Hide() end
   for _, l in ipairs(f.log) do l:SetText("") end
@@ -392,7 +409,16 @@ end
 do
   local heard = CreateFrame("Frame")
   heard:RegisterEvent("CHAT_MSG_SYSTEM")
-  heard:SetScript("OnEvent", function(_, _, msg) if P.run then P.Heard(msg) end end)
+  -- a protected call refused shows up as these, not as a Lua error
+  heard:RegisterEvent("ADDON_ACTION_BLOCKED")
+  heard:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+  heard:SetScript("OnEvent", function(_, event, msg, fn)
+    if event == "CHAT_MSG_SYSTEM" then
+      if P.run then P.Heard(msg) end
+    elseif msg == ADDON and type(fn) == "string" and fn:lower():find("invite", 1, true) then
+      P.Refused("", ("%s: %s is protected on this client"):format(event == "ADDON_ACTION_FORBIDDEN" and "forbidden" or "blocked", fn))
+    end
+  end)
   P.heard = heard
 end
 
@@ -659,6 +685,13 @@ end
 --- Everyone online with that rank (any case), not with you: invited, the show and all.
 function P.InviteRank(db, rank)
   rank = (rank or ""):lower()
+  -- a number is the rank's place in the list "/bist party rank" prints (Arn typed "rank 1")
+  local nth = tonumber(rank)
+  if nth then
+    local r = P.Ranks()[nth]
+    if not r then NS.Print("party list: no rank number %d online (/bist party rank lists them)", nth) return 0 end
+    rank = r.rank:lower()
+  end
   local here = { [P.Key(UnitName("player")) or "?"] = true }
   for _, m in ipairs(P.Members()) do here[m.key] = true end
   local names, found = {}, false
@@ -863,8 +896,8 @@ R:Register({
     elseif verb == "rank" then
       if rest == "" then
         local ranks = {}
-        for _, r in ipairs(P.Ranks()) do ranks[#ranks + 1] = ("%s (%d)"):format(r.rank, r.n) end
-        NS.Print("ranks online: %s - /bist party rank <rank> invites them all", #ranks > 0 and table.concat(ranks, ", ") or "nobody")
+        for i, r in ipairs(P.Ranks()) do ranks[#ranks + 1] = ("%d. %s (%d)"):format(i, r.rank, r.n) end
+        NS.Print("ranks online: %s - /bist party rank <name or number> invites them all", #ranks > 0 and table.concat(ranks, ", ") or "nobody")
       else
         P.InviteRank(db, rest)
       end

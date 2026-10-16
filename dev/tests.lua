@@ -5427,6 +5427,23 @@ do
     end
     for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
     ok(not P.run and not P.Heard("Somebody is already in a group."), "a system line while no box is up: left alone")
+    -- A REFUSED INVITE IS SAID (Arn, 15 Oct: "i dont think it is sending any invites" - the pcall had
+    -- eaten the error): in the box's log, and once in chat
+    do
+      local keepPI2 = _G.C_PartyInfo
+      local keepRaid2, keepIn2 = W.raid, W.inRaid
+      _G.C_PartyInfo = { InviteUnit = function() error("Interface/AddOns/x.lua:1: you may not invite") end }
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      local said = W.lastMsg
+      P.InviteNames(pdb, { "Nebeon" })
+      local refused = false
+      for _, l in ipairs(box.log) do if (l.text or ""):find("Nebeon: the game refused (you may not invite)", 1, true) then refused = true end end
+      ok(refused, "the game's refusal, in the box's log", table.concat(shown(), " / "))
+      ok(W.lastMsg ~= said and tostring(W.lastMsg):find("refused an invite", 1, true), "and once in chat", W.lastMsg)
+      for _ = 1, 80 do box.scripts.OnUpdate(box, 0.05) end
+      _G.C_PartyInfo = keepPI2
+      W.raid, W.inRaid = keepRaid2, keepIn2
+    end
     _G.ERR_ALREADY_IN_GROUP_S, _G.ERR_INVITE_PLAYER_S = nil, nil      -- the client's strings, ours only for the test
     P.Show({ "A", "B" })
     box.cancel.scripts.OnClick(box.cancel)
