@@ -1869,7 +1869,7 @@ do
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7),
   -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
   -- the party list, 15 Oct)
-  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 3, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -5328,6 +5328,60 @@ do
     w.add.scripts.OnEnterPressed(w.add)
     ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
     ok(w.buttons["save group"] and w.buttons.invite and w.buttons.disband and w.buttons.clear, "save group, invite, disband, clear")
+    -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
+    -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole
+    do
+      local keepIG, keepGN, keepGR = _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo
+      local keepRaidG, keepInG = W.raid, W.inRaid
+      local roster = { { "Nebeon-Realm", "Raider", 3, true }, { "Grux-Realm", "Officer", 1, true },
+                       { "Ariarie-Realm", "Raider", 3, true }, { "Asleep-Realm", "Raider", 3, false },
+                       { "Me-Realm", "Raider", 3, true } }
+      _G.IsInGuild = function() return true end
+      _G.GetNumGuildMembers = function() return #roster, 4 end
+      _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, "Shaman", "", "", "", m[4] end
+      w.guildBtn.scripts.OnClick(w.guildBtn)
+      local texts = {}
+      for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
+      ok(texts[1] == "invite all <Officer> (1)" and texts[2] == "invite all <Raider> (2)" and #texts == 2,
+        "g: the ranks with someone online, highest first, and how many (never you, never the offline)", table.concat(texts, ", "))
+      sent.invite = {}
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      w.rows[2].pick.scripts.OnClick(w.rows[2].pick)
+      W.runAfters(P.PUMP_GAP + 0.1)
+      table.sort(sent.invite)
+      ok(table.concat(sent.invite, ",") == "Ariarie,Nebeon", "click a rank: everyone online with it invited", table.concat(sent.invite, ","))
+      sent.invite = {}
+      SlashCmdList.BISTOOLS("party rank officer")
+      ok(sent.invite[1] == "Grux", "/bist party rank officer - any case", table.concat(sent.invite, ","))
+      w.guildBtn.scripts.OnClick(w.guildBtn)
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)", "g again: back to your list")
+      -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
+      local keepMenu, hooked = _G.Menu, {}
+      _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
+      P.guildHooked = nil
+      pdb.guildMenu = nil
+      ok(not P.HookGuildMenus(pdb) and not next(hooked), "switched off (the default): the guild menu is never even hooked")
+      pdb.guildMenu = true
+      ok(P.HookGuildMenus(pdb) and hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER, "switched on: hooked at once")
+      local gm = { lines = {} }
+      function gm:CreateDivider() self.lines[#self.lines + 1] = "--" end
+      function gm:CreateTitle(t) self.lines[#self.lines + 1] = "title" end
+      function gm:CreateButton(text, fn) self.lines[#self.lines + 1] = text self.fn = fn end
+      hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, gm, { name = "Nebeon", surname = "Nolightforu" })
+      ok(gm.lines[#gm.lines] == "Add to party list", "a guildmate's right-click in the guild window: Add to party list", table.concat(gm.lines, "|"))
+      gm.fn()
+      ok(P.Has(pdb, "Nebeon"), "and it adds them")
+      pdb.guildMenu = false
+      gm.lines = {}
+      hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, gm, { name = "Nebeon" })
+      ok(#gm.lines == 0, "switched off again: no line (the hook goes at the next /reload)")
+      _G.Menu, P.guildHooked, pdb.guildMenu = keepMenu, nil, nil
+      P.Remove(pdb, "Nebeon")
+      if P.box then P.EndShow() end
+      _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo = keepIG, keepGN, keepGR
+      W.raid, W.inRaid = keepRaidG, keepInG
+      sent.invite = {}
+    end
     SlashCmdList.BISTOOLS("party")
     ok(not w:IsShown(), "/bist party toggles it")
   end
@@ -5407,15 +5461,22 @@ do
   W.raid, W.inRaid = { { name = "Me" }, { name = "Stranger" } }, true
   Bx.Refresh()
   ok(not P.ibtn:IsShown() and not P.dbtn:IsShown(), "grouped with nobody on the list: neither button")
-  -- the right-click line on a group member, outside instances only
+  -- the right-click line on ANY friendly player - a raid member or a stranger in town (Arn, 15 Oct:
+  -- "why cant i add them to the party list? is that only for people in the party?") - outside
+  -- instances only; never the other faction, never you
   local m = { lines = {} }
   function m:CreateButton(text, fn) self.lines[#self.lines + 1] = { text = text, fn = fn } end
   function m:CreateDivider() end
   local keepUIR, keepII = _G.UnitInRaid, _G.IsInInstance
-  _G.UnitInRaid = function(u) return u == "raid2" end
+  local keepUIP, keepUIF, keepUN2 = _G.UnitIsPlayer, _G.UnitIsFriend, _G.UnitName
+  local people = { raid2 = { name = "Stranger", friend = true }, target = { name = "Richer", friend = true },
+                   focus = { name = "Horde Guy", friend = false } }
+  _G.UnitIsPlayer = function(u) return u == "player" or people[u] ~= nil end
+  _G.UnitIsFriend = function(_, u) return people[u] ~= nil and people[u].friend end
+  _G.UnitName = function(u) if people[u] then return people[u].name end return keepUN2(u) end
   _G.IsInInstance = function() return false, "none" end
   P.MenuLine(pdb, m, { unit = "raid2" })
-  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "right-click a raid member: BiS: add to party list", m.lines[1] and m.lines[1].text)
+  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "right-click a raid member: Add to party list", m.lines[1] and m.lines[1].text)
   m.lines[1].fn()
   ok(P.Has(pdb, "Stranger"), "and it adds them")
   m.lines = {}
@@ -5423,11 +5484,17 @@ do
   ok(m.lines[1] and m.lines[1].text == "Remove from party list", "on the list already: the line removes")
   m.lines = {}
   P.MenuLine(pdb, m, { unit = "target" })
-  ok(#m.lines == 0, "someone not in your group: no line")
+  ok(#m.lines == 1 and m.lines[1].text == "Add to party list", "a friendly stranger you right-click: the line too")
+  m.lines = {}
+  P.MenuLine(pdb, m, { unit = "focus" })
+  ok(#m.lines == 0, "the other faction: no line (you could not invite them)")
+  P.MenuLine(pdb, m, { unit = "player" })
+  ok(#m.lines == 0, "your own menu: no line")
   _G.IsInInstance = function() return true, "party" end
   P.MenuLine(pdb, m, { unit = "raid2" })
   ok(#m.lines == 0, "inside an instance: no line (it breaks the game's menu there)")
   _G.IsInInstance = function() return false, "none" end
+  _G.UnitIsPlayer, _G.UnitIsFriend, _G.UnitName = keepUIP, keepUIF, keepUN2
   -- A FRIEND, from the Friends list (Arn, 15 Oct: "can it add the Darthsidiouz sithlord to the party
   -- list?" ... "another sub section to our section"): one BiS section - a divider, a title - holding
   -- the rivals tool's pal line and the party line together

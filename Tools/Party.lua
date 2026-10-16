@@ -149,7 +149,11 @@ end
 --- Invite everyone on the list who is not with you. More than a party holds: a party you lead
 --- becomes a raid first (a party of five refuses the sixth).
 function P.Invite(db)
-  local missing = P.Missing(db)
+  return P.InviteNames(db, P.Missing(db))
+end
+
+--- Invite these names (none of them with you already): the party list's, or a guild rank's.
+function P.InviteNames(db, missing)
   if #missing == 0 then NS.Print("party list: everyone is already with you") return 0 end
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
   local total = #P.Members() + 1 + #missing
@@ -531,6 +535,11 @@ function P.BuildWindow(db)
     if acc >= 0.1 then acc = 0 f.con:Paint() end
   end)
   f.closeBtn = F.HeaderButton(head, -3, "x", "Close", "/bist party reopens it.", function() f:Hide() end, "warn")
+  -- WHOLE RANKS (Arn, 15 Oct: "the guild feature will be invite all raiders button etc"): g shows
+  -- the guild's ranks with someone online; a click invites that whole rank. Single guildmates go on
+  -- the list from the guild window's own right-click (P.GUILD_MENUS, behind its switch).
+  f.guildBtn = F.HeaderButton(head, -17, "g", "Guild ranks", "Invite a whole rank of your guild at once. g again goes back to your list.",
+    function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end)
   -- the names: two columns of P.ROWS
   f.rows = {}
   local colW = (P.WIN_W - 12) / 2
@@ -547,6 +556,16 @@ function P.BuildWindow(db)
     r.x.label = F.fs(r.x, "x", 8, "warn")
     r.x.label:SetPoint("CENTER")
     r.x:SetScript("OnClick", function() if r.who then P.Remove(db, r.who) P.Changed() end end)
+    -- in the guild view the whole row is the button: on the list, or off it
+    r.pick = CreateFrame("Button", nil, r)
+    r.pick:SetAllPoints(r)
+    r.pick:SetScript("OnClick", function()
+      if r.rank then P.InviteRank(db, r.rank) return end
+      if not r.who then return end
+      if P.Has(db, r.who) then P.Remove(db, r.who) else P.Add(db, r.who) end
+      P.Changed()
+    end)
+    r.pick:Hide()
     r:Hide()
     f.rows[i] = r
   end
@@ -599,27 +618,104 @@ function P.BuildWindow(db)
   return f
 end
 
---- Repaint the names (with you now = green), and the "+N more" line.
+--- Your guildmates online now, not you: { name (no realm), rank, rankIndex }, by name.
+function P.GuildOnline()
+  local out = {}
+  if not (IsInGuild and IsInGuild()) then return out end
+  local okN, n = pcall(GetNumGuildMembers)
+  n = okN and plain(n) or 0
+  local me = P.Key(UnitName("player"))
+  for i = 1, (type(n) == "number" and n or 0) do
+    local ok, name, rank, rankIndex, _, _, _, _, _, online = pcall(GetGuildRosterInfo, i)
+    if not ok then name = nil end
+    name = plain(name)
+    rank = plain(rank)
+    rankIndex = plain(rankIndex)
+    online = plain(online)
+    if type(name) == "string" and online and P.Key(name) ~= me then
+      out[#out + 1] = { name = (name:gsub("%-.*$", "")), rank = type(rank) == "string" and rank or nil,
+                        rankIndex = tonumber(rankIndex) or 99 }
+    end
+  end
+  table.sort(out, function(a, b) return a.name < b.name end)
+  return out
+end
+
+--- WHOLE RANKS (Arn, 15 Oct: "invite all rank <raider> and it invites anyone that has raider
+--- rank"): the ranks with someone online, highest first, and how many.
+function P.Ranks(online)
+  local by, out = {}, {}
+  for _, m in ipairs(online or P.GuildOnline()) do
+    if m.rank then
+      local r = by[m.rank]
+      if not r then r = { rank = m.rank, index = m.rankIndex, n = 0 } by[m.rank] = r out[#out + 1] = r end
+      r.n = r.n + 1
+    end
+  end
+  table.sort(out, function(a, b) return a.index < b.index end)
+  return out
+end
+
+--- Everyone online with that rank (any case), not with you: invited, the show and all.
+function P.InviteRank(db, rank)
+  rank = (rank or ""):lower()
+  local here = { [P.Key(UnitName("player")) or "?"] = true }
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  local names, found = {}, false
+  for _, m in ipairs(P.GuildOnline()) do
+    if m.rank and m.rank:lower() == rank then
+      found = true
+      if not here[P.Key(m.name) or "?"] then names[#names + 1] = m.name end
+    end
+  end
+  if not found then NS.Print("party list: nobody online with the rank %s", rank) return 0 end
+  return P.InviteNames(db, names)
+end
+
+--- Repaint: your list (with you now = green), or the guild to pick from (on the list = green, a tick).
 function P.PaintWindow()
   local f, db = P.win, P.db
   if not (f and db and f:IsShown()) then return end
-  local list, here = P.List(db), {}
-  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  local guild = P.view == "guild"
+  f.con:Set("name", guild and "Party: guild" or "Party", "accent")
+  local names, here = P.List(db), {}
+  local entries
+  if guild then
+    entries = {}
+    for _, r in ipairs(P.Ranks()) do entries[#entries + 1] = { rank = r.rank, n = r.n } end
+    names = entries
+  else
+    for _, m in ipairs(P.Members()) do here[m.key] = true end
+  end
+  P.offset = 0
   for i, r in ipairs(f.rows) do
-    local n = list[i]
-    r.who = n
-    if n then
-      r.name:SetText(n)
-      local r_, g, b = NS.Farm.color(here[P.Key(n) or "?"] and "good" or "ink")
-      r.name:SetTextColor(r_, g, b, 1)
+    local e = names[i + (P.offset or 0)]
+    local n = guild and e and e.name or (not guild and e) or nil
+    r.who, r.rank = n, guild and e and e.rank or nil
+    if e then
+      if r.rank then
+        r.name:SetText(("invite all <%s> (%d)"):format(r.rank, e.n))
+        r.name:SetTextColor(NS.Farm.color("accent"))
+      else
+        local on = guild and P.Has(db, n)
+        r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+")) or n)
+        local r_, g, b = NS.Farm.color(((guild and on) or here[P.Key(n) or "?"]) and "good" or "ink")
+        r.name:SetTextColor(r_, g, b, 1)
+      end
+      if guild then r.x:Hide() r.pick:Show() else r.x:Show() r.pick:Hide() end
       r:Show()
     else
       r:Hide()
     end
   end
-  local extra = #list - #f.rows
-  f.more:SetText(#list == 0 and "empty - save your group, or right-click a party member"
-    or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
+  local extra = #names - #f.rows - (P.offset or 0)
+  if guild then
+    f.more:SetText(#names == 0 and "nobody else in your guild is online"
+      or "click a rank: everyone online with it is invited")
+  else
+    f.more:SetText(#names == 0 and "empty - g for your guild, save your group, or right-click a player"
+      or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
+  end
 end
 
 --- The list changed: the window and the box look again.
@@ -659,16 +755,22 @@ function P.MenuLine(db, root, ctx, kind)
   local RC = NS.Recap
   if RC and RC.MenuSafe and not RC.MenuSafe() then return end
   local name
-  if (RC and RC.FRIEND_MENUS and RC.FRIEND_MENUS[kind or ""]) or field(ctx, "bnetIDAccount") ~= nil then
+  if kind == "GUILD" then
+    if not db.guildMenu then return end             -- switched off since: nothing until the /reload
+    name = RC and RC.MenuName and RC.MenuName(ctx)
+  elseif (RC and RC.FRIEND_MENUS and RC.FRIEND_MENUS[kind or ""]) or field(ctx, "bnetIDAccount") ~= nil then
     -- a friend: whoever it is (a Battle.net friend by the character they're playing in this game)
     name = RC and RC.FriendName and RC.FriendName(ctx)
   else
+    -- ANY FRIENDLY PLAYER, not just your group (Arn, 15 Oct, right-clicking someone in Orgrimmar:
+    -- "why cant i add them to the party list? is that only for people in the party?"). Not you,
+    -- and not the other faction - you could not invite them anyway.
     local unit = field(ctx, "unit")
     if type(unit) ~= "string" then return end
-    local okIn, inGroup = pcall(function()
-      return (UnitInParty and UnitInParty(unit)) or (UnitInRaid and UnitInRaid(unit))
+    local okP, friendly = pcall(function()
+      return UnitIsPlayer(unit) and UnitIsFriend("player", unit) and not UnitIsUnit(unit, "player")
     end)
-    if not okIn or not plain(inGroup) or UnitIsUnit(unit, "player") then return end
+    if not okP or plain(friendly) ~= true then return end
     name = plain(GetUnitName and GetUnitName(unit, true) or UnitName(unit))
   end
   if not P.Key(name) then return end
@@ -679,6 +781,22 @@ function P.MenuLine(db, root, ctx, kind)
     NS.Print("party list: %s %s (%d on it)", name, on and "removed" or "added", #P.List(db))
     P.Changed()
   end)
+end
+
+-- THE GUILD WINDOW'S MENU (Arn, 15 Oct: "from the guild window to add them to the party list same
+-- as from the friend list"). The one menu the family stays out of: Olympus found a line there left
+-- promote / demote / remove refused for officers (RC.MenuAllowed). So it is a SWITCH, off by
+-- default, and while off the menu is never even hooked; on, it hooks at once. Arn tests it once
+-- (add someone, then promote or demote someone) - if Forever refuses, it stays off. Turning it
+-- off takes a /reload to unhook.
+P.GUILD_MENUS = { "COMMUNITIES_GUILD_MEMBER", "COMMUNITIES_WOW_MEMBER", "GUILD" }
+function P.HookGuildMenus(db)
+  if P.guildHooked or not db.guildMenu or not (Menu and type(Menu.ModifyMenu) == "function") then return false end
+  P.guildHooked = true
+  for _, kind in ipairs(P.GUILD_MENUS) do
+    pcall(Menu.ModifyMenu, "MENU_UNIT_" .. kind, function(_, root, ctx) P.MenuLine(db, root, ctx, "GUILD") end)
+  end
+  return true
 end
 
 function P.HookMenus(db)
@@ -705,7 +823,7 @@ R:Register({
   -- toolbox is not overwhelming")
   defaultOff = true,
   desc = "your usual group: invite them all, or disband, in one click",
-  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | disband]",
+  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | rank <rank> | disband]",
   defaults = {},
   options = {
     { kind = "button", label = "save my group as the list", help = "Everyone you're grouped with now becomes your party list. The Invite button in the BiS> tools box then asks them all back in one click.",
@@ -716,12 +834,15 @@ R:Register({
       end },
     { kind = "toggle", label = "the inviting show", help = "When you press Invite, a little loading box fills up and talks you through it in chat. Just for fun: the invites go out at once either way.",
       get = function(db) return db.show ~= false end, set = function(db, on) db.show = on and true or false end },
+    { kind = "toggle", label = "add from the guild window", help = "Puts 'Add to party list' on a guildmate's right-click in the guild window. TEST IT ONCE: the game may then refuse Promote / Demote / Remove for officers until a /reload. Off by default; turning it off needs a /reload.",
+      get = function(db) return db.guildMenu == true end,
+      set = function(db, on) db.guildMenu = on and true or false if on then P.HookGuildMenus(db) end end },
     { kind = "button", label = "clear the list", help = "Empty the party list.",
       button = "clear", action = function(db) db.names = {} NS.Print("party list: cleared") refresh() end },
   },
   OnInit = function(_, db) P.db = db end,
   OnOpen = function(_, db, recenter) P.db = db P.Toggle(db, true, recenter) end,
-  OnLogin = function(_, db) P.db = db P.HookMenus(db) refresh() end,
+  OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) refresh() end,
   OnSlash = function(_, db, args)
     P.db = db
     local verb, rest = (args or ""):match("^(%S*)%s*(.-)%s*$")
@@ -739,6 +860,14 @@ R:Register({
       NS.Print("party list: cleared")
     elseif verb == "invite" then
       P.Invite(db)
+    elseif verb == "rank" then
+      if rest == "" then
+        local ranks = {}
+        for _, r in ipairs(P.Ranks()) do ranks[#ranks + 1] = ("%s (%d)"):format(r.rank, r.n) end
+        NS.Print("ranks online: %s - /bist party rank <rank> invites them all", #ranks > 0 and table.concat(ranks, ", ") or "nobody")
+      else
+        P.InviteRank(db, rest)
+      end
     elseif verb == "disband" then
       if not P.Disband() then NS.Print("party list: you're not in a group") end
     elseif verb == "" then
