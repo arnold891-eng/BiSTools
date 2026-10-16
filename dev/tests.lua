@@ -5349,9 +5349,16 @@ do
       w.guildBtn.scripts.OnClick(w.guildBtn)
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
-      ok(texts[1] == "<Guild Master> (nobody else online)" and texts[2] == "invite all <Officer> (1)"
-         and texts[3] == "<Veteran> (nobody else online)" and texts[4] == "invite all <Raider> (2)" and #texts == 4,
+      ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "invite all <Officer> (1)"
+         and texts[3] == "<Veteran>  nobody else online" and texts[4] == "invite all <Raider> (2)" and #texts == 4,
         "ranks: every rank, highest first; who else is online, never you, never the offline", table.concat(texts, ", "))
+      -- one full-width line each: a long rank name fits (Arn's "<Altezza's Bruhs>" ran into the next column)
+      ladder[3] = "Altezza's Bruhs Extra"
+      w.guildBtn.scripts.OnClick(w.guildBtn) w.guildBtn.scripts.OnClick(w.guildBtn)
+      for _, r in ipairs(w.rows) do
+        if r.shown then ok(r.name:GetStringWidth() <= r.w, "a rank line fits its width: " .. tostring(r.name.text), r.name:GetStringWidth() .. " in " .. r.w) end
+      end
+      ladder[3] = "Veteran"
       sent.invite = {}
       w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
       ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")

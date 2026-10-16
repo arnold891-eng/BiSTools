@@ -721,9 +721,9 @@ end
 -- on the list" - the tools list opens a tool's window, and this tool had none). The farm window's
 -- frame and header (the BiS> prompt, x to close), at the family's 1.43:1: the names in two columns
 -- (green = with you now, x = off the list), a box to add one, and the four things you do with it.
-P.WIN_W, P.WIN_H = 250, 175                  -- 1.43:1 (wide enough for five buttons)
+P.WIN_W, P.WIN_H = 300, 210                  -- 1.43:1: five buttons, and rank names of any length
 P.WIN_SCALE = 1.2
-P.ROWS, P.ROW_H, P.HEADER = 6, 14, 16
+P.ROWS, P.ROW_H, P.HEADER = 9, 14, 16
 
 local function button(parent, label, w, colour, onClick, tip)
   local F = NS.Farm
@@ -963,14 +963,21 @@ function P.PaintWindow()
     for _, m in ipairs(P.Members()) do here[m.key] = true end
   end
   P.offset = 0
+  -- the guild view is ONE full-width column (Arn, 15 Oct: rank names like "<Altezza's Bruhs>" ran
+  -- into the second column); the list keeps two of short names
+  local full = P.WIN_W - 12
+  local colW = full / 2
   for i, r in ipairs(f.rows) do
-    local e = names[i + (P.offset or 0)]
+    local slot = i
+    if guild then slot = (i <= P.ROWS) and i or nil end
+    r:SetWidth(guild and full - 4 or colW - 4)
+    local e = slot and names[slot + (P.offset or 0)]
     local n = guild and e and e.name or (not guild and e) or nil
     r.who, r.rank = n, guild and e and e.rank or nil
     if e then
       if r.rank then
         r.empty = e.n == 0
-        r.name:SetText(r.empty and ("<%s> (nobody else online)"):format(r.rank) or ("invite all <%s> (%d)"):format(r.rank, e.n))
+        r.name:SetText(r.empty and ("<%s>  nobody else online"):format(r.rank) or ("invite all <%s> (%d)"):format(r.rank, e.n))
         r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or "accent"))
       else
         local on = guild and P.Has(db, n)
@@ -984,7 +991,7 @@ function P.PaintWindow()
       r:Hide()
     end
   end
-  local extra = #names - #f.rows - (P.offset or 0)
+  local extra = #names - (guild and P.ROWS or #f.rows) - (P.offset or 0)
   if guild then
     f.more:SetText(#names == 0 and "nobody else in your guild is online"
       or "click a rank: everyone online with it is invited")
