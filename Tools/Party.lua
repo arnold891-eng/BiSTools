@@ -1102,7 +1102,7 @@ function P.PaintWindow()
     f.more:SetText(#names == 0 and "nobody else in your guild is online"
       or "click a rank: everyone online with it is invited")
   else
-    f.more:SetText(#names == 0 and "empty - g for your guild, save your group, or right-click a player"
+    f.more:SetText(#names == 0 and "empty - save a group, add a name, or right-click a player"
       or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
   end
 end

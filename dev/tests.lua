@@ -5473,6 +5473,14 @@ do
       W.raid, W.inRaid = keepRaidG, keepInG
       sent.invite = {}
     end
+    -- the empty list's hint: current words (no "g" button any more), and it fits the window
+    local keepNames = pdb.names
+    pdb.names = {}
+    P.PaintWindow()
+    ok(w.more.text == "empty - save a group, add a name, or right-click a player"
+       and w.more:GetStringWidth() <= P.WIN_W - 16, "the empty hint: today's buttons, and it fits", w.more.text)
+    pdb.names = keepNames
+    P.PaintWindow()
     SlashCmdList.BISTOOLS("party")
     ok(not w:IsShown(), "/bist party toggles it")
   end
