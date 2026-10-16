@@ -5539,8 +5539,8 @@ do
     P.Invite(pdb)
     W.runAfters(P.PUMP_GAP + 0.1)             -- four at a time: the fifth goes in the next batch
     local asked = false
-    for _, n in ipairs(sent.invite) do if n == "Darthsidiouz" then asked = true end end
-    ok(asked, "and the invite goes to Darthsidiouz - the game's name, never the surname", table.concat(sent.invite, ","))
+    for _, n in ipairs(sent.invite) do if n == "Darthsidiouz Sithlord" then asked = true end end
+    ok(asked, "and the invite goes to Darthsidiouz Sithlord - Forever's whole name (Arn: /invite Nebeon completes to Nebeon Nolightforu)", table.concat(sent.invite, ","))
     ok(P.Key("Darthsidiouz Sithlord") == P.Key("darthsidiouz") and P.Key("Tobi-Realm") == "tobi", "compared by first name: no surname, no realm, any case")
     P.Remove(pdb, "Darthsidiouz")
   end

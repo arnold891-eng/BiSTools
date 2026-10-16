@@ -38,8 +38,15 @@ function P.Key(name)
   return first and first:lower() or nil
 end
 
---- What an invite is sent to: the character's own name, never the surname after it.
+--- What an invite is sent to: the WHOLE name, surname and all (Arn, 15 Oct: "/invite Nebeon" did
+--- nothing, and the game's own chat box completed it to "Nebeon Nolightforu" - Forever addresses a
+--- player by first name and surname, as its mail does). The name exactly as the list keeps it.
 function P.InviteName(name)
+  return name
+end
+
+--- The short name, for the box's lines only (a surname wraps them).
+function P.Short(name)
   return type(name) == "string" and (name:match("^(%S+)") or name) or name
 end
 
@@ -145,7 +152,7 @@ function P.Refused(name, why)
   repeat local n why, n = why:gsub("^[^%s]-:%d+: ", "") until n == 0      -- no "file.lua:12: " in front
   P.lastError = why
   P.failed = (P.failed or 0) + 1
-  if P.run and P.box then P.Say(NS.T.text("warn", ("%s: the game refused (%s)"):format(P.InviteName(name) or "?", why))) end
+  if P.run and P.box then P.Say(NS.T.text("warn", ("%s: the game refused (%s)"):format(P.Short(name) or "?", why))) end
   if not P.saidError then
     P.saidError = true
     NS.Print("party list: the game refused an invite - %s", why)
@@ -232,7 +239,7 @@ end
 function P.Script(names)
   local out = { "Contacting the party list..." }
   for i, n in ipairs(names) do
-    n = P.InviteName(n)                    -- the first name: a surname wraps the line (Arn's screenshot)
+    n = P.Short(n)                         -- the first name, on screen only: a surname wraps the line
     out[#out + 1] = P.Line(P.OPEN, i + math.random(0, #P.OPEN - 1), n)
     out[#out + 1] = P.Line(P.CLOSE, i + math.random(0, #P.CLOSE - 1), n)
   end
@@ -394,7 +401,7 @@ function P.Heard(msg)
     local pat = pattern(_G[r[1]])
     local who = pat and msg:match(pat)
     if who then
-      who = P.InviteName(who)
+      who = P.Short(who)
       if r[3] then
         P.failed = (P.failed or 0) + 1
         P.Say(NS.T.text("warn", r[2]:format(who)))
