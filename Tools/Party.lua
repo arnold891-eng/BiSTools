@@ -211,6 +211,7 @@ end
 function P.Script(names)
   local out = { "Contacting the party list..." }
   for i, n in ipairs(names) do
+    n = P.InviteName(n)                    -- the first name: a surname wraps the line (Arn's screenshot)
     out[#out + 1] = P.Line(P.OPEN, i + math.random(0, #P.OPEN - 1), n)
     out[#out + 1] = P.Line(P.CLOSE, i + math.random(0, #P.CLOSE - 1), n)
   end
@@ -239,7 +240,7 @@ function P.BuildShow()
     local step = (w - 6) / P.BLOCKS
     for i = 1, P.BLOCKS do
       local t = b:CreateTexture(nil, "ARTWORK")
-      t:SetColorTexture(T.rgb("accent"))
+      t:SetColorTexture(K.color("accent"))
       t:SetSize(step - 3, 10)
       t:SetPoint("LEFT", b, "LEFT", 3 + (i - 1) * step, 0)
       t:Hide()
@@ -259,6 +260,7 @@ function P.BuildShow()
     l:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70 - (i - 1) * 14)
     l:SetWidth(inner)
     l:SetJustifyH("LEFT")
+    l:SetWordWrap(false)                     -- one line each, never over the line below
     f.log[i] = l
   end
   f.left = K.fs(f, "", 11, "muted")
@@ -303,7 +305,7 @@ function P.Show(names)
   local script = P.Script(names)
   P.run = { names = names, script = script, t = 0, said = 0,
             len = math.min(P.SHOW_MAX, P.SHOW_MIN + P.SHOW_PER * #names) }
-  P.shown = {}
+  P.shown, P.failed = {}, 0
   for _, b in ipairs(f.all.blocks) do b:Hide() end
   for _, b in ipairs(f.one.blocks) do b:Hide() end
   for _, l in ipairs(f.log) do l:SetText("") end
@@ -341,9 +343,53 @@ function P.Step(dt)
   if frac >= 1 then
     run.done = true
     local n = #run.names
-    P.Say(("Done. %d invite%s sent."):format(n, n == 1 and "" or "s"))
+    local ok = n - (P.failed or 0)
+    if (P.failed or 0) > 0 then
+      P.Say(("Done. %d of %d invited."):format(ok, n))
+    else
+      P.Say(("Done. %d invite%s sent."):format(n, n == 1 and "" or "s"))
+    end
     f.status:SetText("Inviting your party list: done.")
   end
+end
+
+-- WHAT THE GAME SAYS BACK (Arn, 15 Oct: "he is in a group, should also throw an error on here").
+-- The invite's real answer comes as a system message; while the box is up, a failure lands in its
+-- log in the warning colour, and the last line counts it. The game's own format strings, so the
+-- client's language is the one matched.
+P.REPLIES = {
+  { "ERR_ALREADY_IN_GROUP_S", "%s is already in a group", true },
+  { "ERR_BAD_PLAYER_NAME_S", "can't find %s (offline?)", true },
+  { "ERR_INVITE_PLAYER_S", "%s: invite received", false },
+}
+local function pattern(fmt)
+  if type(fmt) ~= "string" then return nil end
+  local p = fmt:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%%%s", "(.+)")
+  return "^" .. p .. "$"
+end
+function P.Heard(msg)
+  if not P.run or type(msg) ~= "string" or (issecretvalue and issecretvalue(msg)) then return false end
+  for _, r in ipairs(P.REPLIES) do
+    local pat = pattern(_G[r[1]])
+    local who = pat and msg:match(pat)
+    if who then
+      who = P.InviteName(who)
+      if r[3] then
+        P.failed = (P.failed or 0) + 1
+        P.Say(NS.T.text("warn", r[2]:format(who)))
+      else
+        P.Say(r[2]:format(who))
+      end
+      return true
+    end
+  end
+  return false
+end
+do
+  local heard = CreateFrame("Frame")
+  heard:RegisterEvent("CHAT_MSG_SYSTEM")
+  heard:SetScript("OnEvent", function(_, _, msg) if P.run then P.Heard(msg) end end)
+  P.heard = heard
 end
 
 function P.EndShow()

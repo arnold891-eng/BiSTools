@@ -265,6 +265,7 @@ local function FontString()
   function s:SetAlpha(a) self.alpha = a end
   function s:GetParent() return self.parent end
   function s:SetWidth(w) if type(w) ~= "number" then error("SetWidth wants a number", 2) end self.w = w end
+  function s:SetWordWrap(on) self.wrap = on and true or false end
   function s:SetJustifyH(j)
     if j ~= "LEFT" and j ~= "CENTER" and j ~= "RIGHT" then error("SetJustifyH wants LEFT, CENTER or RIGHT", 2) end
     self.justify = j
@@ -5356,6 +5357,23 @@ do
     ok(not box:IsShown() and P.run == nil, "it closes itself")
     ok(chat == 0, "and nothing of it went to chat (Arn: 'on the window')", chat)
     DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+    -- WHAT THE GAME SAYS BACK (Arn, 15 Oct: "he is in a group, should also throw an error on here")
+    _G.ERR_ALREADY_IN_GROUP_S = "%s is already in a group."
+    _G.ERR_INVITE_PLAYER_S = "You have invited %s to join your group."
+    P.Show({ "Darthsidiouz Sithlord" })
+    P.heard.scripts.OnEvent(P.heard, "CHAT_MSG_SYSTEM", "Darthsidiouz is already in a group.")
+    local warned = false
+    for _, l in ipairs(box.log) do if (l.text or ""):find("Darthsidiouz is already in a group", 1, true) then warned = true end end
+    ok(warned, "the game's 'already in a group' lands in the box's log", table.concat(shown(), " / "))
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    local last = box.log[#box.log].text or ""
+    ok(last:find("Done. 0 of 1 invited", 1, true), "and the last line counts it", last)
+    for _, l in ipairs(box.log) do
+      ok(l.wrap == false and not (l.text or ""):find("Sithlord", 1, true), "one line each, by first name (no surname to wrap)", l.text)
+    end
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    ok(not P.run and not P.Heard("Somebody is already in a group."), "a system line while no box is up: left alone")
+    _G.ERR_ALREADY_IN_GROUP_S, _G.ERR_INVITE_PLAYER_S = nil, nil      -- the client's strings, ours only for the test
     P.Show({ "A", "B" })
     box.cancel.scripts.OnClick(box.cancel)
     ok(not box:IsShown() and P.run == nil, "Cancel closes it (the invites went anyway)")
