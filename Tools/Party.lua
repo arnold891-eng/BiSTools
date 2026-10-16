@@ -504,6 +504,7 @@ end
 -- frame and header (the BiS> prompt, x to close), at the family's 1.43:1: the names in two columns
 -- (green = with you now, x = off the list), a box to add one, and the four things you do with it.
 P.WIN_W, P.WIN_H = 250, 175                  -- 1.43:1 (wide enough for five buttons)
+P.WIN_SCALE = 1.2
 P.ROWS, P.ROW_H, P.HEADER = 6, 14, 16
 
 local function button(parent, label, w, colour, onClick, tip)
@@ -534,6 +535,7 @@ function P.BuildWindow(db)
   local f = CreateFrame("Frame", "BiSToolsParty", UIParent)
   P.win = f
   f:SetSize(P.WIN_W, P.WIN_H)
+  f:SetScale(P.WIN_SCALE)                    -- Arn, 15 Oct: "20% bigger, same aspect ratio" - all of it grows
   f:SetFrameStrata("MEDIUM")
   f:SetMovable(true)
   f:EnableMouse(true)
