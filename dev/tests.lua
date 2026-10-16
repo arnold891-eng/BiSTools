@@ -5347,6 +5347,7 @@ do
       _G.GuildControlGetNumRanks = function() return #ladder end
       _G.GuildControlGetRankName = function(i) return ladder[i] end
       w.guildBtn.scripts.OnClick(w.guildBtn)
+      ok(w.guildBtn.label.text == "party", "in the guild view the button says party - where it takes you", w.guildBtn.label.text)
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
       ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "invite all <Officer> (1)"
@@ -5443,7 +5444,7 @@ do
       for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
       cv.cancel.scripts.OnClick(cv.cancel)
       w.guildBtn.scripts.OnClick(w.guildBtn)
-      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'party'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
       local keepMenu, hooked = _G.Menu, {}
       _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }

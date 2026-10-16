@@ -906,7 +906,7 @@ function P.BuildWindow(db)
     { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
     { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
-      "Your guild's ranks with someone online: click a rank to invite all of them. Click again for your list." },
+      "Your guild's ranks: click one to invite everyone online with it. 'party' takes you back to your list." },
     { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
     { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
   }
@@ -1056,7 +1056,9 @@ function P.PaintWindow()
   if not (f and db and f:IsShown()) then return end
   local guild = P.view == "guild"
   f.con:Set("name", guild and "Party: guild" or "Party", "accent")
-  f.guildBtn.label:SetText(guild and "list" or "guild")        -- Arn, 15 Oct: "this should say guild"
+  -- party <-> guild: the button names where it takes you (Arn, 15 Oct: "this should say guild", then
+  -- "this should be party, so switch from party/guild")
+  f.guildBtn.label:SetText(guild and "party" or "guild")
   local names, here = P.List(db), {}
   local entries
   if guild then
