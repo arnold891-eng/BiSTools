@@ -732,12 +732,14 @@ P.GREEN, P.RED = { 0.35, 0.85, 0.45 }, { 0.90, 0.30, 0.30 }
 function P.Buttons()
   if P.ibtn then return P.ibtn, P.dbtn end
   P.ibtn = button("BiSToolsPartyInvite", "Interface\\Icons\\INV_Letter_15", "Invite your party list",
-    function() return "Shift-click to look over the list and send. " .. table.concat(P.Missing(P.db or {}), ", ") end,
+    function() return "Shift-click to open your party list. " .. table.concat(P.Missing(P.db or {}), ", ") end,
     -- SHIFT-CLICK ONLY (Arn, 15 Oct: "shift click, i dont think any other button in bis now or bis
-    -- tools use shift clicks so no mistakes"): a plain click in a fight does nothing but remind
+    -- tools use shift clicks so no mistakes"): a plain click in a fight does nothing but remind.
+    -- It OPENS THE PARTY WINDOW (Arn: "shift left click should open this window") - invite, or a
+    -- guild rank, from there.
     function()
-      if IsShiftKeyDown and IsShiftKeyDown() then P.ConfirmList(P.db)
-      else NS.Print("party list: shift-click the invite button to look over the list and send") end
+      if IsShiftKeyDown and IsShiftKeyDown() then P.Toggle(P.db, true)
+      else NS.Print("party list: shift-click the invite button to open your party list") end
     end)
   P.dbtn = button("BiSToolsPartyDisband", "Interface\\Icons\\Ability_Rogue_Sprint", "Disband",
     function()

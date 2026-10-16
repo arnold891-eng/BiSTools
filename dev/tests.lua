@@ -5578,12 +5578,8 @@ do
     W.shift = true
     P.ibtn.scripts.OnClick(P.ibtn)
     W.shift = false
-    ok(#sent.invite == 0 and P.run and P.run.prep, "shift-click: the confirm list, still nothing sent", #sent.invite)
-    local box = BiSToolsPartyLoading
-    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
-    ok(box.confirmView:IsShown() and box.confirmView.lines[1].text.text == "Party list (3)", "your party list, to look over",
-      box.confirmView.lines[1].text.text)
-    box.confirmView.cancel.scripts.OnClick(box.confirmView.cancel)
+    ok(#sent.invite == 0 and BiSToolsParty and BiSToolsParty:IsShown(), "shift-click: the party window opens (Arn), nothing sent", #sent.invite)
+    BiSToolsParty:Hide()
     ok(#sent.invite == 0, "and Cancel sends nobody")
     local keepII3 = _G.IsInInstance
     _G.IsInInstance = function() return true, "pvp" end
