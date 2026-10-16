@@ -5524,6 +5524,25 @@ do
   W.raid, W.inRaid, lead = { { name = "Me" } }, false, true
   Bx.Refresh()
   ok(P.ibtn:IsShown() and not P.dbtn:IsShown(), "solo with a list: Invite, no Disband")
+  -- the BOX's Invite confirms first, and never shows in a battleground (Arn, 15 Oct: a stray click
+  -- in the heat of battle)
+  do
+    sent.invite = {}
+    P.ibtn.scripts.OnClick(P.ibtn)
+    ok(#sent.invite == 0 and P.run and P.run.prep, "the box's Invite sends nothing: it goes to the confirm list", #sent.invite)
+    local box = BiSToolsPartyLoading
+    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+    ok(box.confirmView:IsShown() and box.confirmView.lines[1].text.text == "Party list (3)", "your party list, to look over",
+      box.confirmView.lines[1].text.text)
+    box.confirmView.cancel.scripts.OnClick(box.confirmView.cancel)
+    ok(#sent.invite == 0, "and Cancel sends nobody")
+    local keepII3 = _G.IsInInstance
+    _G.IsInInstance = function() return true, "pvp" end
+    Bx.Refresh()
+    ok(not P.ibtn:IsShown(), "in a battleground: no Invite button in the box at all")
+    _G.IsInInstance = keepII3
+    Bx.Refresh()
+  end
   sent.invite = {}
   P.Invite(pdb)
   ok(#sent.invite == 3, "solo: the whole list asked", #sent.invite)

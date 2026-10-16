@@ -491,6 +491,15 @@ function P.Confirm(db, label, entries, inGroup)
   return #entries
 end
 
+--- THE TOOLS-BOX BUTTON CONFIRMS TOO (Arn, 15 Oct: in open-world PvP, a stray click on it would
+--- invite in the heat of battle): the party list's missing names, on the confirm list first.
+function P.ConfirmList(db)
+  local entries = {}
+  for _, n in ipairs(P.Missing(db)) do entries[#entries + 1] = { name = n, class = "Party list" } end
+  if #entries == 0 then NS.Print("party list: everyone is already with you") return 0 end
+  return P.Confirm(db, "your party list", entries, {})
+end
+
 --- Send: the names left go out, and the box plays the invites as usual.
 function P.SendPending()
   local db, names = P.pendingDb or P.db, {}
@@ -648,6 +657,10 @@ end
 --- When the buttons mean something: solo with a list, or grouped with someone on it.
 function P.ShowInvite(db, members)
   if not (db and R:Enabled("party")) or #P.List(db) == 0 then return false end
+  -- never in a battleground or arena (Arn, 15 Oct: "a little risky in bg and open world pvp - in the
+  -- heat of battle might accidentally send out invites")
+  local RC = NS.Recap
+  if RC and RC.InPvP and RC.InPvP() then return false end
   members = members or P.Members()
   if P.Grouped() and not P.WithListed(db, members) then return false end
   return P.Leads() and #P.Missing(db, members) > 0
@@ -688,7 +701,7 @@ function P.Buttons()
   if P.ibtn then return P.ibtn, P.dbtn end
   P.ibtn = button("BiSToolsPartyInvite", "Interface\\Icons\\INV_Letter_15", "Invite your party list",
     function() return table.concat(P.Missing(P.db or {}), ", ") end,
-    function() P.Invite(P.db) end)
+    function() P.ConfirmList(P.db) end)
   P.dbtn = button("BiSToolsPartyDisband", "Interface\\Icons\\Ability_Rogue_Sprint", "Disband",
     function()
       local lead = UnitIsGroupLeader and plain(UnitIsGroupLeader("player"))
