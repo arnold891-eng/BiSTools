@@ -370,6 +370,13 @@ function P.BuildConfirm(f)
     l.x.label = K.fs(l.x, "x", 9, "warn")
     l.x.label:SetPoint("CENTER")
     l.x:SetScript("OnClick", function() if l.entry then P.Drop(l.entry) end end)
+    -- the line an x would drop, lit while the mouse is on it (Arn: see the right row)
+    l.hl = l:CreateTexture(nil, "BACKGROUND")
+    l.hl:SetAllPoints(l)
+    do local cr, cg, cb = K.color("accent") l.hl:SetColorTexture(cr, cg, cb, 0.18) end
+    l.hl:Hide()
+    l.x:SetScript("OnEnter", function() l.hl:Show() end)
+    l.x:SetScript("OnLeave", function() l.hl:Hide() end)
     l:Hide()
     cv.lines[i] = l
   end
@@ -845,6 +852,18 @@ function P.BuildWindow(db)
       P.Changed()
     end)
     r.pick:Hide()
+    -- WHICH ROW YOU ARE ON (Arn, 15 Oct: "that bis now window functionality that highlights, so we
+    -- can see we are selecting the correct row"): a soft accent bar under the mouse - a rank you
+    -- can click, or the name an x would take off. A dimmed rank does not light up.
+    r.hl = r:CreateTexture(nil, "BACKGROUND")
+    r.hl:SetAllPoints(r)
+    do local cr, cg, cb = F.color("accent") r.hl:SetColorTexture(cr, cg, cb, 0.18) end
+    r.hl:Hide()
+    local function lit(on) if on and not r.empty then r.hl:Show() else r.hl:Hide() end end
+    r.pick:SetScript("OnEnter", function() lit(true) end)
+    r.pick:SetScript("OnLeave", function() lit(false) end)
+    r.x:SetScript("OnEnter", function() lit(true) end)
+    r.x:SetScript("OnLeave", function() lit(false) end)
     r:Hide()
     f.rows[i] = r
   end
@@ -1058,7 +1077,7 @@ function P.PaintWindow()
     r:SetWidth(guild and full - 4 or colW - 4)
     local e = slot and names[slot + (P.offset or 0)]
     local n = guild and e and e.name or (not guild and e) or nil
-    r.who, r.rank = n, guild and e and e.rank or nil
+    r.who, r.rank, r.empty = n, guild and e and e.rank or nil, nil
     if e then
       if r.rank then
         r.empty = e.n == 0

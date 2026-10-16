@@ -5362,6 +5362,13 @@ do
       sent.invite = {}
       w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
       ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
+      -- the row under the mouse lights up - a live rank, never a dimmed one (Arn, 15 Oct)
+      w.rows[2].pick.scripts.OnEnter(w.rows[2].pick)
+      ok(w.rows[2].hl.shown, "hovering a rank you can click: lit")
+      w.rows[2].pick.scripts.OnLeave(w.rows[2].pick)
+      ok(not w.rows[2].hl.shown, "and dark again when the mouse leaves")
+      w.rows[1].pick.scripts.OnEnter(w.rows[1].pick)
+      ok(not w.rows[1].hl.shown, "a dimmed rank does not light")
       sent.invite = {}
       W.raid, W.inRaid = { { name = "Me" } }, false
       -- LOOK BEFORE IT GOES (Arn, 15 Oct): a rank click prepares, then waits on a confirm list by
