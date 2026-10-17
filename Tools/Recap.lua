@@ -1199,6 +1199,34 @@ function RC.PalFromTarget(db)
   return NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
 end
 
+--- `/bist pal <name> [surname]` (Arn, 16 Oct: "can i type /bist pal <name> <surname> to add a pal?").
+--- No target needed. A pal is recognised on sight by the name the game writes (RC.PalFor), so the
+--- typed name is written that way - each word capitalised; with no ID known yet the name alone
+--- decides. Typing a pal's name again takes them off, as `/bist pal` on a target does.
+function RC.PalByName(db, typed)
+  local name = tostring(typed or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+  name = name:gsub("(%S)(%S*)", function(a, b) return a:upper() .. b:lower() end)
+  if name == "" then return NS.Print("/bist pal <name> [surname]") end
+  if #name > 40 or name:find("[%d%%%(%)%[%]%.,;:!%?/\\|]") then
+    return NS.Print("%s is not a name the game would give anybody", name)
+  end
+  local ok, me = pcall(UnitName, "player")
+  if ok and type(me) == "string" and not hidden(me) and me:match("^(%S+)") == name:match("^(%S+)") then
+    return NS.Print("that is you")
+  end
+  local list = RC.Pals(db)
+  local _, key = RC.PalNamed(db, name)
+  if key and (key == name or not name:find(" ", 1, true) or not key:find(" ", 1, true)) then
+    list[key] = nil
+    RC.ClearPals() RC.SpotPals(db)
+    return NS.Print("%s is no longer a pal", key)
+  end
+  list[name] = { added = time and time() or 0 }
+  RC.SpotPals(db)
+  return NS.Print("%s added to your pals - a little green heart over them when you see them, out of combat",
+    T.text("good", name))
+end
+
 -- ---------------------------------------------------------------- the rival target button
 -- Arn, 12 Oct: "i just did /tar Ford Knox and i was able to target an enemy player what about a small
 -- button that targets all our rivals". /target is a macro command, so a SECURE button may run it on a
@@ -2641,6 +2669,8 @@ NS.Registry:Register({
     if args == "why" then return RC.Why(db) end
     if args == "rival" then return RC.RivalFromTarget(db) end
     if args == "pal" then return RC.PalFromTarget(db) end
+    local named = args:match("^pal%s+(.+)$")
+    if named then return RC.PalByName(db, named) end
     local sur = args:match("^surname%s*(.*)$")
     if sur then return RC.Surname(db, sur) end
     local style = args:match("^style%s*(%S*)$")
@@ -2658,7 +2688,7 @@ NS.Registry:Register({
       local names = {}
       for name in pairs(RC.Pals(db)) do names[#names + 1] = name end
       table.sort(names)
-      if #names == 0 then return NS.Print("no pals yet - target a friendly player and /bist pal, or right-click them") end
+      if #names == 0 then return NS.Print("no pals yet - target a friendly player and /bist pal, type /bist pal <name> <surname>, or right-click them") end
       NS.Print("your pals (%d): %s", #names, table.concat(names, ", "))
       return
     end

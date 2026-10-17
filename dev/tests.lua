@@ -3006,6 +3006,21 @@ do
   said2 = {}
   S("pals")
   ok(table.concat(said2, "\n"):find("no pals yet", 1, true), "/bist pals: none yet, and how to add one")
+  -- A PAL BY NAME, NO TARGET (Arn, 16 Oct: "can i type /bist pal <name> <surname> to add a pal?")
+  S("pal fistfull ofpills")
+  local palsNow = RC.Pals(R:DBFor(R:Get("recap")))
+  ok(palsNow["Fistfull Ofpills"] ~= nil, "/bist pal fistfull ofpills: a pal, written the way the game writes names")
+  ok(palsNow["Fistfull Ofpills"] and palsNow["Fistfull Ofpills"].guid == nil, "no ID yet - the name decides")
+  said2 = {}
+  S("pal Fistfull Ofpills")
+  ok(palsNow["Fistfull Ofpills"] == nil and table.concat(said2, " "):find("no longer a pal", 1, true),
+     "typed again: off the list, as /bist pal on a target does")
+  S("pal Fistfull")
+  S("pal fistfull")
+  ok(palsNow["Fistfull"] == nil, "a first name alone toggles the same way")
+  said2 = {}
+  S("pal 1337 h4x")
+  ok(next(palsNow) == nil and table.concat(said2, " "):find("not a name", 1, true), "digits are not a name")
   S("recap forget hunting moms")
   ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
