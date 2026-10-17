@@ -5709,6 +5709,26 @@ do
   ok(n <= 150, "a roster change in a 40-man raid asks at most 150 things (measured 132: one roster walk): " .. n, Cost.Top and Cost.Top(by, 5))
   _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid = keepPI, keepLead, keepRaid, keepIn
   pdb.names = {}
+
+  -- BiSToolsAPI (16 Oct 2026, Arn: "I like OpenMap, that opens its stuff via API ... if installed it
+  -- can API-call it"): BiS Guild asks here, never NS.Party
+  local A = _G.BiSToolsAPI
+  ok(A and A.major == 1 and A.version >= 1, "BiSToolsAPI is there, major 1")
+  ok(A.PartyReady(), "ready while the party tool is on")
+  P.pending = nil
+  local n = A.InviteList("on the pasted roster", { "Darthsidiouz Sithlord", { name = "Kio Alpha", class = "Mage", classFile = "MAGE" }, 7, {} })
+  ok(n == 2 and P.pending and #P.pending == 2, "names and people land on the confirm list; junk is skipped", n)
+  ok(P.pending and P.pending[2].class == "Mage", "with their class, for the sort")
+  P.pending = nil
+  ok(A.InviteList("x", { "Me" }) == 0, "only yourself: nothing to send")
+  R:SetEnabled("party", false)
+  local n2, why = A.InviteList("x", { "Tobi" })
+  ok(n2 == nil and why == "party tool off", "party tool off: says so, does nothing", why)
+  ok(not A.PartyReady(), "and is not ready")
+  local n3, why3 = A.InviteOne("Tobi")
+  ok(n3 == nil and why3 == "party tool off", "one invite too")
+  R:SetEnabled("party", true)
+
   R:SetEnabled("party", false)
   Bx.Refresh()
 end
@@ -5721,6 +5741,7 @@ local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SL
   HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true,    -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  BiSToolsAPI = true, -- API.lua, for other addons (16 Oct: BiS Guild's invites)
   -- the overlay map's key binding: Bindings.xml calls a global, and the client reads these two names
   BiSTools_ToggleOverlayMap = true, BINDING_HEADER_BISTOOLS = true, BINDING_NAME_BISTOOLS_OVERLAYMAP = true }
 for k in pairs(_G) do
