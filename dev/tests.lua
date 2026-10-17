@@ -5415,6 +5415,25 @@ do
         b.scripts.OnLeave(b)
         ok(not b.hover.shown, "and gone after")
       end
+      -- REFRESH YOU CAN SEE (Arn, 16 Oct: "some type of animation so we know it actually did something")
+      cv.refresh.scripts.OnClick(cv.refresh)
+      ok(cv.head.text:find("refreshed", 1, true), "the head says what Refresh found", cv.head.text)
+      ok(P.sweeper and P.sweeper.shown, "a sweep runs")
+      ok(cv.lines[1].alpha == 0 and cv.refresh.label.text:find("Refresh.", 1, true), "the lines start hidden, the button counts dots")
+      for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+      ok(not P.sweeper.shown and cv.lines[1].alpha == 1 and cv.lines[5].alpha == 1, "and come back top to bottom, then it stops")
+      ok(cv.refresh.label.text == "Refresh", "the button reads Refresh again")
+      -- a list from outside (BiSToolsAPI: BiS Guild's roster) - Refresh used to do nothing to it
+      local keepWave, keepPend, keepHere, keepMembers = P.wave, P.pending, P.pendingHere, P.Members
+      P.wave, P.pending, P.pendingHere = nil, { { name = "Tobi Joined" }, { name = "Kio Alpha" } }, {}
+      P.Members = function() return { { key = P.Key("Tobi Joined") } } end
+      local _, joined = P.RefreshNow()
+      ok(joined == 1 and #P.pending == 1 and P.pending[1].name == "Kio Alpha", "who joined you moves down; the rest wait")
+      ok(cv.head.text == "refreshed: 1 joined you", "and the head says so", cv.head.text)
+      P.wave, P.pending, P.pendingHere, P.Members = keepWave, keepPend, keepHere, keepMembers
+      for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+      P.note = nil
+      P.PaintConfirm()
       cv.lines[2].x.scripts.OnClick(cv.lines[2].x)
       ok(#P.pending == 0 and cv.send.label.text == "Nobody left", "x: Nebeon is not raiding tonight", cv.send.label.text)
       cv.cancel.scripts.OnClick(cv.cancel)

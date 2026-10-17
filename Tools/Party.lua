@@ -415,7 +415,7 @@ function P.BuildConfirm(f)
   cv.refresh = btn("Refresh", 70, "accent", function()
     local ask = (C_GuildInfo and C_GuildInfo.GuildRoster) or GuildRoster
     if ask then pcall(ask) end                 -- the roster answers with GUILD_ROSTER_UPDATE
-    P.Regenerate()
+    P.RefreshNow()
   end)
   cv.cancel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 8)
   cv.refresh:SetPoint("RIGHT", cv.cancel, "LEFT", -6, 0)
@@ -484,7 +484,13 @@ function P.PaintConfirm()
       l:Hide()
     end
   end
-  cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+  if P.note and (GetTime and GetTime() or 0) < (P.noteUntil or 0) then
+    cv.head:SetText(P.note)                         -- what the last Refresh changed (P.RefreshNow)
+    cv.head:SetTextColor(NS.Farm.color("good"))
+  else
+    cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+    cv.head:SetTextColor(NS.Farm.color("ink2"))
+  end
   local below = #lines - fit - P.confOffset
   cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or "")
   cv.send.label:SetText(n > 0 and ("Send %d invite%s"):format(n, n == 1 and "" or "s") or "Nobody left")
@@ -1041,6 +1047,75 @@ function P.Regenerate()
   P.pending, P.pendingHere, P.pendingLabel, P.pendingDb = P.WithoutDropped(entries), inGroup, w.label, w.db
   P.PaintConfirm()
   return true
+end
+
+--- A LIST THAT IS NOT A WAVE, CHECKED AGAIN (16 Oct 2026): the party list's, or one another addon
+--- handed in through BiSToolsAPI (BiS Guild's pasted roster). Refresh used to do nothing to these -
+--- P.Regenerate only knows how to rebuild a rank. Whoever has joined you since moves down to "already
+--- with you"; nobody new can appear, the list came from outside.
+function P.Recheck()
+  local here = { [P.Key(UnitName("player")) or "?"] = true }
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  local keep, with = {}, P.pendingHere or {}
+  for _, e in ipairs(P.pending or {}) do
+    if here[P.Key(e.name) or "?"] then with[#with + 1] = e else keep[#keep + 1] = e end
+  end
+  P.pending, P.pendingHere = keep, with
+  P.PaintConfirm()
+end
+
+--- REFRESH YOU CAN SEE (Arn, 16 Oct: "when I click refresh can it make some type of animation so we
+--- know it actually did something"). The list redraws, then a sweep brings its lines back top to
+--- bottom, the button says "Refresh..." while it runs, and the head says what changed for a few
+--- seconds - "2 new, 1 joined you", or "no change", which is an answer too. Flavour like the inviting
+--- box: the work is done before the sweep starts. OnUpdate only while the sweep runs.
+P.SWEEP, P.SWEEP_STEP, P.NOTE_FOR = 0.6, 0.035, 3
+function P.RefreshNow()
+  local before, beforeHere = {}, {}
+  for _, e in ipairs(P.pending or {}) do before[P.Key(e.name) or "?"] = true end
+  for _, e in ipairs(P.pendingHere or {}) do beforeHere[P.Key(e.name) or "?"] = true end
+  if not P.Regenerate() then P.Recheck() end
+  local new, joined = 0, 0
+  for _, e in ipairs(P.pending or {}) do if not before[P.Key(e.name) or "?"] then new = new + 1 end end
+  for _, e in ipairs(P.pendingHere or {}) do if not beforeHere[P.Key(e.name) or "?"] then joined = joined + 1 end end
+  local parts = {}
+  if new > 0 then parts[#parts + 1] = ("%d new"):format(new) end
+  if joined > 0 then parts[#parts + 1] = ("%d joined you"):format(joined) end
+  P.note = "refreshed: " .. (#parts > 0 and table.concat(parts, ", ") or "no change")
+  P.noteUntil = (GetTime and GetTime() or 0) + P.NOTE_FOR
+  P.PaintConfirm()
+  P.Sweep()
+  -- and the head back to the list's own words once the note has been read
+  if C_Timer and C_Timer.After then C_Timer.After(P.NOTE_FOR + 0.05, function() P.PaintConfirm() end) end
+  return new, joined
+end
+
+function P.Sweep()
+  local cv = P.box and P.box.confirmView
+  if not cv then return end
+  if not P.sweeper then
+    P.sweeper = CreateFrame("Frame")
+    P.sweeper:SetScript("OnUpdate", function(self, dt)
+      self.t = self.t + (dt or 0)
+      P.SweepStep(self.t)
+      if self.t >= P.SWEEP then self:Hide() P.SweepStep(math.huge) end
+    end)
+  end
+  P.sweeper.t = 0
+  P.SweepStep(0)
+  P.sweeper:Show()
+end
+
+--- The sweep at time t: line i fades in from i * P.SWEEP_STEP; the button's dots count up.
+function P.SweepStep(t)
+  local cv = P.box and P.box.confirmView
+  if not cv then return end
+  for i, l in ipairs(cv.lines) do
+    local a = (t - (i - 1) * P.SWEEP_STEP) / 0.2
+    l:SetAlpha(math.max(0, math.min(1, a)))
+  end
+  local done = t >= P.SWEEP
+  cv.refresh.label:SetText(done and "Refresh" or ("Refresh" .. string.rep(".", 1 + math.floor(t / 0.15) % 3)))
 end
 
 --- Soon, not at once: roster and group events come in bursts.
