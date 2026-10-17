@@ -19,7 +19,7 @@ NS.Registry:Register({
   name = "rivals",
   title = "rivals & pals",
   desc = "rivals (enemies you hunt), pals (friends you find), surname crowns, guildmates",
-  usage = "/bist rivals [rival | pal | pals | surname <word> | forget <name> | key <key> | style <name> | why]",
+  usage = "/bist rivals [rival | pal [name surname] | pals | surname <word> | forget <name> | key <key> | style <name> | why]",
   options = {
     { kind = "toggle", label = "sound when a rival is near", rivalPreview = true, help = "A ping with the warning when a gold rival - or a kept surname - comes into sight.",
       get = function() return D().sound ~= false end,

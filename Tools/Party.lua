@@ -202,6 +202,21 @@ end
 -- these pictures are just ideas we can do in the bis themes"): BiSTheme's surface, accent edge and
 -- purple blocks, at the family's 1.43:1. Pure flavour: the invites have already gone. Nothing goes
 -- to chat. OnUpdate only while it shows; Cancel or the end hides it. `db.show = false` skips it.
+--- A BUTTON SAYS IT CAN BE CLICKED (Arn, 16 Oct, the confirm list: "these buttons need the hover
+--- thing - can't tell if I'm about to be able to click"). A tint on ARTWORK, under the label's
+--- OVERLAY, so the words stay sharp (BiS Guild learned the same: a HIGHLIGHT-layer tint draws OVER
+--- text and washes it out). Wraps whatever OnEnter/OnLeave the button already has.
+P.HOVER = 0.28
+function P.Hover(b)
+  if b.hover then return b end
+  b.hover = NS.Farm.tex(b, "ARTWORK", "accent", P.HOVER)
+  b.hover:Hide()
+  local enter, leave = b:GetScript("OnEnter"), b:GetScript("OnLeave")
+  b:SetScript("OnEnter", function(self, ...) self.hover:Show() if enter then return enter(self, ...) end end)
+  b:SetScript("OnLeave", function(self, ...) self.hover:Hide() if leave then return leave(self, ...) end end)
+  return b
+end
+
 P.BLOCKS, P.LOG_ROWS = 14, 3
 P.W, P.H = 300, 210                          -- 1.43:1
 P.SHOW_MIN, P.SHOW_PER, P.SHOW_MAX, P.LINGER = 1.4, 0.45, 4.0, 1.2
@@ -320,6 +335,8 @@ function P.BuildShow()
   cancel.label = K.fs(cancel, "Cancel", 11, "ink2")
   cancel.label:SetPoint("CENTER", cancel, "CENTER", 0, 0)
   cancel:SetScript("OnClick", function() P.EndShow() end)
+  P.Hover(cancel)
+  f.cancel = cancel
   f.cancel = cancel
   -- a rule, and the note under it (the reference's "this server is VAC-secured")
   local rule = rv:CreateTexture(nil, "ARTWORK")
@@ -370,6 +387,13 @@ function P.BuildConfirm(f)
     l.x.label = K.fs(l.x, "x", 9, "warn")
     l.x.label:SetPoint("CENTER")
     l.x:SetScript("OnClick", function() if l.entry then P.Drop(l.entry) end end)
+    -- the line an x would drop, lit while the mouse is on it (Arn: see the right row)
+    l.hl = l:CreateTexture(nil, "BACKGROUND")
+    l.hl:SetAllPoints(l)
+    do local cr, cg, cb = K.color("accent") l.hl:SetColorTexture(cr, cg, cb, 0.18) end
+    l.hl:Hide()
+    l.x:SetScript("OnEnter", function() l.hl:Show() end)
+    l.x:SetScript("OnLeave", function() l.hl:Hide() end)
     l:Hide()
     cv.lines[i] = l
   end
@@ -383,7 +407,7 @@ function P.BuildConfirm(f)
     b.label = K.fs(b, label, 11, colour)
     b.label:SetPoint("CENTER")
     b:SetScript("OnClick", onClick)
-    return b
+    return P.Hover(b)
   end
   cv.send = btn("Send", 120, "good", function() P.SendPending() end)
   cv.send:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 8)
@@ -391,7 +415,7 @@ function P.BuildConfirm(f)
   cv.refresh = btn("Refresh", 70, "accent", function()
     local ask = (C_GuildInfo and C_GuildInfo.GuildRoster) or GuildRoster
     if ask then pcall(ask) end                 -- the roster answers with GUILD_ROSTER_UPDATE
-    P.Regenerate()
+    P.RefreshNow()
   end)
   cv.cancel:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 8)
   cv.refresh:SetPoint("RIGHT", cv.cancel, "LEFT", -6, 0)
@@ -460,7 +484,13 @@ function P.PaintConfirm()
       l:Hide()
     end
   end
-  cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+  if P.note and (GetTime and GetTime() or 0) < (P.noteUntil or 0) then
+    cv.head:SetText(P.note)                         -- what the last Refresh changed (P.RefreshNow)
+    cv.head:SetTextColor(NS.Farm.color("good"))
+  else
+    cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+    cv.head:SetTextColor(NS.Farm.color("ink2"))
+  end
   local below = #lines - fit - P.confOffset
   cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or "")
   cv.send.label:SetText(n > 0 and ("Send %d invite%s"):format(n, n == 1 and "" or "s") or "Nobody left")
@@ -732,12 +762,14 @@ P.GREEN, P.RED = { 0.35, 0.85, 0.45 }, { 0.90, 0.30, 0.30 }
 function P.Buttons()
   if P.ibtn then return P.ibtn, P.dbtn end
   P.ibtn = button("BiSToolsPartyInvite", "Interface\\Icons\\INV_Letter_15", "Invite your party list",
-    function() return "Shift-click to look over the list and send. " .. table.concat(P.Missing(P.db or {}), ", ") end,
+    function() return "Shift-click to open your party list. " .. table.concat(P.Missing(P.db or {}), ", ") end,
     -- SHIFT-CLICK ONLY (Arn, 15 Oct: "shift click, i dont think any other button in bis now or bis
-    -- tools use shift clicks so no mistakes"): a plain click in a fight does nothing but remind
+    -- tools use shift clicks so no mistakes"): a plain click in a fight does nothing but remind.
+    -- It OPENS THE PARTY WINDOW (Arn: "shift left click should open this window") - invite, or a
+    -- guild rank, from there.
     function()
-      if IsShiftKeyDown and IsShiftKeyDown() then P.ConfirmList(P.db)
-      else NS.Print("party list: shift-click the invite button to look over the list and send") end
+      if IsShiftKeyDown and IsShiftKeyDown() then P.Toggle(P.db, true)
+      else NS.Print("party list: shift-click the invite button to open your party list") end
     end)
   P.dbtn = button("BiSToolsPartyDisband", "Interface\\Icons\\Ability_Rogue_Sprint", "Disband",
     function()
@@ -776,7 +808,7 @@ local function button(parent, label, w, colour, onClick, tip)
     end
   end)
   b:SetScript("OnLeave", function() b.edge:set(colour or "edge", 1) if GameTooltip then GameTooltip:Hide() end end)
-  return b
+  return P.Hover(b)                      -- the edge alone was too faint to see (Arn, 16 Oct)
 end
 
 function P.BuildWindow(db)
@@ -843,6 +875,18 @@ function P.BuildWindow(db)
       P.Changed()
     end)
     r.pick:Hide()
+    -- WHICH ROW YOU ARE ON (Arn, 15 Oct: "that bis now window functionality that highlights, so we
+    -- can see we are selecting the correct row"): a soft accent bar under the mouse - a rank you
+    -- can click, or the name an x would take off. A dimmed rank does not light up.
+    r.hl = r:CreateTexture(nil, "BACKGROUND")
+    r.hl:SetAllPoints(r)
+    do local cr, cg, cb = F.color("accent") r.hl:SetColorTexture(cr, cg, cb, 0.18) end
+    r.hl:Hide()
+    local function lit(on) if on and not r.empty then r.hl:Show() else r.hl:Hide() end end
+    r.pick:SetScript("OnEnter", function() lit(true) end)
+    r.pick:SetScript("OnLeave", function() lit(false) end)
+    r.x:SetScript("OnEnter", function() lit(true) end)
+    r.x:SetScript("OnLeave", function() lit(false) end)
     r:Hide()
     f.rows[i] = r
   end
@@ -885,7 +929,7 @@ function P.BuildWindow(db)
     { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
     { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
-      "Your guild's ranks with someone online: click a rank to invite all of them. Click again for your list." },
+      "Your guild's ranks: click one to invite everyone online with it. 'party' takes you back to your list." },
     { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
     { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
   }
@@ -1005,6 +1049,75 @@ function P.Regenerate()
   return true
 end
 
+--- A LIST THAT IS NOT A WAVE, CHECKED AGAIN (16 Oct 2026): the party list's, or one another addon
+--- handed in through BiSToolsAPI (BiS Guild's pasted roster). Refresh used to do nothing to these -
+--- P.Regenerate only knows how to rebuild a rank. Whoever has joined you since moves down to "already
+--- with you"; nobody new can appear, the list came from outside.
+function P.Recheck()
+  local here = { [P.Key(UnitName("player")) or "?"] = true }
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  local keep, with = {}, P.pendingHere or {}
+  for _, e in ipairs(P.pending or {}) do
+    if here[P.Key(e.name) or "?"] then with[#with + 1] = e else keep[#keep + 1] = e end
+  end
+  P.pending, P.pendingHere = keep, with
+  P.PaintConfirm()
+end
+
+--- REFRESH YOU CAN SEE (Arn, 16 Oct: "when I click refresh can it make some type of animation so we
+--- know it actually did something"). The list redraws, then a sweep brings its lines back top to
+--- bottom, the button says "Refresh..." while it runs, and the head says what changed for a few
+--- seconds - "2 new, 1 joined you", or "no change", which is an answer too. Flavour like the inviting
+--- box: the work is done before the sweep starts. OnUpdate only while the sweep runs.
+P.SWEEP, P.SWEEP_STEP, P.NOTE_FOR = 0.6, 0.035, 3
+function P.RefreshNow()
+  local before, beforeHere = {}, {}
+  for _, e in ipairs(P.pending or {}) do before[P.Key(e.name) or "?"] = true end
+  for _, e in ipairs(P.pendingHere or {}) do beforeHere[P.Key(e.name) or "?"] = true end
+  if not P.Regenerate() then P.Recheck() end
+  local new, joined = 0, 0
+  for _, e in ipairs(P.pending or {}) do if not before[P.Key(e.name) or "?"] then new = new + 1 end end
+  for _, e in ipairs(P.pendingHere or {}) do if not beforeHere[P.Key(e.name) or "?"] then joined = joined + 1 end end
+  local parts = {}
+  if new > 0 then parts[#parts + 1] = ("%d new"):format(new) end
+  if joined > 0 then parts[#parts + 1] = ("%d joined you"):format(joined) end
+  P.note = "refreshed: " .. (#parts > 0 and table.concat(parts, ", ") or "no change")
+  P.noteUntil = (GetTime and GetTime() or 0) + P.NOTE_FOR
+  P.PaintConfirm()
+  P.Sweep()
+  -- and the head back to the list's own words once the note has been read
+  if C_Timer and C_Timer.After then C_Timer.After(P.NOTE_FOR + 0.05, function() P.PaintConfirm() end) end
+  return new, joined
+end
+
+function P.Sweep()
+  local cv = P.box and P.box.confirmView
+  if not cv then return end
+  if not P.sweeper then
+    P.sweeper = CreateFrame("Frame")
+    P.sweeper:SetScript("OnUpdate", function(self, dt)
+      self.t = self.t + (dt or 0)
+      P.SweepStep(self.t)
+      if self.t >= P.SWEEP then self:Hide() P.SweepStep(math.huge) end
+    end)
+  end
+  P.sweeper.t = 0
+  P.SweepStep(0)
+  P.sweeper:Show()
+end
+
+--- The sweep at time t: line i fades in from i * P.SWEEP_STEP; the button's dots count up.
+function P.SweepStep(t)
+  local cv = P.box and P.box.confirmView
+  if not cv then return end
+  for i, l in ipairs(cv.lines) do
+    local a = (t - (i - 1) * P.SWEEP_STEP) / 0.2
+    l:SetAlpha(math.max(0, math.min(1, a)))
+  end
+  local done = t >= P.SWEEP
+  cv.refresh.label:SetText(done and "Refresh" or ("Refresh" .. string.rep(".", 1 + math.floor(t / 0.15) % 3)))
+end
+
 --- Soon, not at once: roster and group events come in bursts.
 function P.RegenerateSoon()
   if P.regenPending or not P.wave then return end
@@ -1035,7 +1148,9 @@ function P.PaintWindow()
   if not (f and db and f:IsShown()) then return end
   local guild = P.view == "guild"
   f.con:Set("name", guild and "Party: guild" or "Party", "accent")
-  f.guildBtn.label:SetText(guild and "list" or "guild")        -- Arn, 15 Oct: "this should say guild"
+  -- party <-> guild: the button names where it takes you (Arn, 15 Oct: "this should say guild", then
+  -- "this should be party, so switch from party/guild")
+  f.guildBtn.label:SetText(guild and "party" or "guild")
   local names, here = P.List(db), {}
   local entries
   if guild then
@@ -1056,7 +1171,7 @@ function P.PaintWindow()
     r:SetWidth(guild and full - 4 or colW - 4)
     local e = slot and names[slot + (P.offset or 0)]
     local n = guild and e and e.name or (not guild and e) or nil
-    r.who, r.rank = n, guild and e and e.rank or nil
+    r.who, r.rank, r.empty = n, guild and e and e.rank or nil, nil
     if e then
       if r.rank then
         r.empty = e.n == 0
@@ -1079,7 +1194,7 @@ function P.PaintWindow()
     f.more:SetText(#names == 0 and "nobody else in your guild is online"
       or "click a rank: everyone online with it is invited")
   else
-    f.more:SetText(#names == 0 and "empty - g for your guild, save your group, or right-click a player"
+    f.more:SetText(#names == 0 and "empty - save a group, add a name, or right-click a player"
       or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
   end
 end

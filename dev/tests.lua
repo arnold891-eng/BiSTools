@@ -312,6 +312,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
+  function f:GetScript(k) return self.scripts[k] end
   -- RE-PARENTED, and REFUSED in combat for a secure frame - the client's rule (12 Oct 2026, the box)
   function f:SetParent(p)
     if W.combat and self.template and self.template:find("Secure") then error("SetParent on a secure frame in combat", 2) end
@@ -3006,6 +3007,21 @@ do
   said2 = {}
   S("pals")
   ok(table.concat(said2, "\n"):find("no pals yet", 1, true), "/bist pals: none yet, and how to add one")
+  -- A PAL BY NAME, NO TARGET (Arn, 16 Oct: "can i type /bist pal <name> <surname> to add a pal?")
+  S("pal fistfull ofpills")
+  local palsNow = RC.Pals(R:DBFor(R:Get("recap")))
+  ok(palsNow["Fistfull Ofpills"] ~= nil, "/bist pal fistfull ofpills: a pal, written the way the game writes names")
+  ok(palsNow["Fistfull Ofpills"] and palsNow["Fistfull Ofpills"].guid == nil, "no ID yet - the name decides")
+  said2 = {}
+  S("pal Fistfull Ofpills")
+  ok(palsNow["Fistfull Ofpills"] == nil and table.concat(said2, " "):find("no longer a pal", 1, true),
+     "typed again: off the list, as /bist pal on a target does")
+  S("pal Fistfull")
+  S("pal fistfull")
+  ok(palsNow["Fistfull"] == nil, "a first name alone toggles the same way")
+  said2 = {}
+  S("pal 1337 h4x")
+  ok(next(palsNow) == nil and table.concat(said2, " "):find("not a name", 1, true), "digits are not a name")
   S("recap forget hunting moms")
   ok(rivals["Hunting Moms"] == nil, "/bist recap forget <name> takes one off, any capitals")
   DEFAULT_CHAT_FRAME.AddMessage = keepAdd
@@ -5347,6 +5363,7 @@ do
       _G.GuildControlGetNumRanks = function() return #ladder end
       _G.GuildControlGetRankName = function(i) return ladder[i] end
       w.guildBtn.scripts.OnClick(w.guildBtn)
+      ok(w.guildBtn.label.text == "party", "in the guild view the button says party - where it takes you", w.guildBtn.label.text)
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
       ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "invite all <Officer> (1)"
@@ -5362,6 +5379,13 @@ do
       sent.invite = {}
       w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
       ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
+      -- the row under the mouse lights up - a live rank, never a dimmed one (Arn, 15 Oct)
+      w.rows[2].pick.scripts.OnEnter(w.rows[2].pick)
+      ok(w.rows[2].hl.shown, "hovering a rank you can click: lit")
+      w.rows[2].pick.scripts.OnLeave(w.rows[2].pick)
+      ok(not w.rows[2].hl.shown, "and dark again when the mouse leaves")
+      w.rows[1].pick.scripts.OnEnter(w.rows[1].pick)
+      ok(not w.rows[1].hl.shown, "a dimmed rank does not light")
       sent.invite = {}
       W.raid, W.inRaid = { { name = "Me" } }, false
       -- LOOK BEFORE IT GOES (Arn, 15 Oct): a rank click prepares, then waits on a confirm list by
@@ -5383,6 +5407,33 @@ do
         "by class, then who is already with you - dimmed, apart", table.concat(seen, ", "))
       ok(cv.lines[2].x.shown and not cv.lines[4].x.shown, "an x on who would be invited; none on who is already in")
       ok(cv.send.label.text == "Send 1 invite", "Send says how many", cv.send.label.text)
+      -- the buttons say they can be clicked (Arn, 16 Oct: "these buttons need the hover thing")
+      for _, b in ipairs({ cv.send, cv.refresh, cv.cancel, box.cancel }) do
+        ok(b.hover and not b.hover.shown, "a hover tint, hidden until the mouse comes")
+        b.scripts.OnEnter(b)
+        ok(b.hover.shown, "shown under the mouse")
+        b.scripts.OnLeave(b)
+        ok(not b.hover.shown, "and gone after")
+      end
+      -- REFRESH YOU CAN SEE (Arn, 16 Oct: "some type of animation so we know it actually did something")
+      cv.refresh.scripts.OnClick(cv.refresh)
+      ok(cv.head.text:find("refreshed", 1, true), "the head says what Refresh found", cv.head.text)
+      ok(P.sweeper and P.sweeper.shown, "a sweep runs")
+      ok(cv.lines[1].alpha == 0 and cv.refresh.label.text:find("Refresh.", 1, true), "the lines start hidden, the button counts dots")
+      for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+      ok(not P.sweeper.shown and cv.lines[1].alpha == 1 and cv.lines[5].alpha == 1, "and come back top to bottom, then it stops")
+      ok(cv.refresh.label.text == "Refresh", "the button reads Refresh again")
+      -- a list from outside (BiSToolsAPI: BiS Guild's roster) - Refresh used to do nothing to it
+      local keepWave, keepPend, keepHere, keepMembers = P.wave, P.pending, P.pendingHere, P.Members
+      P.wave, P.pending, P.pendingHere = nil, { { name = "Tobi Joined" }, { name = "Kio Alpha" } }, {}
+      P.Members = function() return { { key = P.Key("Tobi Joined") } } end
+      local _, joined = P.RefreshNow()
+      ok(joined == 1 and #P.pending == 1 and P.pending[1].name == "Kio Alpha", "who joined you moves down; the rest wait")
+      ok(cv.head.text == "refreshed: 1 joined you", "and the head says so", cv.head.text)
+      P.wave, P.pending, P.pendingHere, P.Members = keepWave, keepPend, keepHere, keepMembers
+      for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+      P.note = nil
+      P.PaintConfirm()
       cv.lines[2].x.scripts.OnClick(cv.lines[2].x)
       ok(#P.pending == 0 and cv.send.label.text == "Nobody left", "x: Nebeon is not raiding tonight", cv.send.label.text)
       cv.cancel.scripts.OnClick(cv.cancel)
@@ -5436,7 +5487,7 @@ do
       for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
       cv.cancel.scripts.OnClick(cv.cancel)
       w.guildBtn.scripts.OnClick(w.guildBtn)
-      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'list'): back to your list")
+      ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'party'): back to your list")
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
       local keepMenu, hooked = _G.Menu, {}
       _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
@@ -5465,6 +5516,14 @@ do
       W.raid, W.inRaid = keepRaidG, keepInG
       sent.invite = {}
     end
+    -- the empty list's hint: current words (no "g" button any more), and it fits the window
+    local keepNames = pdb.names
+    pdb.names = {}
+    P.PaintWindow()
+    ok(w.more.text == "empty - save a group, add a name, or right-click a player"
+       and w.more:GetStringWidth() <= P.WIN_W - 16, "the empty hint: today's buttons, and it fits", w.more.text)
+    pdb.names = keepNames
+    P.PaintWindow()
     SlashCmdList.BISTOOLS("party")
     ok(not w:IsShown(), "/bist party toggles it")
   end
@@ -5578,12 +5637,8 @@ do
     W.shift = true
     P.ibtn.scripts.OnClick(P.ibtn)
     W.shift = false
-    ok(#sent.invite == 0 and P.run and P.run.prep, "shift-click: the confirm list, still nothing sent", #sent.invite)
-    local box = BiSToolsPartyLoading
-    for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
-    ok(box.confirmView:IsShown() and box.confirmView.lines[1].text.text == "Party list (3)", "your party list, to look over",
-      box.confirmView.lines[1].text.text)
-    box.confirmView.cancel.scripts.OnClick(box.confirmView.cancel)
+    ok(#sent.invite == 0 and BiSToolsParty and BiSToolsParty:IsShown(), "shift-click: the party window opens (Arn), nothing sent", #sent.invite)
+    BiSToolsParty:Hide()
     ok(#sent.invite == 0, "and Cancel sends nobody")
     local keepII3 = _G.IsInInstance
     _G.IsInInstance = function() return true, "pvp" end
@@ -5682,6 +5737,26 @@ do
   ok(n <= 150, "a roster change in a 40-man raid asks at most 150 things (measured 132: one roster walk): " .. n, Cost.Top and Cost.Top(by, 5))
   _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid = keepPI, keepLead, keepRaid, keepIn
   pdb.names = {}
+
+  -- BiSToolsAPI (16 Oct 2026, Arn: "I like OpenMap, that opens its stuff via API ... if installed it
+  -- can API-call it"): BiS Guild asks here, never NS.Party
+  local A = _G.BiSToolsAPI
+  ok(A and A.major == 1 and A.version >= 1, "BiSToolsAPI is there, major 1")
+  ok(A.PartyReady(), "ready while the party tool is on")
+  P.pending = nil
+  local n = A.InviteList("on the pasted roster", { "Darthsidiouz Sithlord", { name = "Kio Alpha", class = "Mage", classFile = "MAGE" }, 7, {} })
+  ok(n == 2 and P.pending and #P.pending == 2, "names and people land on the confirm list; junk is skipped", n)
+  ok(P.pending and P.pending[2].class == "Mage", "with their class, for the sort")
+  P.pending = nil
+  ok(A.InviteList("x", { "Me" }) == 0, "only yourself: nothing to send")
+  R:SetEnabled("party", false)
+  local n2, why = A.InviteList("x", { "Tobi" })
+  ok(n2 == nil and why == "party tool off", "party tool off: says so, does nothing", why)
+  ok(not A.PartyReady(), "and is not ready")
+  local n3, why3 = A.InviteOne("Tobi")
+  ok(n3 == nil and why3 == "party tool off", "one invite too")
+  R:SetEnabled("party", true)
+
   R:SetEnabled("party", false)
   Bx.Refresh()
 end
@@ -5694,6 +5769,7 @@ local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SL
   HBD_PINS_WORLDMAP_SHOW_WORLD = true,
   LibBiSComm = true, SLASH_BISCOMM1 = true, ConfirmSummon = true, BiSRezComm = true,
   BiSTheme = true,    -- the embedded Libs/BiSTheme/Console.lua guards on this global on purpose
+  BiSToolsAPI = true, -- API.lua, for other addons (16 Oct: BiS Guild's invites)
   -- the overlay map's key binding: Bindings.xml calls a global, and the client reads these two names
   BiSTools_ToggleOverlayMap = true, BINDING_HEADER_BISTOOLS = true, BINDING_NAME_BISTOOLS_OVERLAYMAP = true }
 for k in pairs(_G) do

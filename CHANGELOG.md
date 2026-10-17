@@ -1,3 +1,12 @@
+## 0.12.0
+
+- **BiSToolsAPI - other addons can use your party list's invites.** BiS Guild's raider terminal hands its raid lists to the confirm list (by class, an x per person, the inviting box, refusals in red). Nothing in it can change your settings; with the party tool off it simply says so.
+- **Refresh you can see.** The confirm list sweeps back in line by line, the button reads "Refresh...", and the top says what changed for a few seconds ("2 new, 1 joined you", or "no change"). It also works now on a list that came from your party list or from another addon - whoever joined you moves down to "already with you".
+- **Every button lights up under the mouse** - Send, Refresh, Close, Cancel, and the party window's buttons - so you can tell it's clickable.
+- **`/bist pal <name> <surname>`** adds a pal without targeting them; type it again to take them off.
+- **Shift-click** the tools-box Invite to open the party window and look the list over first. The row under the mouse lights up; the window's toggle reads party / guild.
+- The addon list shows **BiS>Tools**, like its category.
+
 ## 0.11.0
 
 - **A party list (new tool, off until you switch it on: `/bist on party`).** Your usual group, in its own window: click "party" in the tools list or type `/bist party`.
