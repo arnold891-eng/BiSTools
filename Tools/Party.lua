@@ -202,6 +202,21 @@ end
 -- these pictures are just ideas we can do in the bis themes"): BiSTheme's surface, accent edge and
 -- purple blocks, at the family's 1.43:1. Pure flavour: the invites have already gone. Nothing goes
 -- to chat. OnUpdate only while it shows; Cancel or the end hides it. `db.show = false` skips it.
+--- A BUTTON SAYS IT CAN BE CLICKED (Arn, 16 Oct, the confirm list: "these buttons need the hover
+--- thing - can't tell if I'm about to be able to click"). A tint on ARTWORK, under the label's
+--- OVERLAY, so the words stay sharp (BiS Guild learned the same: a HIGHLIGHT-layer tint draws OVER
+--- text and washes it out). Wraps whatever OnEnter/OnLeave the button already has.
+P.HOVER = 0.28
+function P.Hover(b)
+  if b.hover then return b end
+  b.hover = NS.Farm.tex(b, "ARTWORK", "accent", P.HOVER)
+  b.hover:Hide()
+  local enter, leave = b:GetScript("OnEnter"), b:GetScript("OnLeave")
+  b:SetScript("OnEnter", function(self, ...) self.hover:Show() if enter then return enter(self, ...) end end)
+  b:SetScript("OnLeave", function(self, ...) self.hover:Hide() if leave then return leave(self, ...) end end)
+  return b
+end
+
 P.BLOCKS, P.LOG_ROWS = 14, 3
 P.W, P.H = 300, 210                          -- 1.43:1
 P.SHOW_MIN, P.SHOW_PER, P.SHOW_MAX, P.LINGER = 1.4, 0.45, 4.0, 1.2
@@ -320,6 +335,8 @@ function P.BuildShow()
   cancel.label = K.fs(cancel, "Cancel", 11, "ink2")
   cancel.label:SetPoint("CENTER", cancel, "CENTER", 0, 0)
   cancel:SetScript("OnClick", function() P.EndShow() end)
+  P.Hover(cancel)
+  f.cancel = cancel
   f.cancel = cancel
   -- a rule, and the note under it (the reference's "this server is VAC-secured")
   local rule = rv:CreateTexture(nil, "ARTWORK")
@@ -390,7 +407,7 @@ function P.BuildConfirm(f)
     b.label = K.fs(b, label, 11, colour)
     b.label:SetPoint("CENTER")
     b:SetScript("OnClick", onClick)
-    return b
+    return P.Hover(b)
   end
   cv.send = btn("Send", 120, "good", function() P.SendPending() end)
   cv.send:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 8)
@@ -785,7 +802,7 @@ local function button(parent, label, w, colour, onClick, tip)
     end
   end)
   b:SetScript("OnLeave", function() b.edge:set(colour or "edge", 1) if GameTooltip then GameTooltip:Hide() end end)
-  return b
+  return P.Hover(b)                      -- the edge alone was too faint to see (Arn, 16 Oct)
 end
 
 function P.BuildWindow(db)

@@ -312,6 +312,7 @@ _G.CreateFrame = function(kind, name, parent, template)
   function f:IsMouseOver() return W.mouseOver == self end
   function f:GetParent() return self.parent end
   function f:SetScript(k, fn) self.scripts[k] = fn end
+  function f:GetScript(k) return self.scripts[k] end
   -- RE-PARENTED, and REFUSED in combat for a secure frame - the client's rule (12 Oct 2026, the box)
   function f:SetParent(p)
     if W.combat and self.template and self.template:find("Secure") then error("SetParent on a secure frame in combat", 2) end
@@ -5406,6 +5407,14 @@ do
         "by class, then who is already with you - dimmed, apart", table.concat(seen, ", "))
       ok(cv.lines[2].x.shown and not cv.lines[4].x.shown, "an x on who would be invited; none on who is already in")
       ok(cv.send.label.text == "Send 1 invite", "Send says how many", cv.send.label.text)
+      -- the buttons say they can be clicked (Arn, 16 Oct: "these buttons need the hover thing")
+      for _, b in ipairs({ cv.send, cv.refresh, cv.cancel, box.cancel }) do
+        ok(b.hover and not b.hover.shown, "a hover tint, hidden until the mouse comes")
+        b.scripts.OnEnter(b)
+        ok(b.hover.shown, "shown under the mouse")
+        b.scripts.OnLeave(b)
+        ok(not b.hover.shown, "and gone after")
+      end
       cv.lines[2].x.scripts.OnClick(cv.lines[2].x)
       ok(#P.pending == 0 and cv.send.label.text == "Nobody left", "x: Nebeon is not raiding tonight", cv.send.label.text)
       cv.cancel.scripts.OnClick(cv.cancel)
