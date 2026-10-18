@@ -93,6 +93,8 @@ end
 --- Everyone grouped with you (not you): { unit, name, key }. A 40-man walk is 120 calls, so the
 --- box walks it once and hands it to each question (the `members` argument below).
 function P.Members()
+  -- one walk per roster change: the event handler lends its walk to everything it calls (17 Oct)
+  if P.__members then return P.__members end
   local out = {}
   if not P.Grouped() then return out end
   local raid = IsInRaid and IsInRaid()
@@ -1047,6 +1049,18 @@ function P.BuildWindow(db)
     r.pick:SetScript("OnLeave", function() lit(false) end)
     r.x:SetScript("OnEnter", function() lit(true) end)
     r.x:SetScript("OnLeave", function() lit(false) end)
+    -- the name under the mouse: when and where you last grouped (17 Oct)
+    if r.EnableMouse then r:EnableMouse(true) end
+    r:SetScript("OnEnter", function(self)
+      if not (GameTooltip and self.last and self.who) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.who)
+      local when = date and date("%d %b %H:%M", self.last.t) or tostring(self.last.t)
+      GameTooltip:AddLine(("Last grouped %s ago - %s%s"):format(P.Ago(self.last.t) or "?", when,
+        self.last.zone and (", " .. self.last.zone) or ""), 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     r:Hide()
     f.rows[i] = r
   end
@@ -1388,8 +1402,13 @@ function P.PaintWindow()
         r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or picked and "good" or "accent"))
       else
         local on = guild and P.Has(db, n)
-        r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+")) or n)
         local k = P.Key(n) or "?"
+        -- when you last grouped, after the name (not for who is with you now - the green bar says it)
+        local last = not guild and not here[k] and type(db.lastWith) == "table" and db.lastWith[k] or nil
+        local ago = last and P.Ago(last.t)
+        r.last = last
+        r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+"))
+          or ago and (n .. "  " .. NS.T.text("dim", ago)) or n)
         local w = who[k]
         local r_, g, b
         if guild then r_, g, b = NS.Farm.color(on and "good" or "ink")
@@ -1508,13 +1527,76 @@ function P.HookMenus(db)
   return true
 end
 
+------------------------------------------------------- when you last grouped --
+-- (Arn, 17 Oct, with Blizzard's Recent Allies open: "maybe the list can add a little note of the
+-- last time we were partied?") Our own record - the client's Recent Allies is unmeasured on Forever:
+-- db.lastWith[key] = { t, zone } for everyone you group with, written at each group change, and
+-- again for whoever just LEFT, so the time is when you parted. Event-only; nothing ticks. At most
+-- P.LAST_MAX people, the longest-unseen dropped first.
+P.LAST_MAX = 200
+
+function P.NoteTogether(db)
+  if type(db) ~= "table" then return 0 end
+  db.lastWith = type(db.lastWith) == "table" and db.lastWith or {}
+  local now = (time and time()) or 0
+  local zone = GetRealZoneText and plain(GetRealZoneText())
+  zone = type(zone) == "string" and zone ~= "" and zone or nil
+  local cur, n = {}, 0
+  for _, m in ipairs(P.Members()) do
+    cur[m.key] = true
+    db.lastWith[m.key] = { t = now, zone = zone }
+    n = n + 1
+  end
+  for k in pairs(P.together or {}) do
+    if not cur[k] and db.lastWith[k] then db.lastWith[k].t, db.lastWith[k].zone = now, zone or db.lastWith[k].zone end
+  end
+  P.together = cur
+  local count, oldestK, oldestT = 0, nil, nil
+  for k, v in pairs(db.lastWith) do
+    count = count + 1
+    if not oldestT or (v.t or 0) < oldestT then oldestK, oldestT = k, v.t or 0 end
+  end
+  if count > P.LAST_MAX and oldestK then db.lastWith[oldestK] = nil end
+  return n
+end
+
+--- "now", "5m", "3h", "2d", "6w" - short enough to sit after a name.
+function P.Ago(t, now)
+  if type(t) ~= "number" then return nil end
+  local s = math.max(0, (now or (time and time()) or 0) - t)
+  if s < 60 then return "now" end
+  if s < 3600 then return ("%dm"):format(math.floor(s / 60)) end
+  if s < 86400 then return ("%dh"):format(math.floor(s / 3600)) end
+  if s < 86400 * 28 then return ("%dd"):format(math.floor(s / 86400)) end
+  return ("%dw"):format(math.floor(s / (86400 * 7)))
+end
+
 ------------------------------------------------------------------ the tool --
 
 local function refresh() P.Changed() end
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
-ev:SetScript("OnEvent", refresh)
+ev:RegisterEvent("PLAYER_LOGOUT")
+ev:SetScript("OnEvent", function(_, event)
+  -- logging out parts you from everyone: the group is still there to read, so write it as now
+  if event == "PLAYER_LOGOUT" then
+    local db = P.db
+    if type(db) == "table" and type(db.lastWith) == "table" then
+      local now = (time and time()) or 0
+      for k in pairs(P.together or {}) do if db.lastWith[k] then db.lastWith[k].t = now end end
+    end
+    return
+  end
+  -- ONE roster walk for the note and the redraw both (the 40-man budget: 150 asks)
+  P.__members = P.Members()
+  local ok, err = pcall(function()
+    if R:Enabled("party") then P.NoteTogether(P.db) end
+    refresh()
+  end)
+  P.__members = nil
+  if not ok then error(err, 0) end
+end)
 P.events = ev
 
 R:Register({
@@ -1542,7 +1624,7 @@ R:Register({
   },
   OnInit = function(_, db) P.db = db end,
   OnOpen = function(_, db, recenter) P.db = db P.Toggle(db, true, recenter) end,
-  OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) refresh() end,
+  OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) P.NoteTogether(db) refresh() end,
   OnSlash = function(_, db, args)
     P.db = db
     local verb, rest = (args or ""):match("^(%S*)%s*(.-)%s*$")

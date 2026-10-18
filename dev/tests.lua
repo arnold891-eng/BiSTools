@@ -5352,6 +5352,47 @@ do
       _G.UnitClass, _G.RAID_CLASS_COLORS = keepUC, keepRCC
       P.PaintWindow()
     end
+    -- WHEN YOU LAST GROUPED (Arn, 17 Oct, Blizzard's Recent Allies open: "maybe the list can add a
+    -- little note of the last time we were partied?")
+    do
+      local keepTime, keepZone, keepRaid, keepIn = _G.time, _G.GetRealZoneText, W.raid, W.inRaid
+      local now = 1000000
+      _G.time = function() return now end
+      _G.GetRealZoneText = function() return "Orgrimmar" end
+      P.together = nil
+      P.NoteTogether(pdb)
+      local tk = P.Key("Tobi")
+      ok(pdb.lastWith and pdb.lastWith[tk] and pdb.lastWith[tk].zone == "Orgrimmar", "grouped with Tobi: noted, with the zone")
+      ok(not w.rows[1].name.text:find("now", 1, true), "while with you: no age, the green bar says it", w.rows[1].name.text)
+      now = now + 7200
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      P.NoteTogether(pdb)
+      ok(pdb.lastWith[tk].t == now, "Tobi left: the time is when you parted, not when you met")
+      now = now + 3 * 86400
+      P.PaintWindow()
+      ok(w.rows[1].name.text:find("Tobi", 1, true) and w.rows[1].name.text:find("3d", 1, true), "the window: Tobi, 3d", w.rows[1].name.text)
+      ok(w.rows[1].last == pdb.lastWith[tk] and pcall(w.rows[1].scripts.OnEnter, w.rows[1]), "hovering the name: when and where")
+      ok(P.Ago(now - 30, now) == "now" and P.Ago(now - 300, now) == "5m" and P.Ago(now - 7200, now) == "2h"
+         and P.Ago(now - 86400 * 40, now) == "5w", "short ages: now, 5m, 2h, 5w")
+      -- lean: a 40-man roster change asks the client about each member once, and keeps at most LAST_MAX
+      local big = { { name = "Me" } }
+      for i = 1, 39 do big[#big + 1] = { name = "Raider" .. i } end
+      W.raid, W.inRaid = big, true
+      local Cost = dofile("../_bisdev/dev/cost.lua")
+      local calls, by = Cost.Count(function() P.NoteTogether(pdb) end)
+      ok(calls <= 170, "a 40-man roster change asks at most 170 things: " .. calls, Cost.Top and Cost.Top(by, 5))
+      local keepMax = P.LAST_MAX
+      P.LAST_MAX = 10
+      for _ = 1, 40 do P.NoteTogether(pdb) end
+      local count = 0
+      for _ in pairs(pdb.lastWith) do count = count + 1 end
+      ok(count <= 41 and count >= 10, "the record is capped, the oldest out first", count)
+      P.LAST_MAX = keepMax
+      W.raid, W.inRaid = keepRaid, keepIn
+      _G.time, _G.GetRealZoneText = keepTime, keepZone
+      pdb.lastWith, P.together = nil, nil
+      P.PaintWindow()
+    end
     w.rows[3].x.scripts.OnClick(w.rows[3].x)
     ok(not P.Has(pdb, "Zed") and not w.rows[3].shown, "x takes a name off, and the window follows")
     w.add:SetText("Zed")
