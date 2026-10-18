@@ -5,6 +5,7 @@
 - **Pick several ranks.** In the guild view a click ticks a rank instead of inviting it. Tick Officer and Raider, press invite, and both ranks' people come up on one list, an x on each.
 - **One list, added to.** With the invite list open, inviting your party list or ticked ranks adds them to it - nobody twice, one Send - and the top says what came in ("added <Officer>: 2 new").
 - **The party window shows classes.** Names are in their class colour (from your group, guild or friends list), grey when offline, and whoever is with you now has a faint green bar.
+- **No more "clear" button in the party window** - one click emptied the whole list. Take names off with the x beside each; `/bist party clear` or the button in the options still empties it on purpose.
 - **When you last grouped.** Each name on the list shows how long since you were last in a group together ("3d", "5h"), and hovering it shows the day and the zone. BiS Tools keeps this itself, from today on, while the party tool is on.
 
 ## 0.12.0

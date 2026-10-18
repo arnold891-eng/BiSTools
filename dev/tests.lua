@@ -5398,7 +5398,8 @@ do
     w.add:SetText("Zed")
     w.add.scripts.OnEnterPressed(w.add)
     ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
-    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and w.buttons.clear, "save, invite, guild, disband, clear")
+    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and not w.buttons.clear,
+       "save, invite, guild, disband - and no clear (Arn, 17 Oct: \"too unforgiving\")")
     for name, b in pairs(w.buttons) do ok(b.label:GetStringWidth() <= b.w - 4, "the " .. name .. " label fits its button", b.label:GetStringWidth()) end
     -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
     -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole

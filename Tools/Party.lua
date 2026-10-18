@@ -1100,9 +1100,11 @@ function P.BuildWindow(db)
   eb:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
   f.add = eb
   -- what you do with the list
-  -- five along the bottom (Arn, 15 Oct: "from this window a button that shows all the guild ranks,
-  -- i click the ranks and it sends out invites"): ranks swaps the names for the guild's ranks
-  local bw = (P.WIN_W - 12 - 12) / 5
+  -- along the bottom (Arn, 15 Oct: "from this window a button that shows all the guild ranks, i click
+  -- the ranks and it sends out invites"): ranks swaps the names for the guild's ranks.
+  -- NO CLEAR BUTTON (Arn, 17 Oct: "the clear button is too unforgiving ... i clicked it thinking it
+  -- was going to just send me to the default start window and it deleted everyone"). The x on each
+  -- name stays; emptying the whole list is `/bist party clear` or the options' button, words you mean.
   local acts = {
     { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
     -- the confirm list first (Arn, 17 Oct: "this button is sending the invite right away"): who is
@@ -1122,10 +1124,10 @@ function P.BuildWindow(db)
       end,
       "Your list (or, in the guild view, the ranks you picked): check who is online, x anyone you don't want this time, then Send." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
-      "Your guild's ranks: click one to invite everyone online with it. 'party' takes you back to your list." },
+      "Your guild's ranks: tick the ones you want, then invite. 'party' takes you back to your list." },
     { "disband", "warn", function() P.ShiftDisband() end, "Shift-click. Leading: everyone out. Otherwise: you leave." },
-    { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
   }
+  local bw = (P.WIN_W - 12 - 3 * (#acts - 1)) / #acts
   f.buttons = {}
   for i, a in ipairs(acts) do
     local b = button(f, a[1], bw, a[2], a[3], a[4])
