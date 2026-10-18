@@ -5339,7 +5339,19 @@ do
     local names = {}
     for _, r in ipairs(w.rows) do if r.shown then names[#names + 1] = r.name.text end end
     ok(#names == 3 and names[1] == "Tobi" and names[3] == "Zed", "the names, in list order", table.concat(names, ","))
-    ok(w.rows[1].name.color and w.rows[1].name.color[2] > w.rows[1].name.color[1], "Tobi, with you now, in green")
+    -- with you now: a green bar behind the name, the name itself in its class colour (17 Oct)
+    ok(w.rows[1].here and w.rows[1].here.shown and not w.rows[3].here.shown, "Tobi, with you now: a green bar; Zed, not, none")
+    do
+      local keepUC, keepRCC = _G.UnitClass, _G.RAID_CLASS_COLORS
+      _G.UnitClass = function() return "Hunter", "HUNTER" end
+      _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
+      P.PaintWindow()
+      local c = w.rows[1].name.color
+      ok(c and math.abs(c[1] - 0.67) < 0.01 and math.abs(c[3] - 0.45) < 0.01, "and Tobi's name in his class colour",
+         c and table.concat({ c[1], c[2], c[3] }, ","))
+      _G.UnitClass, _G.RAID_CLASS_COLORS = keepUC, keepRCC
+      P.PaintWindow()
+    end
     w.rows[3].x.scripts.OnClick(w.rows[3].x)
     ok(not P.Has(pdb, "Zed") and not w.rows[3].shown, "x takes a name off, and the window follows")
     w.add:SetText("Zed")
@@ -5577,10 +5589,32 @@ do
         s = table.concat(seen, ", ")
         ok(s:find("Asleep[x]", 1, true) and not s:find("Offline", 1, true) and not s:find("Pete", 1, true),
            "Refresh: who logged on moves up to invite; the x'd one stays out", s)
+        -- ADD TO IT (Arn, 17 Oct: the party list open, a rank invited from the guild view - "add to it")
+        for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+        w.guildBtn.scripts.OnClick(w.guildBtn)
+        for _, r in ipairs(w.rows) do if r.shown and r.rank == "Officer" then r.pick.scripts.OnClick(r.pick) end end
+        w.buttons.invite.scripts.OnClick(w.buttons.invite)
+        ok(box:IsShown() and cv:IsShown() and not (P.run and P.run.prep),
+           "with a list open, the guild view's invite adds to it: same window, no second list")
+        seen = {}
+        for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text .. (l.x.shown and "[x]" or "") end end
+        s = table.concat(seen, ", ")
+        ok(s:find("Grux[x]", 1, true) and s:find("Nebeon[x]", 1, true) and s:find("Asleep[x]", 1, true)
+           and not s:find("Pete", 1, true), "the party list's people and the Officer on one list; the x'd still out", s)
+        ok(cv.head.text == "added <Officer>: 1 new", "the head says what came in", cv.head.text)
+        P.note = nil
+        P.PaintConfirm()
+        ok(cv.head.text:find("your party list + <Officer>", 1, true), "and then names both parts", cv.head.text)
+        local nebs = 0
+        for _, e in ipairs(P.pending) do if e.name == "Nebeon" then nebs = nebs + 1 end end
+        ok(nebs == 1, "on the party list and Raider too: listed once")
+        w.guildBtn.scripts.OnClick(w.guildBtn)
+        P.picked = nil
+        for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
         cv.send.scripts.OnClick(cv.send)
         W.runAfters(P.PUMP_GAP + 0.1)
         table.sort(sent.invite)
-        ok(table.concat(sent.invite, ",") == "Asleep,Nebeon,Stranger", "Send: just those", table.concat(sent.invite, ","))
+        ok(table.concat(sent.invite, ",") == "Asleep,Grux,Nebeon,Stranger", "Send: just those", table.concat(sent.invite, ","))
         for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
         P.EndShow()
         roster[4][4] = false

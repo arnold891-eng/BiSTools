@@ -508,9 +508,6 @@ end
 --- One off the list (they are not raiding tonight).
 function P.Drop(entry)
   if P.wave and entry and entry.name then P.wave.dropped[P.Key(entry.name) or "?"] = true end
-  if P.pendingSource == "party" and P.partyDropped and entry and entry.name then
-    P.partyDropped[P.Key(entry.name) or "?"] = true                -- a Refresh keeps them out
-  end
   for i, e in ipairs(P.pending or {}) do
     if e == entry then table.remove(P.pending, i) break end
   end
@@ -529,7 +526,7 @@ end
 --- Prepare, then confirm: the working view reads the roster, then the list waits for Send.
 function P.Confirm(db, label, entries, inGroup, offline)
   if #entries == 0 then NS.Print("party list: everyone %s is already with you", label) return 0 end
-  P.pendingHere, P.pendingOff, P.pendingSource = inGroup or {}, offline or {}, nil
+  P.pendingHere, P.pendingOff = inGroup or {}, offline or {}
   P.pending, P.pendingLabel, P.pendingDb = entries, label, db
   if db.show == false then P.ShowConfirm() return #entries end
   local f = P.BuildShow()
@@ -584,49 +581,112 @@ function P.Lookup()
       local name = ok and type(f) == "table" and plain(f.name) or nil
       if type(name) == "string" and not out[P.Key(name) or "?"] then
         local class = plain(f.className)
-        out[P.Key(name) or "?"] = { online = plain(f.connected) and true or false,
-                                    class = type(class) == "string" and class or nil }
+        class = type(class) == "string" and class or nil
+        -- a friend comes with the class's NAME only ("Mage"); the client's own table gives its file
+        local file
+        for _, t in ipairs({ LOCALIZED_CLASS_NAMES_MALE or {}, LOCALIZED_CLASS_NAMES_FEMALE or {} }) do
+          for k, v in pairs(t) do if v == class then file = k end end
+        end
+        out[P.Key(name) or "?"] = { online = plain(f.connected) and true or false, class = class, classFile = file }
       end
     end
   end
   return out
 end
 
---- The party list's missing names, checked: those to invite (by class where known) and those offline.
+--- The party list, checked: its missing names to invite (by class where known), those offline,
+--- and those on it who are with you already.
 function P.PartyEntries(db)
-  local who, entries, offline = P.Lookup(), {}, {}
-  local dropped = P.partyDropped or {}
+  local who, entries, offline, with = P.Lookup(), {}, {}, {}
   for _, n in ipairs(P.Missing(db)) do
-    local key = P.Key(n) or "?"
-    local w = who[key]
+    local w = who[P.Key(n) or "?"]
     if w and w.online == false then
       offline[#offline + 1] = { name = n }
-    elseif not dropped[key] then
-      entries[#entries + 1] = { name = n, class = (w and w.class) or "Unknown",
-                                classFile = w and w.classFile }
+    else
+      entries[#entries + 1] = { name = n, class = (w and w.class) or "Unknown", classFile = w and w.classFile }
     end
   end
-  return entries, offline
+  local here = {}
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  for _, n in ipairs(P.List(db)) do if here[P.Key(n) or "?"] then with[#with + 1] = { name = n } end end
+  return entries, offline, with
+end
+
+--- THE OPEN LIST IS ONE LIST (Arn, 17 Oct, the party list open and a rank invited from the guild
+--- view: "add to it"). A wave holds what it was built from - your party list, any ranks - and is
+--- rebuilt from all of it: nobody twice, the x'd kept out, the header naming every part.
+function P.WaveList(w)
+  local entries, inGroup, offline, seen = {}, {}, {}, {}
+  local function add(list, e)
+    local k = P.Key(e.name) or "?"
+    if not seen[k] then seen[k] = true list[#list + 1] = e end
+  end
+  local parts = {}
+  if w.party then
+    local e, off, with = P.PartyEntries(w.db)
+    for _, x in ipairs(with) do add(inGroup, x) end
+    for _, x in ipairs(e) do add(entries, x) end
+    for _, x in ipairs(off) do add(offline, x) end
+    parts[#parts + 1] = "your party list"
+  end
+  if w.ranks and next(w.ranks) then
+    local e, g, found, label = P.RankPeople(w.ranks)
+    for _, x in ipairs(g) do add(inGroup, x) end
+    for _, x in ipairs(e) do add(entries, x) end
+    if found then parts[#parts + 1] = label end
+  end
+  return P.WithoutDropped(entries), inGroup, offline, #parts > 0 and table.concat(parts, " + ") or "invites"
+end
+
+--- Is a list open that more can be added to? The box up, with a wave in it.
+function P.WaveOpen()
+  return P.wave ~= nil and P.box ~= nil and P.box:IsShown() and true or false
+end
+
+--- Add to the open list: `grow(w)` changes what it holds; the list is rebuilt and says what came in.
+function P.AddToWave(grow, what)
+  local before = {}
+  for _, e in ipairs(P.pending or {}) do before[P.Key(e.name) or "?"] = true end
+  grow(P.wave)
+  P.Regenerate()
+  local new = 0
+  for _, e in ipairs(P.pending or {}) do if not before[P.Key(e.name) or "?"] then new = new + 1 end end
+  P.note = ("added %s: %s"):format(what, new > 0 and ("%d new"):format(new) or "nobody new")
+  P.noteUntil = (GetTime and GetTime() or 0) + P.NOTE_FOR
+  local cv = P.box and P.box.confirmView
+  if cv and cv:IsShown() then
+    P.PaintConfirm()
+    P.Sweep()
+    if C_Timer and C_Timer.After then C_Timer.After(P.NOTE_FOR + 0.05, function() P.PaintConfirm() end) end
+  end
+  return new
+end
+
+--- Start a list (or add to the open one): prepare, then wait for Send.
+function P.StartWave(db, grow, what)
+  if P.WaveOpen() then return P.AddToWave(grow, what) end
+  P.wave = { db = db, dropped = {} }
+  grow(P.wave)
+  local entries, inGroup, offline, label = P.WaveList(P.wave)
+  if #entries == 0 then
+    P.wave = nil
+    if #offline > 0 then
+      local t = {}
+      for _, e in ipairs(offline) do t[#t + 1] = e.name end
+      NS.Print("party list: nobody missing is online (%d offline: %s)", #offline, table.concat(t, ", "))
+    else
+      NS.Print("party list: everyone in %s is already with you", what)
+    end
+    return 0
+  end
+  return P.Confirm(db, label, entries, inGroup, offline)
 end
 
 --- THE TOOLS-BOX BUTTON CONFIRMS TOO (Arn, 15 Oct: in open-world PvP, a stray click on it would
 --- invite in the heat of battle): the party list's missing names, on the confirm list first. And
 --- since 17 Oct the party window's invite button the same way, checked for who is online.
 function P.ConfirmList(db)
-  P.wave, P.partyDropped = nil, {}
-  local entries, offline = P.PartyEntries(db)
-  if #entries == 0 then
-    if #offline > 0 then
-      NS.Print("party list: nobody missing is online (%d offline: %s)", #offline,
-        table.concat((function() local t = {} for _, e in ipairs(offline) do t[#t + 1] = e.name end return t end)(), ", "))
-    else
-      NS.Print("party list: everyone is already with you")
-    end
-    return 0
-  end
-  local n = P.Confirm(db, "your party list", entries, {}, offline)
-  P.pendingSource = "party"
-  return n
+  return P.StartWave(db, function(w) w.party = true end, "your party list")
 end
 
 --- Send: the names left go out, and the box plays the invites as usual.
@@ -977,6 +1037,11 @@ function P.BuildWindow(db)
     r.hl:SetAllPoints(r)
     do local cr, cg, cb = F.color("accent") r.hl:SetColorTexture(cr, cg, cb, 0.18) end
     r.hl:Hide()
+    -- WITH YOU NOW: a faint green bar, since the name's own colour is its class (17 Oct)
+    r.here = r:CreateTexture(nil, "BACKGROUND", nil, -1)
+    r.here:SetAllPoints(r)
+    do local cr, cg, cb = F.color("good") r.here:SetColorTexture(cr, cg, cb, 0.16) end
+    r.here:Hide()
     local function lit(on) if on and not r.empty then r.hl:Show() else r.hl:Hide() end end
     r.pick:SetScript("OnEnter", function() lit(true) end)
     r.pick:SetScript("OnLeave", function() lit(false) end)
@@ -1134,11 +1199,12 @@ function P.InviteRanks(db, ranks)
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
   -- A WAVE (Arn, 15 Oct: "the raid leader generates a list, sends out invites, can leave it open -
   -- it regenerates with new people that log on ... and can click invite again"): the list stays
-  -- open across sends, rebuilt from the same ranks; whoever was x'd stays out for the session
-  local id = table.concat(keys, "|")
-  local same = P.wave and P.wave.rank == id
-  P.wave = { db = db, rank = id, ranks = ranks, label = label, dropped = same and P.wave.dropped or {} }
-  return P.Confirm(db, label, P.WithoutDropped(entries), inGroup)
+  -- open across sends, rebuilt from the same ranks; whoever was x'd stays out for the session.
+  -- And a list already open takes the ranks in (17 Oct, "add to it").
+  return P.StartWave(db, function(w)
+    w.ranks = w.ranks or {}
+    for r in pairs(ranks) do w.ranks[r] = true end
+  end, label)
 end
 
 --- Those ranks' people online: those to invite, those already with you, whether any, the label
@@ -1172,8 +1238,8 @@ end
 function P.Regenerate()
   local w = P.wave
   if not w then return false end
-  local entries, inGroup = P.RankPeople(w.ranks or w.rank)
-  P.pending, P.pendingHere, P.pendingLabel, P.pendingDb = P.WithoutDropped(entries), inGroup, w.label, w.db
+  local entries, inGroup, offline, label = P.WaveList(w)
+  P.pending, P.pendingHere, P.pendingOff, P.pendingLabel, P.pendingDb = entries, inGroup, offline, label, w.db
   P.PaintConfirm()
   return true
 end
@@ -1183,20 +1249,6 @@ end
 --- P.Regenerate only knows how to rebuild a rank. Whoever has joined you since moves down to "already
 --- with you"; nobody new can appear, the list came from outside.
 function P.Recheck()
-  -- the party list's own list is rebuilt whole: someone who logged on since moves up out of Offline
-  if P.pendingSource == "party" and P.pendingDb then
-    local entries, offline = P.PartyEntries(P.pendingDb)
-    local with = P.pendingHere or {}
-    local before = {}
-    for _, e in ipairs(P.pending or {}) do before[P.Key(e.name) or "?"] = e end
-    local still = {}
-    for _, e in ipairs(entries) do still[P.Key(e.name) or "?"] = true end
-    for _, e in ipairs(offline) do still[P.Key(e.name) or "?"] = true end
-    for k, e in pairs(before) do if not still[k] then with[#with + 1] = e end end   -- joined you
-    P.pending, P.pendingOff, P.pendingHere = entries, offline, with
-    P.PaintConfirm()
-    return
-  end
   local here = { [P.Key(UnitName("player")) or "?"] = true }
   for _, m in ipairs(P.Members()) do here[m.key] = true end
   local keep, with = {}, P.pendingHere or {}
@@ -1296,12 +1348,23 @@ function P.PaintWindow()
   f.guildBtn.label:SetText(guild and "party" or "guild")
   local names, here = P.List(db), {}
   local entries
+  -- THE LIST IN CLASS COLOURS (Arn, 17 Oct: "on the party window can it also determin class?"):
+  -- from your group, your guild roster or your friends list - whoever knows; grey when offline
+  local who = {}
   if guild then
     entries = {}
     for _, r in ipairs(P.Ranks()) do entries[#entries + 1] = { rank = r.rank, n = r.n } end
     names = entries
   else
-    for _, m in ipairs(P.Members()) do here[m.key] = true end
+    who = P.Lookup()
+    for _, m in ipairs(P.Members()) do
+      here[m.key] = true
+      local file = UnitClass and plain(select(2, UnitClass(m.unit)))
+      if type(file) == "string" then
+        who[m.key] = who[m.key] or {}
+        who[m.key].classFile, who[m.key].online = file, true
+      end
+    end
   end
   P.offset = 0
   -- the guild view is ONE full-width column (Arn, 15 Oct: rank names like "<Altezza's Bruhs>" ran
@@ -1326,9 +1389,15 @@ function P.PaintWindow()
       else
         local on = guild and P.Has(db, n)
         r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+")) or n)
-        local r_, g, b = NS.Farm.color(((guild and on) or here[P.Key(n) or "?"]) and "good" or "ink")
+        local k = P.Key(n) or "?"
+        local w = who[k]
+        local r_, g, b
+        if guild then r_, g, b = NS.Farm.color(on and "good" or "ink")
+        elseif w and w.online == false then r_, g, b = NS.Farm.color("dim")
+        else r_, g, b = classColour(w and w.classFile) end
         r.name:SetTextColor(r_, g, b, 1)
       end
+      if r.here then if not guild and not r.rank and here[P.Key(n) or "?"] then r.here:Show() else r.here:Hide() end end
       if guild then r.x:Hide() r.pick:Show() else r.x:Show() r.pick:Hide() end
       r:Show()
     else

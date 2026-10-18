@@ -58,6 +58,7 @@ function API.InviteList(label, people)
   end
   if #go == 0 then return 0 end
   if not P.Leads() then return nil, "not leader" end
+  P.wave = nil          -- a list from outside is its own; Refresh rechecks it (P.Recheck), never a wave
   return P.Confirm(P.db, type(label) == "string" and label or "invites", go, with)
 end
 
