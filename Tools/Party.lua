@@ -360,7 +360,7 @@ end
 -- instantly ... make it seem like its working, split into classes, and we can remove people that
 -- are raiders but arent raiding"). A rank click plays the working view as "preparing" (P.Confirm),
 -- then stops here: who would be invited, by class, an x on each; Send, or Cancel and nobody is.
-P.CONF_COLS, P.CONF_ROWS, P.CONF_LINE = 3, 9, 14
+P.CONF_COLS, P.CONF_ROWS, P.CONF_LINE = 3, 8, 14   -- 8: the 9th row sat under the hint line (17 Oct)
 P.PREP_LEN = 1.6
 
 function P.BuildConfirm(f)

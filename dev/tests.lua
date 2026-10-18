@@ -5649,6 +5649,10 @@ do
         ok(cv.head.text:find("^%d+ to invite: ") and cv.head.wrap == false and cv.head.w == P.W - 24,
            "count first, one line cut at the window's edge (three parts ran to the border)", cv.head.text)
         ok(cv.more.text == "x leaves someone out", "the x hint sits above the buttons", cv.more.text)
+        -- and no list row reaches it (Arn's screenshot: Frankadank, row 9, under the hint)
+        local lastRowBottom = 48 + P.CONF_ROWS * P.CONF_LINE           -- from the top
+        ok(P.H - lastRowBottom >= 32 + 12, "the last row ends above the hint line",
+           (P.H - lastRowBottom) .. " px from the bottom")
         local nebs = 0
         for _, e in ipairs(P.pending) do if e.name == "Nebeon" then nebs = nebs + 1 end end
         ok(nebs == 1, "on the party list and Raider too: listed once")
