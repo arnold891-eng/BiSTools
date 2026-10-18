@@ -93,6 +93,8 @@ end
 --- Everyone grouped with you (not you): { unit, name, key }. A 40-man walk is 120 calls, so the
 --- box walks it once and hands it to each question (the `members` argument below).
 function P.Members()
+  -- one walk per roster change: the event handler lends its walk to everything it calls (17 Oct)
+  if P.__members then return P.__members end
   local out = {}
   if not P.Grouped() then return out end
   local raid = IsInRaid and IsInRaid()
@@ -358,7 +360,7 @@ end
 -- instantly ... make it seem like its working, split into classes, and we can remove people that
 -- are raiders but arent raiding"). A rank click plays the working view as "preparing" (P.Confirm),
 -- then stops here: who would be invited, by class, an x on each; Send, or Cancel and nobody is.
-P.CONF_COLS, P.CONF_ROWS, P.CONF_LINE = 3, 9, 14
+P.CONF_COLS, P.CONF_ROWS, P.CONF_LINE = 3, 8, 14   -- 8: the 9th row sat under the hint line (17 Oct)
 P.PREP_LEN = 1.6
 
 function P.BuildConfirm(f)
@@ -367,6 +369,10 @@ function P.BuildConfirm(f)
   cv:SetAllPoints(f)
   f.confirmView = cv
   cv.head = K.fs(cv, "", 11, "ink2")
+  -- one line, cut with "..." past the edge (Arn's list, 17 Oct: three parts named ran to the border)
+  cv.head:SetWidth(P.W - 24)
+  cv.head:SetJustifyH("LEFT")
+  cv.head:SetWordWrap(false)
   cv.head:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
   local inner = P.W - 24
   local colW = inner / P.CONF_COLS
@@ -462,6 +468,15 @@ function P.ConfirmLines()
     table.sort(sorted, function(a, b) return a.name < b.name end)
     for _, e in ipairs(sorted) do out[#out + 1] = { here = true, text = P.Short(e.name) } end
   end
+  -- OFFLINE (17 Oct, the party list's check): last, dimmed, no x - the invite would only bounce
+  local off = P.pendingOff or {}
+  if #off > 0 then
+    out[#out + 1] = { head = true, here = true, text = ("Offline (%d)"):format(#off) }
+    local sorted = {}
+    for _, e in ipairs(off) do sorted[#sorted + 1] = e end
+    table.sort(sorted, function(a, b) return a.name < b.name end)
+    for _, e in ipairs(sorted) do out[#out + 1] = { here = true, text = P.Short(e.name) } end
+  end
   return out
 end
 
@@ -488,11 +503,11 @@ function P.PaintConfirm()
     cv.head:SetText(P.note)                         -- what the last Refresh changed (P.RefreshNow)
     cv.head:SetTextColor(NS.Farm.color("good"))
   else
-    cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+    cv.head:SetText(("%d to invite: %s"):format(n, P.pendingLabel or "invites"))
     cv.head:SetTextColor(NS.Farm.color("ink2"))
   end
   local below = #lines - fit - P.confOffset
-  cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or "")
+  cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or (n > 0 and "x leaves someone out" or ""))
   cv.send.label:SetText(n > 0 and ("Send %d invite%s"):format(n, n == 1 and "" or "s") or "Nobody left")
 end
 
@@ -515,9 +530,9 @@ function P.ShowConfirm()
 end
 
 --- Prepare, then confirm: the working view reads the roster, then the list waits for Send.
-function P.Confirm(db, label, entries, inGroup)
+function P.Confirm(db, label, entries, inGroup, offline)
   if #entries == 0 then NS.Print("party list: everyone %s is already with you", label) return 0 end
-  P.pendingHere = inGroup or {}
+  P.pendingHere, P.pendingOff = inGroup or {}, offline or {}
   P.pending, P.pendingLabel, P.pendingDb = entries, label, db
   if db.show == false then P.ShowConfirm() return #entries end
   local f = P.BuildShow()
@@ -531,24 +546,153 @@ function P.Confirm(db, label, entries, inGroup)
   for _, c in ipairs(classes) do parts[#parts + 1] = ("%d %s"):format(counts[c], c) end
   P.Show({})
   P.pending, P.pendingLabel, P.pendingDb = entries, label, db
-  P.run = { prep = true, names = entries, t = 0, said = 0, len = P.PREP_LEN,
-            script = { "Reading the guild roster...",
-                       ("Found %d %s online"):format(#entries, label),
-                       "Sorting by class: " .. table.concat(parts, ", "),
-                       "Checking who is already with you...",
-                       "Ready. Look it over." } }
+  local script = { "Reading the guild roster...",
+                   ("Found %d %s online"):format(#entries, label),
+                   "Sorting by class: " .. table.concat(parts, ", "),
+                   "Checking who is already with you..." }
+  if offline and #offline > 0 then script[#script + 1] = ("%d offline - left out"):format(#offline) end
+  script[#script + 1] = "Ready. Look it over."
+  P.run = { prep = true, names = entries, t = 0, said = 0, len = P.PREP_LEN, script = script }
   f.status:SetText(("Preparing invites: %s..."):format(label))
   P.Step(0)
   return #entries
 end
 
+--- WHO IS ON, AS FAR AS THE CLIENT WILL SAY (Arn, 17 Oct: the party window's invite "sending the
+--- invite right away ... i think we need to add the second screen of it doing the check to make sure
+--- they are online"). Your guild roster, everyone in it, and your friends list: key -> { online,
+--- class, classFile }. Somebody in neither is unknown - nil - and is invited on trust.
+function P.Lookup()
+  local out = {}
+  if IsInGuild and IsInGuild() then
+    local okN, n = pcall(GetNumGuildMembers)
+    n = okN and plain(n) or 0
+    for i = 1, (type(n) == "number" and n or 0) do
+      local ok, name, _, _, _, class, _, _, _, online, _, classFile = pcall(GetGuildRosterInfo, i)
+      name = ok and plain(name) or nil
+      if type(name) == "string" then
+        class, classFile, online = plain(class), plain(classFile), plain(online)
+        out[P.Key(name) or "?"] = { online = online and true or false,
+                                    class = type(class) == "string" and class or nil,
+                                    classFile = type(classFile) == "string" and classFile or nil }
+      end
+    end
+  end
+  local FL = C_FriendList
+  if FL and FL.GetNumFriends and FL.GetFriendInfoByIndex then
+    local okN, n = pcall(FL.GetNumFriends)
+    n = okN and plain(n) or 0
+    for i = 1, (type(n) == "number" and n or 0) do
+      local ok, f = pcall(FL.GetFriendInfoByIndex, i)
+      local name = ok and type(f) == "table" and plain(f.name) or nil
+      if type(name) == "string" and not out[P.Key(name) or "?"] then
+        local class = plain(f.className)
+        class = type(class) == "string" and class or nil
+        -- a friend comes with the class's NAME only ("Mage"); the client's own table gives its file
+        local file
+        for _, t in ipairs({ LOCALIZED_CLASS_NAMES_MALE or {}, LOCALIZED_CLASS_NAMES_FEMALE or {} }) do
+          for k, v in pairs(t) do if v == class then file = k end end
+        end
+        out[P.Key(name) or "?"] = { online = plain(f.connected) and true or false, class = class, classFile = file }
+      end
+    end
+  end
+  return out
+end
+
+--- The party list, checked: its missing names to invite (by class where known), those offline,
+--- and those on it who are with you already.
+function P.PartyEntries(db)
+  local who, entries, offline, with = P.Lookup(), {}, {}, {}
+  for _, n in ipairs(P.Missing(db)) do
+    local w = who[P.Key(n) or "?"]
+    if w and w.online == false then
+      offline[#offline + 1] = { name = n }
+    else
+      entries[#entries + 1] = { name = n, class = (w and w.class) or "Unknown", classFile = w and w.classFile }
+    end
+  end
+  local here = {}
+  for _, m in ipairs(P.Members()) do here[m.key] = true end
+  for _, n in ipairs(P.List(db)) do if here[P.Key(n) or "?"] then with[#with + 1] = { name = n } end end
+  return entries, offline, with
+end
+
+--- THE OPEN LIST IS ONE LIST (Arn, 17 Oct, the party list open and a rank invited from the guild
+--- view: "add to it"). A wave holds what it was built from - your party list, any ranks - and is
+--- rebuilt from all of it: nobody twice, the x'd kept out, the header naming every part.
+function P.WaveList(w)
+  local entries, inGroup, offline, seen = {}, {}, {}, {}
+  local function add(list, e)
+    local k = P.Key(e.name) or "?"
+    if not seen[k] then seen[k] = true list[#list + 1] = e end
+  end
+  local parts = {}
+  if w.party then
+    local e, off, with = P.PartyEntries(w.db)
+    for _, x in ipairs(with) do add(inGroup, x) end
+    for _, x in ipairs(e) do add(entries, x) end
+    for _, x in ipairs(off) do add(offline, x) end
+    parts[#parts + 1] = "your party list"
+  end
+  if w.ranks and next(w.ranks) then
+    local e, g, found, label = P.RankPeople(w.ranks)
+    for _, x in ipairs(g) do add(inGroup, x) end
+    for _, x in ipairs(e) do add(entries, x) end
+    if found then parts[#parts + 1] = label end
+  end
+  return P.WithoutDropped(entries), inGroup, offline, #parts > 0 and table.concat(parts, " + ") or "invites"
+end
+
+--- Is a list open that more can be added to? The box up, with a wave in it.
+function P.WaveOpen()
+  return P.wave ~= nil and P.box ~= nil and P.box:IsShown() and true or false
+end
+
+--- Add to the open list: `grow(w)` changes what it holds; the list is rebuilt and says what came in.
+function P.AddToWave(grow, what)
+  local before = {}
+  for _, e in ipairs(P.pending or {}) do before[P.Key(e.name) or "?"] = true end
+  grow(P.wave)
+  P.Regenerate()
+  local new = 0
+  for _, e in ipairs(P.pending or {}) do if not before[P.Key(e.name) or "?"] then new = new + 1 end end
+  P.note = ("added %s: %s"):format(what, new > 0 and ("%d new"):format(new) or "nobody new")
+  P.noteUntil = (GetTime and GetTime() or 0) + P.NOTE_FOR
+  local cv = P.box and P.box.confirmView
+  if cv and cv:IsShown() then
+    P.PaintConfirm()
+    P.Sweep()
+    if C_Timer and C_Timer.After then C_Timer.After(P.NOTE_FOR + 0.05, function() P.PaintConfirm() end) end
+  end
+  return new
+end
+
+--- Start a list (or add to the open one): prepare, then wait for Send.
+function P.StartWave(db, grow, what)
+  if P.WaveOpen() then return P.AddToWave(grow, what) end
+  P.wave = { db = db, dropped = {} }
+  grow(P.wave)
+  local entries, inGroup, offline, label = P.WaveList(P.wave)
+  if #entries == 0 then
+    P.wave = nil
+    if #offline > 0 then
+      local t = {}
+      for _, e in ipairs(offline) do t[#t + 1] = e.name end
+      NS.Print("party list: nobody missing is online (%d offline: %s)", #offline, table.concat(t, ", "))
+    else
+      NS.Print("party list: everyone in %s is already with you", what)
+    end
+    return 0
+  end
+  return P.Confirm(db, label, entries, inGroup, offline)
+end
+
 --- THE TOOLS-BOX BUTTON CONFIRMS TOO (Arn, 15 Oct: in open-world PvP, a stray click on it would
---- invite in the heat of battle): the party list's missing names, on the confirm list first.
+--- invite in the heat of battle): the party list's missing names, on the confirm list first. And
+--- since 17 Oct the party window's invite button the same way, checked for who is online.
 function P.ConfirmList(db)
-  local entries = {}
-  for _, n in ipairs(P.Missing(db)) do entries[#entries + 1] = { name = n, class = "Party list" } end
-  if #entries == 0 then NS.Print("party list: everyone is already with you") return 0 end
-  return P.Confirm(db, "your party list", entries, {})
+  return P.StartWave(db, function(w) w.party = true end, "your party list")
 end
 
 --- Send: the names left go out, and the box plays the invites as usual.
@@ -714,6 +858,14 @@ function P.Disband()
   return true
 end
 
+--- The buttons' disband: shift-click only (Arn, 17 Oct: "shift click for this one too, might leave
+--- by mistake"), like the invite button. A plain click only says how. The slash word stays as it is.
+function P.ShiftDisband()
+  if IsShiftKeyDown and IsShiftKeyDown() then return P.Disband() end
+  NS.Print("party list: shift-click to disband or leave")
+  return false
+end
+
 ------------------------------------------------------------- the box buttons --
 
 --- When the buttons mean something: solo with a list, or grouped with someone on it.
@@ -774,9 +926,9 @@ function P.Buttons()
   P.dbtn = button("BiSToolsPartyDisband", "Interface\\Icons\\Ability_Rogue_Sprint", "Disband",
     function()
       local lead = UnitIsGroupLeader and plain(UnitIsGroupLeader("player"))
-      return lead == true and "Everyone out of the group." or "You leave the group (you are not the leader)."
+      return "Shift-click: " .. (lead == true and "everyone out of the group." or "you leave the group (you are not the leader).")
     end,
-    function() P.Disband() end)
+    function() P.ShiftDisband() end)
   return P.ibtn, P.dbtn
 end
 
@@ -869,7 +1021,16 @@ function P.BuildWindow(db)
     r.pick = CreateFrame("Button", nil, r)
     r.pick:SetAllPoints(r)
     r.pick:SetScript("OnClick", function()
-      if r.rank then if not r.empty then P.InviteRank(db, r.rank) end return end
+      -- a rank click PICKS it (Arn, 17 Oct: several ranks on a raid night); invite sends the picked
+      if r.rank then
+        if not r.empty then
+          local k = r.rank:lower()
+          P.picked = P.picked or {}
+          P.picked[k] = (not P.picked[k]) or nil
+          P.PaintWindow()
+        end
+        return
+      end
       if not r.who then return end
       if P.Has(db, r.who) then P.Remove(db, r.who) else P.Add(db, r.who) end
       P.Changed()
@@ -882,11 +1043,28 @@ function P.BuildWindow(db)
     r.hl:SetAllPoints(r)
     do local cr, cg, cb = F.color("accent") r.hl:SetColorTexture(cr, cg, cb, 0.18) end
     r.hl:Hide()
+    -- WITH YOU NOW: a faint green bar, since the name's own colour is its class (17 Oct)
+    r.here = r:CreateTexture(nil, "BACKGROUND", nil, -1)
+    r.here:SetAllPoints(r)
+    do local cr, cg, cb = F.color("good") r.here:SetColorTexture(cr, cg, cb, 0.16) end
+    r.here:Hide()
     local function lit(on) if on and not r.empty then r.hl:Show() else r.hl:Hide() end end
     r.pick:SetScript("OnEnter", function() lit(true) end)
     r.pick:SetScript("OnLeave", function() lit(false) end)
     r.x:SetScript("OnEnter", function() lit(true) end)
     r.x:SetScript("OnLeave", function() lit(false) end)
+    -- the name under the mouse: when and where you last grouped (17 Oct)
+    if r.EnableMouse then r:EnableMouse(true) end
+    r:SetScript("OnEnter", function(self)
+      if not (GameTooltip and self.last and self.who) then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.who)
+      local when = date and date("%d %b %H:%M", self.last.t) or tostring(self.last.t)
+      GameTooltip:AddLine(("Last grouped %s ago - %s%s"):format(P.Ago(self.last.t) or "?", when,
+        self.last.zone and (", " .. self.last.zone) or ""), 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    r:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     r:Hide()
     f.rows[i] = r
   end
@@ -922,17 +1100,34 @@ function P.BuildWindow(db)
   eb:SetScript("OnEscapePressed", function(self) self:SetText("") self:ClearFocus() end)
   f.add = eb
   -- what you do with the list
-  -- five along the bottom (Arn, 15 Oct: "from this window a button that shows all the guild ranks,
-  -- i click the ranks and it sends out invites"): ranks swaps the names for the guild's ranks
-  local bw = (P.WIN_W - 12 - 12) / 5
+  -- along the bottom (Arn, 15 Oct: "from this window a button that shows all the guild ranks, i click
+  -- the ranks and it sends out invites"): ranks swaps the names for the guild's ranks.
+  -- NO CLEAR BUTTON (Arn, 17 Oct: "the clear button is too unforgiving ... i clicked it thinking it
+  -- was going to just send me to the default start window and it deleted everyone"). The x on each
+  -- name stays; emptying the whole list is `/bist party clear` or the options' button, words you mean.
   local acts = {
     { "save", "good", function() P.SaveGroup(db) P.Changed() end, "Save group: everyone you're grouped with now becomes the list." },
-    { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
+    -- the confirm list first (Arn, 17 Oct: "this button is sending the invite right away"): who is
+    -- online, an x on each, then Send
+    -- in the guild view it invites the picked ranks the same way
+    { "invite", "good", function()
+        if P.view == "guild" then
+          -- nothing ticked: say so HERE, in the window (Arn, 17 Oct: "i click invite nothing happens")
+          if not (P.picked and next(P.picked)) then
+            P.nudgeUntil = (GetTime and GetTime() or 0) + 3
+            P.PaintWindow()
+            if C_Timer and C_Timer.After then C_Timer.After(3.05, function() P.PaintWindow() end) end
+            return
+          end
+          P.InviteRanks(db, P.picked)
+        else P.ConfirmList(db) end
+      end,
+      "Your list (or, in the guild view, the ranks you picked): check who is online, x anyone you don't want this time, then Send." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
-      "Your guild's ranks: click one to invite everyone online with it. 'party' takes you back to your list." },
-    { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
-    { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
+      "Your guild's ranks: tick the ones you want, then invite. 'party' takes you back to your list." },
+    { "disband", "warn", function() P.ShiftDisband() end, "Shift-click. Leading: everyone out. Otherwise: you leave." },
   }
+  local bw = (P.WIN_W - 12 - 3 * (#acts - 1)) / #acts
   f.buttons = {}
   for i, a in ipairs(acts) do
     local b = button(f, a[1], bw, a[2], a[3], a[4])
@@ -1008,29 +1203,49 @@ function P.InviteRank(db, rank)
     if not r then NS.Print("party list: no rank number %d online (/bist party rank lists them)", nth) return 0 end
     rank = r.rank:lower()
   end
-  local entries, inGroup, found, label = P.RankPeople(rank)
-  if not found then NS.Print("party list: nobody online with the rank %s", rank) return 0 end
+  return P.InviteRanks(db, { [rank] = true })
+end
+
+--- SEVERAL RANKS AT ONCE (Arn, 17 Oct: "maybe we can select mutiple ranks raid night gm rank
+--- selected officer and raiders"): `ranks` is a set of lower-case rank names. One wave, one list.
+function P.InviteRanks(db, ranks)
+  local keys, own = {}, {}
+  for r in pairs(ranks or {}) do keys[#keys + 1] = r own[r] = true end   -- a copy: the window's picks move on
+  ranks = own
+  table.sort(keys)
+  if #keys == 0 then NS.Print("party list: pick a rank first") return 0 end
+  local entries, inGroup, found, label = P.RankPeople(ranks)
+  if not found then NS.Print("party list: nobody online with the rank %s", table.concat(keys, ", ")) return 0 end
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
   -- A WAVE (Arn, 15 Oct: "the raid leader generates a list, sends out invites, can leave it open -
   -- it regenerates with new people that log on ... and can click invite again"): the list stays
-  -- open across sends, rebuilt from the same rank; whoever was x'd stays out for the session
-  local same = P.wave and P.wave.rank == rank
-  P.wave = { db = db, rank = rank, label = label, dropped = same and P.wave.dropped or {} }
-  return P.Confirm(db, label, P.WithoutDropped(entries), inGroup)
+  -- open across sends, rebuilt from the same ranks; whoever was x'd stays out for the session.
+  -- And a list already open takes the ranks in (17 Oct, "add to it").
+  return P.StartWave(db, function(w)
+    w.ranks = w.ranks or {}
+    for r in pairs(ranks) do w.ranks[r] = true end
+  end, label)
 end
 
---- That rank's people online: those to invite, those already with you, whether any, its label.
-function P.RankPeople(rank)
+--- Those ranks' people online: those to invite, those already with you, whether any, the label
+--- ("<Officer> + <Raider>", highest rank first). `ranks` is one lower-case name or a set of them.
+function P.RankPeople(ranks)
+  if type(ranks) == "string" then ranks = { [ranks] = true } end
   local here = { [P.Key(UnitName("player")) or "?"] = true }
   for _, m in ipairs(P.Members()) do here[m.key] = true end
-  local entries, inGroup, found, label = {}, {}, false, nil
+  local entries, inGroup, found, named = {}, {}, false, {}
   for _, m in ipairs(P.GuildOnline()) do
-    if m.rank and m.rank:lower() == rank then
-      found, label = true, "<" .. m.rank .. ">"
+    if m.rank and ranks[m.rank:lower()] then
+      found = true
+      named[m.rank] = named[m.rank] or (m.rankIndex or 99)
       if not here[P.Key(m.name) or "?"] then entries[#entries + 1] = m else inGroup[#inGroup + 1] = m end
     end
   end
-  return entries, inGroup, found, label
+  local order = {}
+  for r in pairs(named) do order[#order + 1] = r end
+  table.sort(order, function(a, b) if named[a] ~= named[b] then return named[a] < named[b] end return a < b end)
+  for i, r in ipairs(order) do order[i] = "<" .. r .. ">" end
+  return entries, inGroup, found, found and table.concat(order, " + ") or nil
 end
 
 function P.WithoutDropped(entries)
@@ -1043,8 +1258,8 @@ end
 function P.Regenerate()
   local w = P.wave
   if not w then return false end
-  local entries, inGroup = P.RankPeople(w.rank)
-  P.pending, P.pendingHere, P.pendingLabel, P.pendingDb = P.WithoutDropped(entries), inGroup, w.label, w.db
+  local entries, inGroup, offline, label = P.WaveList(w)
+  P.pending, P.pendingHere, P.pendingOff, P.pendingLabel, P.pendingDb = entries, inGroup, offline, label, w.db
   P.PaintConfirm()
   return true
 end
@@ -1153,12 +1368,23 @@ function P.PaintWindow()
   f.guildBtn.label:SetText(guild and "party" or "guild")
   local names, here = P.List(db), {}
   local entries
+  -- THE LIST IN CLASS COLOURS (Arn, 17 Oct: "on the party window can it also determin class?"):
+  -- from your group, your guild roster or your friends list - whoever knows; grey when offline
+  local who = {}
   if guild then
     entries = {}
     for _, r in ipairs(P.Ranks()) do entries[#entries + 1] = { rank = r.rank, n = r.n } end
     names = entries
   else
-    for _, m in ipairs(P.Members()) do here[m.key] = true end
+    who = P.Lookup()
+    for _, m in ipairs(P.Members()) do
+      here[m.key] = true
+      local file = UnitClass and plain(select(2, UnitClass(m.unit)))
+      if type(file) == "string" then
+        who[m.key] = who[m.key] or {}
+        who[m.key].classFile, who[m.key].online = file, true
+      end
+    end
   end
   P.offset = 0
   -- the guild view is ONE full-width column (Arn, 15 Oct: rank names like "<Altezza's Bruhs>" ran
@@ -1175,14 +1401,28 @@ function P.PaintWindow()
     if e then
       if r.rank then
         r.empty = e.n == 0
-        r.name:SetText(r.empty and ("<%s>  nobody else online"):format(r.rank) or ("invite all <%s> (%d)"):format(r.rank, e.n))
-        r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or "accent"))
+        local picked = not r.empty and P.picked and P.picked[r.rank:lower()]
+        r.name:SetText(r.empty and ("<%s>  nobody else online"):format(r.rank)
+          or picked and ("%s <%s> (%d)"):format(NS.T.text("good", "+"), r.rank, e.n)
+          or ("<%s> (%d)"):format(r.rank, e.n))
+        r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or picked and "good" or "accent"))
       else
         local on = guild and P.Has(db, n)
-        r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+")) or n)
-        local r_, g, b = NS.Farm.color(((guild and on) or here[P.Key(n) or "?"]) and "good" or "ink")
+        local k = P.Key(n) or "?"
+        -- when you last grouped, after the name (not for who is with you now - the green bar says it)
+        local last = not guild and not here[k] and type(db.lastWith) == "table" and db.lastWith[k] or nil
+        local ago = last and P.Ago(last.t)
+        r.last = last
+        r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+"))
+          or ago and (n .. "  " .. NS.T.text("dim", ago)) or n)
+        local w = who[k]
+        local r_, g, b
+        if guild then r_, g, b = NS.Farm.color(on and "good" or "ink")
+        elseif w and w.online == false then r_, g, b = NS.Farm.color("dim")
+        else r_, g, b = classColour(w and w.classFile) end
         r.name:SetTextColor(r_, g, b, 1)
       end
+      if r.here then if not guild and not r.rank and here[P.Key(n) or "?"] then r.here:Show() else r.here:Hide() end end
       if guild then r.x:Hide() r.pick:Show() else r.x:Show() r.pick:Hide() end
       r:Show()
     else
@@ -1191,8 +1431,12 @@ function P.PaintWindow()
   end
   local extra = #names - (guild and P.ROWS or #f.rows) - (P.offset or 0)
   if guild then
+    local np = 0
+    for _ in pairs(P.picked or {}) do np = np + 1 end
     f.more:SetText(#names == 0 and "nobody else in your guild is online"
-      or "click a rank: everyone online with it is invited")
+      or np > 0 and ("%d rank%s picked - invite to check who"):format(np, np == 1 and "" or "s")
+      or (GetTime and GetTime() or 0) < (P.nudgeUntil or 0) and NS.T.text("warn", "tick a rank first - click it, then invite")
+      or "click ranks to pick them, then invite")
   else
     f.more:SetText(#names == 0 and "empty - save a group, add a name, or right-click a player"
       or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
@@ -1289,13 +1533,76 @@ function P.HookMenus(db)
   return true
 end
 
+------------------------------------------------------- when you last grouped --
+-- (Arn, 17 Oct, with Blizzard's Recent Allies open: "maybe the list can add a little note of the
+-- last time we were partied?") Our own record - the client's Recent Allies is unmeasured on Forever:
+-- db.lastWith[key] = { t, zone } for everyone you group with, written at each group change, and
+-- again for whoever just LEFT, so the time is when you parted. Event-only; nothing ticks. At most
+-- P.LAST_MAX people, the longest-unseen dropped first.
+P.LAST_MAX = 200
+
+function P.NoteTogether(db)
+  if type(db) ~= "table" then return 0 end
+  db.lastWith = type(db.lastWith) == "table" and db.lastWith or {}
+  local now = (time and time()) or 0
+  local zone = GetRealZoneText and plain(GetRealZoneText())
+  zone = type(zone) == "string" and zone ~= "" and zone or nil
+  local cur, n = {}, 0
+  for _, m in ipairs(P.Members()) do
+    cur[m.key] = true
+    db.lastWith[m.key] = { t = now, zone = zone }
+    n = n + 1
+  end
+  for k in pairs(P.together or {}) do
+    if not cur[k] and db.lastWith[k] then db.lastWith[k].t, db.lastWith[k].zone = now, zone or db.lastWith[k].zone end
+  end
+  P.together = cur
+  local count, oldestK, oldestT = 0, nil, nil
+  for k, v in pairs(db.lastWith) do
+    count = count + 1
+    if not oldestT or (v.t or 0) < oldestT then oldestK, oldestT = k, v.t or 0 end
+  end
+  if count > P.LAST_MAX and oldestK then db.lastWith[oldestK] = nil end
+  return n
+end
+
+--- "now", "5m", "3h", "2d", "6w" - short enough to sit after a name.
+function P.Ago(t, now)
+  if type(t) ~= "number" then return nil end
+  local s = math.max(0, (now or (time and time()) or 0) - t)
+  if s < 60 then return "now" end
+  if s < 3600 then return ("%dm"):format(math.floor(s / 60)) end
+  if s < 86400 then return ("%dh"):format(math.floor(s / 3600)) end
+  if s < 86400 * 28 then return ("%dd"):format(math.floor(s / 86400)) end
+  return ("%dw"):format(math.floor(s / (86400 * 7)))
+end
+
 ------------------------------------------------------------------ the tool --
 
 local function refresh() P.Changed() end
 
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("GROUP_ROSTER_UPDATE")
-ev:SetScript("OnEvent", refresh)
+ev:RegisterEvent("PLAYER_LOGOUT")
+ev:SetScript("OnEvent", function(_, event)
+  -- logging out parts you from everyone: the group is still there to read, so write it as now
+  if event == "PLAYER_LOGOUT" then
+    local db = P.db
+    if type(db) == "table" and type(db.lastWith) == "table" then
+      local now = (time and time()) or 0
+      for k in pairs(P.together or {}) do if db.lastWith[k] then db.lastWith[k].t = now end end
+    end
+    return
+  end
+  -- ONE roster walk for the note and the redraw both (the 40-man budget: 150 asks)
+  P.__members = P.Members()
+  local ok, err = pcall(function()
+    if R:Enabled("party") then P.NoteTogether(P.db) end
+    refresh()
+  end)
+  P.__members = nil
+  if not ok then error(err, 0) end
+end)
 P.events = ev
 
 R:Register({
@@ -1323,7 +1630,7 @@ R:Register({
   },
   OnInit = function(_, db) P.db = db end,
   OnOpen = function(_, db, recenter) P.db = db P.Toggle(db, true, recenter) end,
-  OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) refresh() end,
+  OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) P.NoteTogether(db) refresh() end,
   OnSlash = function(_, db, args)
     P.db = db
     local verb, rest = (args or ""):match("^(%S*)%s*(.-)%s*$")

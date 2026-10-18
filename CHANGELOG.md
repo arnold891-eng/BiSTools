@@ -1,3 +1,13 @@
+## Unreleased
+
+- **Disband takes a shift-click**, like Invite, so you can't leave the group by mistake. A plain click only says how. Both the button in the BiS> tools box and "disband" in the party window; `/bist party disband` is unchanged.
+- **The party window's invite checks first.** It no longer sends straight away: the little progress bar runs, then the list shows who'd be invited, by class, with an x on each. Guildmates and friends who are offline sit apart at the bottom and aren't invited; anyone outside your guild and friends list (the game can't say if they're on) is listed under Unknown; Refresh moves anyone who has logged on since up into the list. Then Send.
+- **Pick several ranks.** In the guild view a click ticks a rank instead of inviting it. Tick Officer and Raider, press invite, and both ranks' people come up on one list, an x on each.
+- **One list, added to.** With the invite list open, inviting your party list or ticked ranks adds them to it - nobody twice, one Send - and the top says what came in ("added <Officer>: 2 new").
+- **The party window shows classes.** Names are in their class colour (from your group, guild or friends list), grey when offline, and whoever is with you now has a faint green bar.
+- **No more "clear" button in the party window** - one click emptied the whole list. Take names off with the x beside each; `/bist party clear` or the button in the options still empties it on purpose.
+- **When you last grouped.** Each name on the list shows how long since you were last in a group together ("3d", "5h"), and hovering it shows the day and the zone. BiS Tools keeps this itself, from today on, while the party tool is on.
+
 ## 0.12.0
 
 - **BiSToolsAPI - other addons can use your party list's invites.** BiS Guild's raider terminal hands its raid lists to the confirm list (by class, an x per person, the inviting box, refusals in red). Nothing in it can change your settings; with the party tool off it simply says so.

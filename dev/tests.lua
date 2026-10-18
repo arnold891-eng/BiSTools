@@ -5339,13 +5339,67 @@ do
     local names = {}
     for _, r in ipairs(w.rows) do if r.shown then names[#names + 1] = r.name.text end end
     ok(#names == 3 and names[1] == "Tobi" and names[3] == "Zed", "the names, in list order", table.concat(names, ","))
-    ok(w.rows[1].name.color and w.rows[1].name.color[2] > w.rows[1].name.color[1], "Tobi, with you now, in green")
+    -- with you now: a green bar behind the name, the name itself in its class colour (17 Oct)
+    ok(w.rows[1].here and w.rows[1].here.shown and not w.rows[3].here.shown, "Tobi, with you now: a green bar; Zed, not, none")
+    do
+      local keepUC, keepRCC = _G.UnitClass, _G.RAID_CLASS_COLORS
+      _G.UnitClass = function() return "Hunter", "HUNTER" end
+      _G.RAID_CLASS_COLORS = { HUNTER = { r = 0.67, g = 0.83, b = 0.45 } }
+      P.PaintWindow()
+      local c = w.rows[1].name.color
+      ok(c and math.abs(c[1] - 0.67) < 0.01 and math.abs(c[3] - 0.45) < 0.01, "and Tobi's name in his class colour",
+         c and table.concat({ c[1], c[2], c[3] }, ","))
+      _G.UnitClass, _G.RAID_CLASS_COLORS = keepUC, keepRCC
+      P.PaintWindow()
+    end
+    -- WHEN YOU LAST GROUPED (Arn, 17 Oct, Blizzard's Recent Allies open: "maybe the list can add a
+    -- little note of the last time we were partied?")
+    do
+      local keepTime, keepZone, keepRaid, keepIn = _G.time, _G.GetRealZoneText, W.raid, W.inRaid
+      local now = 1000000
+      _G.time = function() return now end
+      _G.GetRealZoneText = function() return "Orgrimmar" end
+      P.together = nil
+      P.NoteTogether(pdb)
+      local tk = P.Key("Tobi")
+      ok(pdb.lastWith and pdb.lastWith[tk] and pdb.lastWith[tk].zone == "Orgrimmar", "grouped with Tobi: noted, with the zone")
+      ok(not w.rows[1].name.text:find("now", 1, true), "while with you: no age, the green bar says it", w.rows[1].name.text)
+      now = now + 7200
+      W.raid, W.inRaid = { { name = "Me" } }, false
+      P.NoteTogether(pdb)
+      ok(pdb.lastWith[tk].t == now, "Tobi left: the time is when you parted, not when you met")
+      now = now + 3 * 86400
+      P.PaintWindow()
+      ok(w.rows[1].name.text:find("Tobi", 1, true) and w.rows[1].name.text:find("3d", 1, true), "the window: Tobi, 3d", w.rows[1].name.text)
+      ok(w.rows[1].last == pdb.lastWith[tk] and pcall(w.rows[1].scripts.OnEnter, w.rows[1]), "hovering the name: when and where")
+      ok(P.Ago(now - 30, now) == "now" and P.Ago(now - 300, now) == "5m" and P.Ago(now - 7200, now) == "2h"
+         and P.Ago(now - 86400 * 40, now) == "5w", "short ages: now, 5m, 2h, 5w")
+      -- lean: a 40-man roster change asks the client about each member once, and keeps at most LAST_MAX
+      local big = { { name = "Me" } }
+      for i = 1, 39 do big[#big + 1] = { name = "Raider" .. i } end
+      W.raid, W.inRaid = big, true
+      local Cost = dofile("../_bisdev/dev/cost.lua")
+      local calls, by = Cost.Count(function() P.NoteTogether(pdb) end)
+      ok(calls <= 170, "a 40-man roster change asks at most 170 things: " .. calls, Cost.Top and Cost.Top(by, 5))
+      local keepMax = P.LAST_MAX
+      P.LAST_MAX = 10
+      for _ = 1, 40 do P.NoteTogether(pdb) end
+      local count = 0
+      for _ in pairs(pdb.lastWith) do count = count + 1 end
+      ok(count <= 41 and count >= 10, "the record is capped, the oldest out first", count)
+      P.LAST_MAX = keepMax
+      W.raid, W.inRaid = keepRaid, keepIn
+      _G.time, _G.GetRealZoneText = keepTime, keepZone
+      pdb.lastWith, P.together = nil, nil
+      P.PaintWindow()
+    end
     w.rows[3].x.scripts.OnClick(w.rows[3].x)
     ok(not P.Has(pdb, "Zed") and not w.rows[3].shown, "x takes a name off, and the window follows")
     w.add:SetText("Zed")
     w.add.scripts.OnEnterPressed(w.add)
     ok(P.Has(pdb, "Zed") and w.rows[3].shown and w.rows[3].name.text == "Zed", "type a name, Enter: on the list")
-    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and w.buttons.clear, "save, invite, guild, disband, clear")
+    ok(w.buttons.save and w.buttons.invite and w.buttons.guild and w.buttons.disband and not w.buttons.clear,
+       "save, invite, guild, disband - and no clear (Arn, 17 Oct: \"too unforgiving\")")
     for name, b in pairs(w.buttons) do ok(b.label:GetStringWidth() <= b.w - 4, "the " .. name .. " label fits its button", b.label:GetStringWidth()) end
     -- THE GUILD VIEW (Arn, 15 Oct: the roster's own menu is off limits, so "list"; and "invite all
     -- rank <raider>"): ranks first, then names; a name onto the list, a rank invited whole
@@ -5366,8 +5420,8 @@ do
       ok(w.guildBtn.label.text == "party", "in the guild view the button says party - where it takes you", w.guildBtn.label.text)
       local texts = {}
       for _, r in ipairs(w.rows) do if r.shown then texts[#texts + 1] = r.name.text end end
-      ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "invite all <Officer> (1)"
-         and texts[3] == "<Veteran>  nobody else online" and texts[4] == "invite all <Raider> (2)" and #texts == 4,
+      ok(texts[1] == "<Guild Master>  nobody else online" and texts[2] == "<Officer> (1)"
+         and texts[3] == "<Veteran>  nobody else online" and texts[4] == "<Raider> (2)" and #texts == 4,
         "ranks: every rank, highest first; who else is online, never you, never the offline", table.concat(texts, ", "))
       -- one full-width line each: a long rank name fits (Arn's "<Altezza's Bruhs>" ran into the next column)
       ladder[3] = "Altezza's Bruhs Extra"
@@ -5395,8 +5449,21 @@ do
       roster[2][5], roster[2][6] = "Warrior", "WARRIOR"
       _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, m[5] or "Shaman", "", "", "", m[4], 0, m[6] or "SHAMAN" end
       W.raid, W.inRaid = { { name = "Me" }, { name = "Ariarie" } }, true       -- one Raider already in (a wave before)
+      -- nothing ticked: invite says so in the window, not only in chat (Arn: "i click invite nothing happens")
+      P.picked = nil
+      w.buttons.invite.scripts.OnClick(w.buttons.invite)
+      ok(not P.run and w.more.text:find("tick a rank first", 1, true), "invite with nothing ticked: the window says so", w.more.text)
+      P.nudgeUntil = nil
+      -- PICK, THEN INVITE (Arn, 17 Oct: "select mutiple ranks"): a rank click ticks it, nothing more
       w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
-      ok(#sent.invite == 0 and P.run and P.run.prep, "a rank click sends nothing yet: it prepares", #sent.invite)
+      ok(#sent.invite == 0 and not P.run and w.rows[4].name.text:find("<Raider> (2)", 1, true)
+         and w.rows[4].name.text:find("+", 1, true), "a rank click picks it: a +, and nothing happens yet", w.rows[4].name.text)
+      ok(w.more.text == "1 rank picked - invite to check who", "the hint says how many", w.more.text)
+      w.rows[2].pick.scripts.OnClick(w.rows[2].pick)
+      w.rows[2].pick.scripts.OnClick(w.rows[2].pick)
+      ok(not w.rows[2].name.text:find("+", 1, true), "a second click un-picks it", w.rows[2].name.text)
+      w.buttons.invite.scripts.OnClick(w.buttons.invite)
+      ok(#sent.invite == 0 and P.run and P.run.prep, "invite: the picked rank prepares, nothing sent yet", #sent.invite)
       local box = BiSToolsPartyLoading
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
       local cv = box.confirmView
@@ -5439,7 +5506,7 @@ do
       cv.cancel.scripts.OnClick(cv.cancel)
       ok(not box:IsShown() and #sent.invite == 0, "Cancel: nobody invited")
       W.raid, W.inRaid = { { name = "Me" } }, false
-      w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
+      w.buttons.invite.scripts.OnClick(w.buttons.invite)        -- Raider still picked
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
       cv.send.scripts.OnClick(cv.send)
       W.runAfters(P.PUMP_GAP + 0.1)
@@ -5479,6 +5546,27 @@ do
       ok(not box:IsShown() and P.wave == nil, "Close ends the wave")
       roster[6] = nil
       W.raid, W.inRaid = { { name = "Me" } }, false
+      -- TWO RANKS, ONE LIST (Arn, 17 Oct: "gm rank selected officer and raiders")
+      w.rows[2].pick.scripts.OnClick(w.rows[2].pick)              -- Officer too, Raider still picked
+      ok(w.more.text == "2 ranks picked - invite to check who", "two picked", w.more.text)
+      sent.invite = {}
+      w.buttons.invite.scripts.OnClick(w.buttons.invite)
+      for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+      local both = {}
+      for _, l in ipairs(cv.lines) do if l.shown then both[#both + 1] = l.text.text .. (l.x.shown and "[x]" or "") end end
+      local bs = table.concat(both, ", ")
+      ok(bs:find("Grux[x]", 1, true) and bs:find("Nebeon[x]", 1, true) and bs:find("Ariarie[x]", 1, true),
+         "both ranks' people on one list, an x on each", bs)
+      ok(cv.head.text:find("<Officer> + <Raider>", 1, true), "the head names both, highest first", cv.head.text)
+      for _, l in ipairs(cv.lines) do if l.shown and l.text.text == "Ariarie" then l.x.scripts.OnClick(l.x) end end
+      cv.send.scripts.OnClick(cv.send)
+      W.runAfters(P.PUMP_GAP + 0.1)
+      table.sort(sent.invite)
+      ok(table.concat(sent.invite, ",") == "Grux,Nebeon", "Send: both ranks, minus the x", table.concat(sent.invite, ","))
+      for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+      cv.cancel.scripts.OnClick(cv.cancel)
+      P.picked = nil
+      W.raid, W.inRaid = { { name = "Me" } }, false
       sent.invite = {}
       SlashCmdList.BISTOOLS("party rank officer")
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
@@ -5509,6 +5597,79 @@ do
       hooked.MENU_UNIT_COMMUNITIES_GUILD_MEMBER(nil, gm, { name = "Nebeon" })
       ok(#gm.lines == 0, "switched off again: no line (the hook goes at the next /reload)")
       _G.Menu, P.guildHooked, pdb.guildMenu = keepMenu, nil, nil
+      -- THE WINDOW'S INVITE CHECKS FIRST (Arn, 17 Oct: "this button is sending the invite right away
+      -- ... add the second screen of it doing the check to make sure they are online etc and the
+      -- little x"): who is on, by class; offline apart with no x; nothing sent until Send
+      do
+        local keepList = pdb.names
+        pdb.names = {}
+        for _, n in ipairs({ "Nebeon", "Asleep", "Stranger", "Pete" }) do P.Add(pdb, n) end
+        W.raid, W.inRaid = { { name = "Me" } }, false
+        sent.invite = {}
+        local cv = BiSToolsPartyLoading and BiSToolsPartyLoading.confirmView
+        w.buttons.invite.scripts.OnClick(w.buttons.invite)
+        ok(#sent.invite == 0 and P.run and P.run.prep, "invite in the party window sends nothing yet: it checks")
+        local box = BiSToolsPartyLoading
+        cv = box.confirmView
+        for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
+        local seen = {}
+        for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text .. (l.x.shown and "[x]" or "") end end
+        local s = table.concat(seen, ", ")
+        ok(cv:IsShown() and s:find("Paladin (1)", 1, true) and s:find("Nebeon[x]", 1, true),
+           "a guildmate online: under their class, with an x", s)
+        ok(s:find("Unknown (2)", 1, true) and s:find("Stranger[x]", 1, true),
+           "someone the client cannot place: invited on trust, with an x", s)
+        ok(s:find("Offline (1)", 1, true) and s:find("Asleep", 1, true) and not s:find("Asleep[x]", 1, true),
+           "an offline guildmate: apart, dimmed, no x", s)
+        ok(cv.send.label.text == "Send 3 invites", "Send counts only who is on", cv.send.label.text)
+        for _, l in ipairs(cv.lines) do if l.shown and l.text.text == "Pete" then l.x.scripts.OnClick(l.x) end end
+        roster[4][4] = true                                    -- Asleep logs on
+        cv.refresh.scripts.OnClick(cv.refresh)
+        for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+        seen = {}
+        for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text .. (l.x.shown and "[x]" or "") end end
+        s = table.concat(seen, ", ")
+        ok(s:find("Asleep[x]", 1, true) and not s:find("Offline", 1, true) and not s:find("Pete", 1, true),
+           "Refresh: who logged on moves up to invite; the x'd one stays out", s)
+        -- ADD TO IT (Arn, 17 Oct: the party list open, a rank invited from the guild view - "add to it")
+        for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+        w.guildBtn.scripts.OnClick(w.guildBtn)
+        for _, r in ipairs(w.rows) do if r.shown and r.rank == "Officer" then r.pick.scripts.OnClick(r.pick) end end
+        w.buttons.invite.scripts.OnClick(w.buttons.invite)
+        ok(box:IsShown() and cv:IsShown() and not (P.run and P.run.prep),
+           "with a list open, the guild view's invite adds to it: same window, no second list")
+        seen = {}
+        for _, l in ipairs(cv.lines) do if l.shown then seen[#seen + 1] = l.text.text .. (l.x.shown and "[x]" or "") end end
+        s = table.concat(seen, ", ")
+        ok(s:find("Grux[x]", 1, true) and s:find("Nebeon[x]", 1, true) and s:find("Asleep[x]", 1, true)
+           and not s:find("Pete", 1, true), "the party list's people and the Officer on one list; the x'd still out", s)
+        ok(cv.head.text == "added <Officer>: 1 new", "the head says what came in", cv.head.text)
+        P.note = nil
+        P.PaintConfirm()
+        ok(cv.head.text:find("your party list + <Officer>", 1, true), "and then names both parts", cv.head.text)
+        ok(cv.head.text:find("^%d+ to invite: ") and cv.head.wrap == false and cv.head.w == P.W - 24,
+           "count first, one line cut at the window's edge (three parts ran to the border)", cv.head.text)
+        ok(cv.more.text == "x leaves someone out", "the x hint sits above the buttons", cv.more.text)
+        -- and no list row reaches it (Arn's screenshot: Frankadank, row 9, under the hint)
+        local lastRowBottom = 48 + P.CONF_ROWS * P.CONF_LINE           -- from the top
+        ok(P.H - lastRowBottom >= 32 + 12, "the last row ends above the hint line",
+           (P.H - lastRowBottom) .. " px from the bottom")
+        local nebs = 0
+        for _, e in ipairs(P.pending) do if e.name == "Nebeon" then nebs = nebs + 1 end end
+        ok(nebs == 1, "on the party list and Raider too: listed once")
+        w.guildBtn.scripts.OnClick(w.guildBtn)
+        P.picked = nil
+        for _ = 1, 30 do P.sweeper.scripts.OnUpdate(P.sweeper, 0.05) end
+        cv.send.scripts.OnClick(cv.send)
+        W.runAfters(P.PUMP_GAP + 0.1)
+        table.sort(sent.invite)
+        ok(table.concat(sent.invite, ",") == "Asleep,Grux,Nebeon,Stranger", "Send: just those", table.concat(sent.invite, ","))
+        for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
+        P.EndShow()
+        roster[4][4] = false
+        pdb.names = keepList
+        sent.invite = {}
+      end
       P.Remove(pdb, "Nebeon")
       if P.box then P.EndShow() end
       _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo = keepIG, keepGN, keepGR
@@ -5622,6 +5783,15 @@ do
   lead = false
   P.Disband()
   ok(sent.left == 1, "not the leader: Disband leaves the group")
+  -- the BUTTONS take a shift-click (Arn, 17 Oct: "might leave by mistake")
+  W.shift = false
+  P.dbtn.scripts.OnClick(P.dbtn)
+  ok(sent.left == 1, "a plain click on the Disband button: nobody goes anywhere")
+  W.shift = true
+  P.dbtn.scripts.OnClick(P.dbtn)
+  ok(sent.left == 2, "shift-click: you leave")
+  W.shift = false
+  ok(not P.ShiftDisband() and sent.left == 2, "the window's disband asks the same")
   ok(not P.ShowInvite(pdb), "not leading: no Invite button (only a leader can invite)")
   -- solo with a list: Invite only
   W.raid, W.inRaid, lead = { { name = "Me" } }, false, true
