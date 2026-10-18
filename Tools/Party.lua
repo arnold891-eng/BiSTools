@@ -602,7 +602,7 @@ function P.PartyEntries(db)
     if w and w.online == false then
       offline[#offline + 1] = { name = n }
     elseif not dropped[key] then
-      entries[#entries + 1] = { name = n, class = (w and w.class) or "Not in your guild",
+      entries[#entries + 1] = { name = n, class = (w and w.class) or "Unknown",
                                 classFile = w and w.classFile }
     end
   end

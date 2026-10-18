@@ -1,7 +1,7 @@
 ## Unreleased
 
 - **Disband takes a shift-click**, like Invite, so you can't leave the group by mistake. A plain click only says how. Both the button in the BiS> tools box and "disband" in the party window; `/bist party disband` is unchanged.
-- **The party window's invite checks first.** It no longer sends straight away: the little progress bar runs, then the list shows who'd be invited, by class, with an x on each. Guildmates and friends who are offline sit apart at the bottom and aren't invited; Refresh moves anyone who has logged on since up into the list. Then Send.
+- **The party window's invite checks first.** It no longer sends straight away: the little progress bar runs, then the list shows who'd be invited, by class, with an x on each. Guildmates and friends who are offline sit apart at the bottom and aren't invited; anyone outside your guild and friends list (the game can't say if they're on) is listed under Unknown; Refresh moves anyone who has logged on since up into the list. Then Send.
 - **Pick several ranks.** In the guild view a click ticks a rank instead of inviting it. Tick Officer and Raider, press invite, and both ranks' people come up on one list, an x on each.
 
 ## 0.12.0

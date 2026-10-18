@@ -5558,7 +5558,7 @@ do
         local s = table.concat(seen, ", ")
         ok(cv:IsShown() and s:find("Paladin (1)", 1, true) and s:find("Nebeon[x]", 1, true),
            "a guildmate online: under their class, with an x", s)
-        ok(s:find("Not in your guild (2)", 1, true) and s:find("Stranger[x]", 1, true),
+        ok(s:find("Unknown (2)", 1, true) and s:find("Stranger[x]", 1, true),
            "someone the client cannot place: invited on trust, with an x", s)
         ok(s:find("Offline (1)", 1, true) and s:find("Asleep", 1, true) and not s:find("Asleep[x]", 1, true),
            "an offline guildmate: apart, dimmed, no x", s)
