@@ -5622,6 +5622,15 @@ do
   lead = false
   P.Disband()
   ok(sent.left == 1, "not the leader: Disband leaves the group")
+  -- the BUTTONS take a shift-click (Arn, 17 Oct: "might leave by mistake")
+  W.shift = false
+  P.dbtn.scripts.OnClick(P.dbtn)
+  ok(sent.left == 1, "a plain click on the Disband button: nobody goes anywhere")
+  W.shift = true
+  P.dbtn.scripts.OnClick(P.dbtn)
+  ok(sent.left == 2, "shift-click: you leave")
+  W.shift = false
+  ok(not P.ShiftDisband() and sent.left == 2, "the window's disband asks the same")
   ok(not P.ShowInvite(pdb), "not leading: no Invite button (only a leader can invite)")
   -- solo with a list: Invite only
   W.raid, W.inRaid, lead = { { name = "Me" } }, false, true

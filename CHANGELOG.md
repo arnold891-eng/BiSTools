@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Disband takes a shift-click**, like Invite, so you can't leave the group by mistake. A plain click only says how. Both the button in the BiS> tools box and "disband" in the party window; `/bist party disband` is unchanged.
+
 ## 0.12.0
 
 - **BiSToolsAPI - other addons can use your party list's invites.** BiS Guild's raider terminal hands its raid lists to the confirm list (by class, an x per person, the inviting box, refusals in red). Nothing in it can change your settings; with the party tool off it simply says so.

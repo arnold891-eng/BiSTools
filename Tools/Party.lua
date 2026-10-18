@@ -714,6 +714,14 @@ function P.Disband()
   return true
 end
 
+--- The buttons' disband: shift-click only (Arn, 17 Oct: "shift click for this one too, might leave
+--- by mistake"), like the invite button. A plain click only says how. The slash word stays as it is.
+function P.ShiftDisband()
+  if IsShiftKeyDown and IsShiftKeyDown() then return P.Disband() end
+  NS.Print("party list: shift-click to disband or leave")
+  return false
+end
+
 ------------------------------------------------------------- the box buttons --
 
 --- When the buttons mean something: solo with a list, or grouped with someone on it.
@@ -774,9 +782,9 @@ function P.Buttons()
   P.dbtn = button("BiSToolsPartyDisband", "Interface\\Icons\\Ability_Rogue_Sprint", "Disband",
     function()
       local lead = UnitIsGroupLeader and plain(UnitIsGroupLeader("player"))
-      return lead == true and "Everyone out of the group." or "You leave the group (you are not the leader)."
+      return "Shift-click: " .. (lead == true and "everyone out of the group." or "you leave the group (you are not the leader).")
     end,
-    function() P.Disband() end)
+    function() P.ShiftDisband() end)
   return P.ibtn, P.dbtn
 end
 
@@ -930,7 +938,7 @@ function P.BuildWindow(db)
     { "invite", "good", function() P.Invite(db) end, "Invite everyone on the list who isn't with you yet." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
       "Your guild's ranks: click one to invite everyone online with it. 'party' takes you back to your list." },
-    { "disband", "warn", function() P.Disband() end, "Leading: everyone out. Otherwise: you leave." },
+    { "disband", "warn", function() P.ShiftDisband() end, "Shift-click. Leading: everyone out. Otherwise: you leave." },
     { "clear", "muted", function() db.names = {} P.Changed() end, "Empty the list." },
   }
   f.buttons = {}
