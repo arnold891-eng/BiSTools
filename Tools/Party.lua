@@ -1026,7 +1026,16 @@ function P.BuildWindow(db)
     -- online, an x on each, then Send
     -- in the guild view it invites the picked ranks the same way
     { "invite", "good", function()
-        if P.view == "guild" then P.InviteRanks(db, P.picked) else P.ConfirmList(db) end
+        if P.view == "guild" then
+          -- nothing ticked: say so HERE, in the window (Arn, 17 Oct: "i click invite nothing happens")
+          if not (P.picked and next(P.picked)) then
+            P.nudgeUntil = (GetTime and GetTime() or 0) + 3
+            P.PaintWindow()
+            if C_Timer and C_Timer.After then C_Timer.After(3.05, function() P.PaintWindow() end) end
+            return
+          end
+          P.InviteRanks(db, P.picked)
+        else P.ConfirmList(db) end
       end,
       "Your list (or, in the guild view, the ranks you picked): check who is online, x anyone you don't want this time, then Send." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
@@ -1332,6 +1341,7 @@ function P.PaintWindow()
     for _ in pairs(P.picked or {}) do np = np + 1 end
     f.more:SetText(#names == 0 and "nobody else in your guild is online"
       or np > 0 and ("%d rank%s picked - invite to check who"):format(np, np == 1 and "" or "s")
+      or (GetTime and GetTime() or 0) < (P.nudgeUntil or 0) and NS.T.text("warn", "tick a rank first - click it, then invite")
       or "click ranks to pick them, then invite")
   else
     f.more:SetText(#names == 0 and "empty - save a group, add a name, or right-click a player"

@@ -5395,6 +5395,11 @@ do
       roster[2][5], roster[2][6] = "Warrior", "WARRIOR"
       _G.GetGuildRosterInfo = function(i) local m = roster[i] return m[1], m[2], m[3], 30, m[5] or "Shaman", "", "", "", m[4], 0, m[6] or "SHAMAN" end
       W.raid, W.inRaid = { { name = "Me" }, { name = "Ariarie" } }, true       -- one Raider already in (a wave before)
+      -- nothing ticked: invite says so in the window, not only in chat (Arn: "i click invite nothing happens")
+      P.picked = nil
+      w.buttons.invite.scripts.OnClick(w.buttons.invite)
+      ok(not P.run and w.more.text:find("tick a rank first", 1, true), "invite with nothing ticked: the window says so", w.more.text)
+      P.nudgeUntil = nil
       -- PICK, THEN INVITE (Arn, 17 Oct: "select mutiple ranks"): a rank click ticks it, nothing more
       w.rows[4].pick.scripts.OnClick(w.rows[4].pick)
       ok(#sent.invite == 0 and not P.run and w.rows[4].name.text:find("<Raider> (2)", 1, true)
