@@ -369,6 +369,10 @@ function P.BuildConfirm(f)
   cv:SetAllPoints(f)
   f.confirmView = cv
   cv.head = K.fs(cv, "", 11, "ink2")
+  -- one line, cut with "..." past the edge (Arn's list, 17 Oct: three parts named ran to the border)
+  cv.head:SetWidth(P.W - 24)
+  cv.head:SetJustifyH("LEFT")
+  cv.head:SetWordWrap(false)
   cv.head:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -30)
   local inner = P.W - 24
   local colW = inner / P.CONF_COLS
@@ -499,11 +503,11 @@ function P.PaintConfirm()
     cv.head:SetText(P.note)                         -- what the last Refresh changed (P.RefreshNow)
     cv.head:SetTextColor(NS.Farm.color("good"))
   else
-    cv.head:SetText(("%s: %d to invite - x leaves someone out"):format(P.pendingLabel or "invites", n))
+    cv.head:SetText(("%d to invite: %s"):format(n, P.pendingLabel or "invites"))
     cv.head:SetTextColor(NS.Farm.color("ink2"))
   end
   local below = #lines - fit - P.confOffset
-  cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or "")
+  cv.more:SetText(below > 0 and ("+%d more lines - scroll"):format(below) or (n > 0 and "x leaves someone out" or ""))
   cv.send.label:SetText(n > 0 and ("Send %d invite%s"):format(n, n == 1 and "" or "s") or "Nobody left")
 end
 
