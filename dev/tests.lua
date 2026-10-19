@@ -1000,7 +1000,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 12 and lib._booted, "LibBiSComm 1.0 minor 12 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 13 and lib._booted, "LibBiSComm 1.0 minor 13 loaded and booted from Core/Init")
 -- Minor 8 sends one message a second, as the client allows. This suite is about summons and
 -- farming, fires dozens of sends with the clock standing still and jumps it without running
 -- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
@@ -1749,7 +1749,7 @@ end
 -- BiSInnervate is loaded (it announces its own casts).
 do
   local RC = _G.BiSRezComm
-  ok(RC and RC.MINOR == 4 and RC.PROTO == 4, "RezComm 1.0 minor 4 loaded, speaks Innervate's proto 4")
+  ok(RC and RC.MINOR == 5 and RC.PROTO == 4, "RezComm 1.0 minor 5 loaded, speaks Innervate's proto 4")
   ok(RC._login and RC._login.events.PLAYER_LOGIN, "self-boots at PLAYER_LOGIN: TOC line only, no call from Tools")
   -- boot as a client WITHOUT Innervate
   W.innervateLoaded = false RC._booted = nil
