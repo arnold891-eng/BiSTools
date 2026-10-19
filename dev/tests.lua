@@ -1000,7 +1000,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 13 and lib._booted, "LibBiSComm 1.0 minor 13 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 14 and lib._booted, "LibBiSComm 1.0 minor 14 loaded and booted from Core/Init")
 -- Minor 8 sends one message a second, as the client allows. This suite is about summons and
 -- farming, fires dozens of sends with the clock standing still and jumps it without running
 -- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
