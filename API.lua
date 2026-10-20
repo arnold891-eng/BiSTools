@@ -12,10 +12,14 @@
 --
 -- People: a list of names (Forever's whole "Name Surname" - an invite needs it), or of tables
 -- { name = , class = (shown, e.g. "Mage"), classFile = "MAGE", rank = }.
+--
+-- Since version 2 (21 Oct 2026, for BiS Memories - a death at a rival's hands is worth a picture):
+--   IsRival(name) -> true when that name is on your rivals list (gold or silver), false when not, or
+--                    nil, "not ready". Read-only; the rivals tool switched off still answers.
 --------------------------------------------------------------------------------
 local _, NS = ...
 
-local API = { major = 1, version = 1 }
+local API = { major = 1, version = 2 }
 BiSToolsAPI = API
 
 local function Party()
@@ -69,4 +73,18 @@ function API.InviteOne(name)
   if type(name) ~= "string" or name == "" then return nil, "no name" end
   if not P.Leads() then return nil, "not leader" end
   return P.InviteNames(P.db, { name }) > 0 and 1 or 0
+end
+
+-- is this name one of your rivals? (version 2). Read straight off the recap's rival list - never changed here.
+function API.IsRival(name)
+  local RC = NS.Recap
+  if not (RC and RC.DB and RC.Rivals) then return nil, "not ready" end
+  if type(name) ~= "string" or name == "" then return false end
+  if issecretvalue then
+    local ok, yes = pcall(issecretvalue, name)
+    if not ok or yes then return false end
+  end
+  local ok, db = pcall(RC.DB)
+  if not ok or type(db) ~= "table" then return nil, "not ready" end
+  return RC.Rivals(db)[name] ~= nil
 end
