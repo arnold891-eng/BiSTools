@@ -1232,6 +1232,7 @@ NS.Registry:Register({
   OnLogin = function(self, db) SM.Hook(db) end,
   -- the Hub: pin the window open; recenter drags it to the middle
   IsOpen = function(self, db) return SM.shown and true or false end,
+  OnClose = function(self, db) SM.SetMode(db, "auto") end,   -- back to showing itself at a stone
   OnOpen = function(self, db, recenter)
     SM.Build(db)
     if recenter and SM.frame then

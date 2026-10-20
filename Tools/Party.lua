@@ -1630,6 +1630,8 @@ R:Register({
   },
   OnInit = function(_, db) P.db = db end,
   OnOpen = function(_, db, recenter) P.db = db P.Toggle(db, true, recenter) end,
+  IsOpen = function() return P.win ~= nil and P.win:IsShown() end,
+  OnClose = function(_, db) P.Toggle(db, false) end,
   OnLogin = function(_, db) P.db = db P.HookMenus(db) P.HookGuildMenus(db) P.NoteTogether(db) refresh() end,
   OnSlash = function(_, db, args)
     P.db = db

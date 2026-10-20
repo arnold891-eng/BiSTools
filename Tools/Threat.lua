@@ -529,6 +529,7 @@ R:Register({
   OnDisable = function() T.ClearAll() end,
   OnEnable = function() T.Refresh() end,
   IsOpen = function() return T.UI and T.UI.IsOpen and T.UI.IsOpen() or false end,
+  OnClose = function(_, db) if T.UI and T.UI.Toggle then T.UI.Toggle(db, false) end end,
   OnOpen = function(_, db, recenter) if T.UI then T.UI.Open(db, recenter) end end,
   OnSlash = function(_, db, args)
     T.db = db

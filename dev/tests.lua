@@ -1832,11 +1832,43 @@ do
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
   ok(BiSToolsFarm:IsShown() and F.db.pos[1] == "TOPLEFT", "click: farm window shown where it was")
-  -- click again while it is open = "bring it to me" (Arn: "can't find the window for the farm")
-  F.db.collapsed = true
+  -- CLICK AGAIN CLOSES (Arn, 19 Oct: "when i click these in bis tools some open and close some just
+  -- open") - "bring it to me" (10 Sep) is shift-click's now
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
-  ok(F.db.pos[1] == "CENTER" and F.db.collapsed == false and BiSToolsFarm.point[1] == "CENTER", "second click: dragged to the middle and uncollapsed")
+  ok(not BiSToolsFarm:IsShown(), "second click: the farm window closes")
+  W.shift = true
+  hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
+  hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
+  W.shift = false
+  ok(BiSToolsFarm:IsShown() and BiSToolsFarm.point[1] == "CENTER", "shift-click on an open window: it stays, brought to the middle")
   F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" } BiSToolsFarm:Hide() BiSToolsFarm.point = nil
+  -- EVERY window tool the same: open, then closed; a tool with no window opens the options
+  do
+    local same, tried = true, {}
+    for _, r in ipairs(hub.rows) do
+      local tool = R:Get(r.key)
+      if tool.IsOpen and tool.OnClose then
+        local dbt = R:DBFor(tool)
+        local was = R:Enabled(r.key)
+        if tool:IsOpen(dbt) then tool:OnClose(dbt) end
+        r.scripts.OnClick(r, "LeftButton")
+        local opened = tool:IsOpen(dbt) and true or false
+        r.scripts.OnClick(r, "LeftButton")
+        local closed = not tool:IsOpen(dbt)
+        -- the recap has nothing to open before your first death (it says so); it still must not stick
+        if (opened and not closed) or (not opened and r.key ~= "recap") then same = false end
+        tried[#tried + 1] = r.key .. (opened and "+" or "") .. (closed and "-" or "")
+        if not was then R:SetEnabled(r.key, false) end      -- a click switched it on; put it back
+      end
+    end
+    ok(same and #tried >= 7, "every window tool: a click opens it, the next closes it", table.concat(tried, " "))
+    if BiSToolsOptions then BiSToolsOptions:Hide() end
+    local social
+    for _, r in ipairs(hub.rows) do if r.key == "social" then social = r end end
+    social.scripts.OnClick(social, "LeftButton")
+    ok(BiSToolsOptions and BiSToolsOptions:IsShown(), "social has no window: its click opens the options")
+    BiSToolsOptions:Hide()
+  end
   W.shift = true
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
   W.shift = false

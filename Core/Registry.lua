@@ -7,6 +7,8 @@
 --     OnSlash = function(tool, db, args) end,
 --     OnEnable / OnDisable = function(tool, db) end,  -- /bist on|off <name>
 --     OnOpen = function(tool, db, recenter) end,  -- the Hub: show your window (recenter: to the middle)
+--     IsOpen = function(tool, db) end,   OnClose = function(tool, db) end,  -- a window tool has both:
+--                                  -- the Hub's click on an open one closes it (19 Oct)
 --     options = { { kind = "toggle"|"seg"|"step"|"button", label, get(db), set(db, v),
 --                   values (seg) | min, max, step, show(db) (step) | button, action(db) } },
 --     slashWhenOff = true }   -- OnSlash still runs while the tool is off

@@ -81,6 +81,8 @@ NS.Registry:Register({
   -- the hub's row, and /bist rivals with no word: the rivals & pals window (Arn, 14 Oct: "its own
   -- thing that can be pulled up"); /bist rivals list still prints them in chat
   OnOpen = function() RC.db = RC.db or D() RC.ToggleRivals(D(), true) end,
+  IsOpen = function() return RC.rwin ~= nil and RC.rwin:IsShown() end,
+  OnClose = function() RC.ToggleRivals(D(), false) end,
   OnSlash = function(_, _, args)
     args = args or ""
     if args == "" then RC.db = RC.db or D() return RC.ToggleRivals(D()) end
