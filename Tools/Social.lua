@@ -38,6 +38,20 @@ local function note(why, who)
   return nil
 end
 
+-- THE LAST FIVE (Arn, 21 Oct: "i just dont know why sometimes it misses a emote"): why only kept the
+-- latest answer, and your own next buff wrote over it. Every buff from someone else now goes on a short
+-- list - who, which buff, what was done or why not - newest first, for this session.
+S.HISTORY = 5
+S.history = {}
+local function remember(why, who, spell)
+  local now = GetTime and GetTime() or 0
+  local top = S.history[1]
+  -- a buff lands in pieces: a piece with nobody named, or the same answer again, is the same buff
+  if top and now - top.at < 3 and (who == nil or (top.who == who and top.why == why)) then return end
+  table.insert(S.history, 1, { who = who, why = why, spell = type(spell) == "string" and spell or nil, at = now })
+  S.history[S.HISTORY + 1] = nil
+end
+
 --- Is this unit in your party or raid? A plain yes only.
 local function grouped(unit)
   for _, fn in ipairs({ UnitInParty, UnitInRaid }) do
@@ -54,7 +68,23 @@ end
 function S.OnBuffs(db, info)
   if not db.thanks then return note("off - /bist social on") end
   if type(info) ~= "table" or hidden(info) then return note("the game gave no details") end
-  if InCombatLockdown and InCombatLockdown() then return note("in a fight - never then") end
+  if InCombatLockdown and InCombatLockdown() then
+    -- a player's buff landing mid-fight is a miss worth listing; added auras only (no client calls), and
+    -- only a caster the game names plainly who isn't you
+    local added = field(info, "addedAuras")
+    if type(added) == "table" then
+      for i = 1, #added do
+        local a = plain(added[i])
+        local src = type(a) == "table" and field(a, "isHelpful") == true and field(a, "sourceUnit")
+        if type(src) == "string" and src ~= "player" then
+          local ok, name = pcall(UnitName, src)
+          name = ok and plain(name)
+          if type(name) == "string" and name ~= "" then remember("in a fight - never then", name, field(a, "name")) end
+        end
+      end
+    end
+    return note("in a fight - never then")
+  end
   local lock = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
   if lock then
     local ok, locked = pcall(lock)
@@ -89,25 +119,26 @@ function S.OnBuffs(db, info)
   for i = 1, #list do
     local a = list[i]
     if type(a) == "table" and not hidden(a) then
-      local helpful, src = field(a, "isHelpful"), field(a, "sourceUnit")
+      local helpful, src, spell = field(a, "isHelpful"), field(a, "sourceUnit"), field(a, "name")
+      local function say(why, who) remember(why, who, spell) return note(why, who) end
       -- THE ONE UNKNOWN: does the game name a stranger who buffs you (a sourceUnit), or only someone
       -- you have targeted / see a nameplate for? /bist social why says which, in game.
-      if helpful == true and type(src) ~= "string" then note("the game did not say who", nil) end
+      if helpful == true and type(src) ~= "string" then say("the game did not say who", nil) end
       if helpful == true and type(src) == "string" then
         local function yes(fn, ...) if not fn then return false end local ok, v = pcall(fn, ...) return ok and plain(v) == true end
         local name = plain(UnitName(src))
         if yes(UnitIsUnit, src, "player") then
-          note("your own buff", nil)
+          note("your own buff", nil)                       -- not listed: the list is other people's buffs
         elseif type(name) ~= "string" or name == "" then
-          note("the game did not say who", nil)
+          say("the game did not say who", nil)
         elseif not yes(UnitIsPlayer, src) then
-          note("not a player (a pet or a creature)", name)
+          say("not a player (a pet or a creature)", name)
         elseif grouped(src) and not db.groupToo then
-          note("a groupmate - switched off", name)
+          say("a groupmate - switched off", name)
         elseif S.next and now < S.next then
-          note(("the cooldown - %d s left"):format(math.floor(S.next - now + 0.5)), name)
+          say(("the cooldown - %d s left"):format(math.floor(S.next - now + 0.5)), name)
         elseif S.thanked[name] and now - S.thanked[name] < S.SAME_GAP then
-          note("thanked them less than ten minutes ago", name)
+          say("thanked them less than ten minutes ago", name)
         else
           local list = (type(db.emotes) == "table" and #db.emotes > 0) and db.emotes or S.EMOTES
           local emote = list[math.random(#list)]
@@ -125,10 +156,10 @@ function S.OnBuffs(db, info)
           if DoEmote then ok, err = pcall(DoEmote, emote, name) end
           if not ok then
             S.lastThanked.err = tostring(err or "no DoEmote")
-            note("/" .. emote:lower() .. " - the game complained: " .. tostring(err), name)
+            say("/" .. emote:lower() .. " - the game complained: " .. tostring(err), name)
             return emote, name
           end
-          note("/" .. emote:lower() .. " - thanked", name)
+          say("/" .. emote:lower() .. " - thanked", name)
           return emote, name
         end
       end
@@ -145,8 +176,17 @@ function S.Why()
   local now = GetTime and GetTime() or 0
   DEFAULT_CHAT_FRAME:AddMessage("  last thanked: " .. (lt and (T.text("ink", lt.who) .. T.text("muted",
     (" (/%s, %d s ago)"):format(lt.emote:lower(), math.floor(now - lt.at + 0.5)))) or T.text("muted", "nobody yet")))
-  DEFAULT_CHAT_FRAME:AddMessage("  last buff seen: " .. T.text("ink", tostring(S.lastWho or "-")) ..
-    " - " .. T.text("muted", tostring(S.lastWhy or "-")))
+  if #S.history == 0 then
+    DEFAULT_CHAT_FRAME:AddMessage("  " .. T.text("muted", "no buffs from other players yet this session"))
+  else
+    DEFAULT_CHAT_FRAME:AddMessage(("  the last %d buffs from other players:"):format(#S.history))
+    for _, h in ipairs(S.history) do
+      local ago = now - h.at
+      ago = ago < 90 and ("%d s ago"):format(math.floor(ago + 0.5)) or ("%d min ago"):format(math.floor(ago / 60 + 0.5))
+      DEFAULT_CHAT_FRAME:AddMessage("    " .. T.text("ink", h.who or "someone") ..
+        (h.spell and T.text("muted", " (" .. h.spell .. ")") or "") .. " - " .. h.why .. T.text("muted", ", " .. ago))
+    end
+  end
   local left = S.next and GetTime and (S.next - GetTime()) or 0
   if left > 0 then DEFAULT_CHAT_FRAME:AddMessage("  next emote possible in " .. math.floor(left + 0.5) .. " s") end
 end

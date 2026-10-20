@@ -4159,10 +4159,51 @@ do
   fire({ updatedAuraInstanceIDs = { 77 } })
   ok(#emoted == before + 1 and emoted[#emoted].who == "Kingsgiver", "a buff recast on you (full duration again): thanked")
   _G.C_UnitAuras = keepUA
+  -- THE LAST FIVE (Arn, 21 Oct: "i just dont know why sometimes it misses a emote"): why lists the last five
+  -- buffs from other players, each with what was done or why not
+  Sc.history, Sc.next, Sc.thanked = {}, nil, {}
+  W.now = W.now + 999
+  local function step(info, dt) W.now = W.now + (dt or 5) fire(info) end
+  step({ addedAuras = { { isHelpful = true, sourceUnit = "target", name = "Power Word: Fortitude" } } })
+  step(buff("focus"))
+  step(buff("player"))
+  step(buff("party1"))
+  step(buff("party1"), 1)
+  step(buff("nameplate9"))
+  step({ addedAuras = { { isHelpful = true, sourceUnit = nil } } })
+  W.combat = true step(buff("focus")) W.combat = false
+  local hs = Sc.history
+  ok(#hs == 5 and hs[1].who == "Another" and hs[1].why:find("fight", 1, true), "five kept, newest first: a buff mid-fight is listed",
+     hs[1] and hs[1].why)
+  ok(hs[5].why:find("cooldown", 1, true) and hs[4].why:find("groupmate", 1, true), "the oldest drops off; the same buff in pieces is one row")
+  local own = false
+  for _, h in ipairs(hs) do if h.who == "Me" then own = true end end
+  ok(not own, "your own buffs are not listed")
+  said = {}
+  DEFAULT_CHAT_FRAME.AddMessage = function(_, m) said[#said + 1] = m end
+  Sc.history[#Sc.history] = nil
+  table.insert(Sc.history, 1, { who = "Kindpally", why = "/hug - thanked", spell = "Power Word: Fortitude", at = W.now - 120 })
+  S("social why")
+  DEFAULT_CHAT_FRAME.AddMessage = keepAdd
+  local w3 = table.concat(said, "\n")
+  ok(w3:find("the last 5 buffs from other players", 1, true) and w3:find("Kindpally", 1, true)
+     and w3:find("(Power Word: Fortitude)", 1, true) and w3:find("2 min ago", 1, true) and w3:find("a groupmate", 1, true),
+     "/bist social why: who, which buff, what happened, how long ago", w3)
   -- LEAN: everyone else's auras change constantly; that costs one string compare
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n = Cost.Count(function() for i = 1, 500 do Sc.events.scripts.OnEvent(Sc.events, "UNIT_AURA", "raid" .. (i % 25 + 1), buff("target")) end end)
   ok(n == 0, "500 aura changes on other people: no client calls: " .. n)
+  -- in a fight your own auras churn (procs, your own buffs, debuffs): listing a player's buff mid-fight
+  -- must cost no name lookup unless one really landed from someone else
+  W.combat = true
+  local nf, byf = Cost.Count(function()
+    for _ = 1, 500 do
+      fire({ addedAuras = { { isHelpful = true, sourceUnit = "player" }, { isHelpful = false, sourceUnit = "target" } } })
+      fire({ updatedAuraInstanceIDs = { 77 } })
+    end
+  end)
+  W.combat = false
+  ok(nf <= 500 * 2, "1000 of your own aura changes in a fight: the fight check and nothing more: " .. nf, Cost.Top(byf))
   S("social off")
   -- every name put back, the ones that were not there before included (pairs skips a nil)
   for _, k in ipairs({ "DoEmote", "UnitIsPlayer", "UnitIsUnit", "UnitName", "UnitInParty" }) do _G[k] = keep[k] end
