@@ -1,3 +1,7 @@
+## 0.13.2
+
+- **Every tool in the BiS Tools list opens and closes the same way.** Click a tool to open its window, click it again to close it. Some used to close and some only opened. Shift-click still brings a window to the middle of the screen. **social** and **bg**, which have no window, open the options where their settings are.
+
 ## 0.13.1
 
 - **BiS addons can talk to other players on Forever again.** The game wrongly says addon messages are restricted, and the shared BiS code believed it, so nothing this addon sends to other players went out. It does now - and your guild's BiS Guild map shows where you are (outside instances; `/biscomm share off` turns that off).

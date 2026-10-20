@@ -2663,6 +2663,8 @@ NS.Registry:Register({
     if recenter then db.pos = { "CENTER", 0, 140, "CENTER" } if RC.win then RC.win:ClearAllPoints() RC.win:SetPoint("CENTER", UIParent, "CENTER", 0, 140) end end
     RC.Toggle(db, true)
   end,
+  IsOpen = function() return RC.win ~= nil and RC.win:IsShown() end,
+  OnClose = function(_, db) RC.Toggle(db, false) end,
   -- the death window only: the marks and the target button are the rivals tool's (Rivals.lua)
   OnDisable = function() if RC.win then RC.win:Hide() end end,
   OnSlash = function(_, db, args)

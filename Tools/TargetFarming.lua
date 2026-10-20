@@ -774,6 +774,7 @@ NS.Registry:Register({
   -- the Hub: open the window; recenter drags it to the middle (Arn: "no idea
   -- where the farm window is at")
   IsOpen = function(self, db) return F.frame ~= nil and F.frame:IsShown() end,
+  OnClose = function(self, db) F.Toggle(db, false) end,
   OnOpen = function(self, db, recenter)
     F.Toggle(db, true)
     if recenter and F.frame then

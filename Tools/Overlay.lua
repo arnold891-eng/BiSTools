@@ -846,8 +846,10 @@ R:Register({
       if O.tab then O.PlaceTab(db) end
       return
     end
-    O.Show(db)
+    O.Show(db, true)
   end,
+  IsOpen = function() return O.frame ~= nil and O.frame:IsShown() end,
+  OnClose = function(_, db) O.Show(db, false) end,
   OnSlash = function(_, db, args)
     O.db = db
     if args == "reset" then

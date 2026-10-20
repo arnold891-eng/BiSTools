@@ -10,7 +10,7 @@
 --   minimap button   left-click  -> the Hub (every tool, click one to open it)
 --                    right-click -> Options
 --                    drag        -> slides around the minimap rim (angle saved)
---   Hub row          left-click  -> open that tool's window (and switch it on)
+--   Hub row          left-click  -> open that tool's window (and switch it on); again: close it
 --                    shift-click -> open it AND bring it to the middle of the screen
 --                    right-click -> switch the tool on / off
 --   Options          on/off per tool, then each tool's `options` list: toggles,
@@ -199,7 +199,7 @@ function H.BuildHub()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(self.tool.title or self.tool.name)
         GameTooltip:AddLine(self.tool.desc or "", 1, 1, 1, true)
-        GameTooltip:AddLine("click: open (again: bring it to the middle)  |  shift-click: open in the middle  |  right-click: on/off", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("click: open / close  |  shift-click: open in the middle  |  right-click: on/off", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
       end
     end)
@@ -237,17 +237,23 @@ function H.PaintHub()
 end
 
 -- open a tool's window: switch it on if it was off, then hand it to the tool.
--- recenter = true drags the window to the middle of the screen. Clicking a tool
--- whose window is ALREADY open means "bring it to me" (Arn, 10 Sep: "this is
--- beautiful but I can't find the window for the farm") - so that recenters too.
+-- recenter = true (shift-click) drags the window to the middle of the screen.
+-- CLICK AGAIN CLOSES (Arn, 19 Oct: "when i click these in bis tools some open and close some just
+-- open"). Each tool opened its own way - the map's open flipped it, party/recap/rivals only opened, and
+-- farm/threat/summon took a second click as "bring it to the middle" (10 Sep: "I can't find the window
+-- for the farm"; shift-click does that now). Every window tool now says IsOpen and OnClose, so a click
+-- on an open one closes it, the same for all. A tool with no window (social, bg) opens the options,
+-- where its settings are.
 function H.Open(key, recenter)
   local tool = R:Get(key)
   if not tool then return false end
   if not R:Enabled(key) then R:SetEnabled(key, true) end
   local db = R:DBFor(tool)
-  if not recenter and tool.IsOpen and tool:IsOpen(db) then recenter = true end
+  local open = tool.IsOpen and tool:IsOpen(db)
+  if open and not recenter and tool.OnClose then tool:OnClose(db) return "closed" end
   if tool.OnOpen then tool:OnOpen(db, recenter and true or false) return true end
-  return false
+  H.ToggleOptions(true)
+  return "options"
 end
 
 function H.ToggleHub(want)
