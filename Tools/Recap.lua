@@ -809,11 +809,11 @@ RC.CREST = {
   { -0.5, 0.4, 0, -0.05 }, { 0, -0.05, 0.5, 0.4 },                        -- the chevron
 }
 
-local function newMate()
+local function newMate(colour)
   local f = CreateFrame("Frame", nil, UIParent)
   f:SetFrameStrata("BACKGROUND")
   f:SetSize(11, 11)
-  local c = RC.MATE
+  local c = colour or RC.MATE
   if f.CreateLine then
     f:SetSize(11, 13)
     f.parts = {}
@@ -868,6 +868,95 @@ function RC.UnmarkMate(unit)
 end
 
 function RC.ClearMates() for unit in pairs(RC.mates) do RC.UnmarkMate(unit) end end
+
+-- ---------------------------------------------------------------- recruits
+--- THE RECRUIT CREST (Arn, 21 Oct 2026: "an api call into bis pals that has its own crest shared to the
+--- guild potential recruit so if another person parties with them they know to nudge them to join"): the
+--- guild's crest in GOLD under somebody BiS> Nebbinator says the guild is talking to - NebbinatorAPI v2
+--- IsProspect, the guild's list as Nebbinator shares it on the guild channel (and fenced to the guild this
+--- character is in). Solo or grouped; one chat line per recruit per RC.RECRUIT_GAP. db.recruits off: none.
+RC.recruits, RC.recruitPool = {}, {}
+RC.RECRUIT = { 0.90, 0.75, 0.29 }
+RC.RECRUIT_GAP = 600
+RC.PROSPECT_EVERY = 30
+RC.recruitNoteAt = {}
+
+--- Nebbinator's API when it can answer this (version 2), else nil.
+function RC.Nebbinator()
+  local api = _G.NebbinatorAPI
+  if type(api) ~= "table" or api.major ~= 1 or (tonumber(api.version) or 0) < 2 then return nil end
+  if type(api.IsProspect) ~= "function" or type(api.Team) ~= "function" then return nil end
+  return api
+end
+
+--- Is anybody on the guild's list at all? Asked at most every RC.PROSPECT_EVERY s, and again at once when
+--- Nebbinator says the list changed - so a city full of nameplates costs nothing when nobody is a recruit.
+function RC.AnyProspects()
+  local api = RC.Nebbinator()
+  if not api then return false end              -- no Nebbinator: not one client call per plate
+  local now = GetTime and GetTime() or 0
+  if RC.prospectsAt and now - RC.prospectsAt < RC.PROSPECT_EVERY then return RC.prospectsAny end
+  RC.prospectsAt = now
+  local ok, team = pcall(api.Team)
+  RC.prospectsAny = (ok and type(team) == "table" and #team > 0) and true or false
+  return RC.prospectsAny
+end
+
+--- -> true, who is talking to them, how far - when the guild is recruiting this name.
+function RC.ProspectOf(name)
+  local api = RC.Nebbinator()
+  if not api or type(name) ~= "string" or name == "" then return false end
+  local ok, yes, by, status = pcall(api.IsProspect, name)
+  if not (ok and yes == true) then return false end
+  return true, by, status
+end
+
+function RC.HookNebbinator()
+  local api = RC.Nebbinator()
+  if not api or RC.nebHooked or type(api.RegisterCallback) ~= "function" then return false end
+  RC.nebHooked = true
+  pcall(api.RegisterCallback, "BiSTools", "Nebbinator_TeamChanged", function() RC.prospectsAt = nil end)
+  return true
+end
+
+function RC.MarkRecruit(unit)
+  if RC.recruits[unit] then return true end
+  local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+  if not get then return false end
+  local okP, plate = pcall(get, unit)
+  if not okP or not plate then return false end
+  local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+  if not okF or forbidden then return false end
+  local f = table.remove(RC.recruitPool) or newMate(RC.RECRUIT)
+  if not pcall(function() f:ClearAllPoints() f:SetPoint("TOP", plate, "BOTTOM", 0, -2) end) then
+    table.insert(RC.recruitPool, f)
+    return false
+  end
+  f:Show()
+  RC.recruits[unit] = f
+  return true
+end
+
+function RC.UnmarkRecruit(unit)
+  local f = RC.recruits[unit]
+  if not f then return end
+  f:Hide() f:ClearAllPoints()
+  RC.recruits[unit] = nil
+  table.insert(RC.recruitPool, f)
+end
+
+function RC.ClearRecruits() for unit in pairs(RC.recruits) do RC.UnmarkRecruit(unit) end end
+
+--- The note: once per recruit per RC.RECRUIT_GAP, a gold line - who they are and who is talking to them.
+function RC.RecruitNear(name, by)
+  local now = GetTime and GetTime() or 0
+  local at = RC.recruitNoteAt[name]
+  if at and now - at < RC.RECRUIT_GAP then return false end
+  RC.recruitNoteAt[name] = now
+  NS.Print("%s - the guild is recruiting them%s: a good word helps", T.text("gold", name),
+    (type(by) == "string" and by ~= "") and (" (" .. by .. " is talking to them)") or "")
+  return true
+end
 
 --- Is this nameplate a guildmate? A plain yes only.
 local function isMate(unit)
@@ -1708,7 +1797,8 @@ function RC.Spot(db, unit)
   -- nothing to look for: no client call at all (a city of nameplates costs nothing)
   local guide = type(unit) == "string" and unit:find("^nameplate") ~= nil and guideWants(nil)
   local clan = next(RC.Surnames(db)) ~= nil
-  if not (gold or guild or mates or farm or guide or clan) then return looked(unit, nil, "nobody is gold") end
+  local recruit = db.recruits ~= false and type(unit) == "string" and unit:find("^nameplate") ~= nil and RC.AnyProspects()
+  if not (gold or guild or mates or farm or guide or clan or recruit) then return looked(unit, nil, "nobody is gold") end
   local name = NS.Farm.Name(unit)
   if not name then return looked(unit, nil, "the game did not give a name (hidden, or nobody there)") end
   -- the farmed mob: a clean copy (alive, untapped, attackable - the farm tool's own test) goes green
@@ -1739,6 +1829,14 @@ function RC.Spot(db, unit)
     local e, gfull = nil, nil
     if guild then e, gfull = RC.FindGuild(db, name) end
     if e then return spotGuild(db, unit, e, gfull) end
+    if recruit and RC.Friendly(unit) and not isMate(unit) then
+      local yes, by = RC.ProspectOf(name)
+      if yes then
+        RC.MarkRecruit(unit)
+        RC.RecruitNear(name, by)
+        return looked(unit, name, "a recruit - the gold crest" .. (by and (", " .. by .. " is talking to them") or ""))
+      end
+    end
     if mates and isMate(unit) then
       RC.MarkMate(unit)
       return looked(unit, name, "a guildmate - the small +")
@@ -2555,6 +2653,7 @@ function RC.OnEvent(_, event, unit)
   if event == "NAME_PLATE_UNIT_REMOVED" then
     if RC.marks[unit] then RC.UnmarkUnit(unit) end
     if RC.mates[unit] then RC.UnmarkMate(unit) end
+    if RC.recruits[unit] then RC.UnmarkRecruit(unit) end
     RC.plates[unit] = nil
     if RC.hearts[unit] then RC.UnmarkPal(unit) end
     if RC.crowns[unit] then RC.UnmarkCrown(unit) end

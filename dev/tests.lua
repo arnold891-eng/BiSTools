@@ -1900,10 +1900,10 @@ do
   ok(box2.level == 7 and box2.strata == "MEDIUM", "after a click, a backing lifted over the icon goes back below the button")
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
-  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (7), social (2), threat (2), bg (4), map (7),
+  -- sections: tools (3), farm (5), summon (7), recap (1), rivals (8), social (2), threat (2), bg (4), map (7),
   -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
-  -- the party list, 15 Oct)
-  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 7 + 2 + 2 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
+  -- the party list, 15 Oct; the recruit crest, 21 Oct)
+  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -3954,6 +3954,88 @@ do
   RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate6")
   ok(RC.mates.nameplate6 == nil, "'guildmates' off: none")
   rdb2.mates = nil
+
+  do   -- its own block: the main chunk is at Lua 5.1's 200 locals
+  -- THE RECRUIT CREST (Arn, 21 Oct 2026: "its own crest shared to the guild potential recruit so if another
+  -- person parties with them they know to nudge them to join"): BiS> Nebbinator's guild list through its API
+  -- v2. The stand-in answers as Nebbinator's API.lua documents (and its own suite holds): IsProspect ->
+  -- true, by, status, at - or false.
+  local prospects = { ["Fresh Face"] = { by = "Tyrone", status = "contacted" } }
+  local teamAsked = 0
+  local nebCallbacks = {}
+  _G.NebbinatorAPI = {
+    major = 1, version = 2,
+    Team = function()
+      teamAsked = teamAsked + 1
+      local out = {}
+      for name, p in pairs(prospects) do out[#out + 1] = { name = name, status = p.status, by = p.by, at = 1 } end
+      return out
+    end,
+    IsProspect = function(name)
+      local p = prospects[name]
+      if not p then return false end
+      return true, p.by, p.status, 1
+    end,
+    RegisterCallback = function(owner, event, fn) nebCallbacks[event] = fn return true end,
+  }
+  RC.prospectsAt, RC.nebHooked = nil, nil
+  ok(RC.HookNebbinator() and nebCallbacks.Nebbinator_TeamChanged, "listens for Nebbinator's list changing")
+  plates.nameplate7 = CreateFrame("Frame", nil, nil)
+  W.plates.nameplate7 = { name = "Fresh Face", hostile = false, player = true }
+  W.lastMsg = nil
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  local crest = RC.recruits.nameplate7
+  ok(crest and crest.shown and crest.crest and crest.bar.color[1] > 0.85 and crest.bar.color[3] < 0.4,
+     "somebody the guild is recruiting: the crest, in gold")
+  ok(W.lastMsg and W.lastMsg:find("Fresh Face", 1, true) and W.lastMsg:find("Tyrone is talking to them", 1, true),
+     "and a line: who, and who is talking to them", W.lastMsg)
+  W.lastMsg = nil
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  ok(RC.recruits.nameplate7 == nil and not crest.shown, "their plate goes: so does the crest")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.recruits.nameplate7 and W.lastMsg == nil, "back in sight: the crest, but no second line inside ten minutes")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  local keepGroup2 = _G.IsInGroup
+  _G.IsInGroup = function() return true end
+  RC.frame.scripts.OnEvent(RC.frame, "GROUP_ROSTER_UPDATE")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.recruits.nameplate7, "grouped too - partied with them is exactly when it helps")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  _G.IsInGroup = keepGroup2
+  RC.frame.scripts.OnEvent(RC.frame, "GROUP_ROSTER_UPDATE")
+  W.plates.nameplate7.hostile = true
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.recruits.nameplate7 == nil, "an enemy of the same name: no crest")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_REMOVED", "nameplate7")
+  W.plates.nameplate7.hostile = false
+  -- the guild's list asked once, not per plate - and again when Nebbinator says it changed
+  local asked = teamAsked
+  for _ = 1, 20 do RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate4") end
+  ok(teamAsked == asked, "twenty plates: the list is not asked again", teamAsked - asked)
+  prospects = {}
+  nebCallbacks.Nebbinator_TeamChanged("Nebbinator_TeamChanged", "Fresh Face")
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(teamAsked == asked + 1 and RC.recruits.nameplate7 == nil, "the list changed (they joined): asked again, no crest")
+  prospects = { ["Fresh Face"] = { by = "Tyrone", status = "contacted" } }
+  RC.prospectsAt = nil
+  for _, o in ipairs(R:Get("rivals").options) do
+    if o.label == "recruits (gold crest)" then o.set(rdb2, false) end
+  end
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.recruits.nameplate7 == nil, "'recruits' off: none")
+  rdb2.recruits = nil
+  _G.NebbinatorAPI = { major = 1, version = 1 }
+  RC.prospectsAt = nil
+  RC.frame.scripts.OnEvent(RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(RC.recruits.nameplate7 == nil and RC.Nebbinator() == nil, "an old Nebbinator (version 1): nothing asked, no crest")
+  _G.NebbinatorAPI = { major = 1, version = 2, Team = function() error("boom") end, IsProspect = function() error("boom") end }
+  RC.prospectsAt = nil
+  local okBroken = pcall(RC.frame.scripts.OnEvent, RC.frame, "NAME_PLATE_UNIT_ADDED", "nameplate7")
+  ok(okBroken and RC.recruits.nameplate7 == nil, "a broken Nebbinator never breaks the plates")
+  _G.NebbinatorAPI = nil
+  RC.prospectsAt, RC.nebHooked = nil, nil
+  W.plates.nameplate7, plates.nameplate7 = nil, nil
+  end
   -- LEAN: a town of strangers' plates, alone, nobody gold and no guild rivals: a name and a guild question each
   local Cost2 = dofile("../_bisdev/dev/cost.lua")
   for k in pairs(g) do g[k] = nil end
