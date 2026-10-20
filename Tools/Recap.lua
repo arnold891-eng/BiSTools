@@ -284,6 +284,8 @@ RC.WHO_ROWS = 4
 -- the rivals & pals window, also 1.43:1
 RC.RW, RC.RH = 500, 350             -- 1.43:1, room for a rival's whole line
 RC.RIVAL_ROWS, RC.PAL_ROWS, RC.SUR_ROWS = 16, 10, 3
+RC.TAB_H = 18                        -- the rivals / guild online tabs: buttons, not captions (Arn, 21 Oct)
+RC.LIST_TOP = RC.HEADER + 8 + RC.TAB_H   -- the first row of either column, under the tabs
 
 local function K() return NS.Farm end
 
@@ -2185,23 +2187,29 @@ function RC.BuildRivals(db)
   -- LEFT: the rivals - or, on its tab, your guildmates online (Arn, 21 Oct 2026: "can we have a tab that
   -- generates the online guild people so we can right click and add to pals")
   d.tab = "rivals"
+  -- TABS THAT LOOK LIKE BUTTONS (Arn, 21 Oct: "these are too small up here make them look like buttons"):
+  -- a box with an edge, 10 pt words; the one showing filled in the accent
   local function tab(label, which, x, w)
     local t = CreateFrame("Button", nil, d)
-    t:SetPoint("TOPLEFT", d, "TOPLEFT", x, -(RC.HEADER + 3))
-    t:SetSize(w, 13)
-    t.label = F.fs(t, label, 8, "muted")
-    t.label:SetPoint("LEFT", t, "LEFT", 0, 0)
+    t:SetPoint("TOPLEFT", d, "TOPLEFT", x, -(RC.HEADER + 4))
+    t:SetSize(w, RC.TAB_H)
+    t.fill = F.tex(t, "BACKGROUND", "sunken", 1)
+    t.edge = F.border(t, "edge", 1)
+    t.label = F.fs(t, label, 10, "ink2")
+    t.label:SetPoint("CENTER", t, "CENTER", 0, 0)
     t:SetScript("OnClick", function() RC.RivalsTab(which) end)
+    t:SetScript("OnEnter", function(self) if d.tab ~= which then self.edge:set("accent", 1) end end)
+    t:SetScript("OnLeave", function(self) if d.tab ~= which then self.edge:set("edge", 1) end end)
     return t
   end
-  -- the two words, then the caption: all inside the left column (it ends at the pals' caption)
-  d.tabRivals = tab("rivals", "rivals", P, 40)
-  d.tabGuild = tab("guild online", "guild", P + 46, 70)
+  -- the two buttons, then the caption: all inside the left column (it ends at the pals' caption)
+  d.tabRivals = tab("rivals", "rivals", P, 64)
+  d.tabGuild = tab("guild online", "guild", P + 68, 96)
   d.caption = F.fs(d, "gold: hunting, silver: not", 8, "muted")
-  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P + 124, -(RC.HEADER + 5))
+  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P + 172, -(RC.HEADER + 9))     -- 8 px past the second button
   d.rows = {}
   for i = 1, RC.RIVAL_ROWS do
-    local b = row(P, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), lw)
+    local b = row(P, RC.LIST_TOP + (i - 1) * (RC.ROW_H + 2), lw)
     b:SetScript("OnClick", function(self)
       if self.mate then return RC.MateMenu(db, self, self.mate) end      -- the guild online tab
       if not self.rival then return end
@@ -2245,10 +2253,10 @@ function RC.BuildRivals(db)
   -- RIGHT: pals, then the surnames crowned
   local xR = P * 2 + lw
   d.palCap = F.fs(d, "pals - a heart over them", 8, "muted")
-  d.palCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -(RC.HEADER + 5))
+  d.palCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -(RC.LIST_TOP - 13))
   d.pals = {}
   for i = 1, RC.PAL_ROWS do
-    local b = row(xR, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), rw)
+    local b = row(xR, RC.LIST_TOP + (i - 1) * (RC.ROW_H + 2), rw)
     b:SetScript("OnClick", function(self)
       if not (self.pal and IsShiftKeyDown and IsShiftKeyDown()) then return end
       RC.Pals(db)[self.pal] = nil
@@ -2265,7 +2273,7 @@ function RC.BuildRivals(db)
     end)
     d.pals[i] = b
   end
-  local yS = RC.HEADER + 18 + RC.PAL_ROWS * (RC.ROW_H + 2) + 8
+  local yS = RC.LIST_TOP + RC.PAL_ROWS * (RC.ROW_H + 2) + 8
   d.surCap = F.fs(d, "surname crowns", 8, "muted")
   d.surCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -yS)
   d.surs = {}
@@ -2447,11 +2455,11 @@ local function paintGuild(d, db)
   local shown = math.min(#list, #d.rows)
   if #list == 0 then
     d.more:SetText((IsInGuild and IsInGuild()) and "nobody else in the guild is online" or "you are not in a guild")
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2))
     d.more:Show()
   elseif #list > shown then
     d.more:SetText(("%d more online"):format(#list - shown))
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20 + shown * (RC.ROW_H + 2)))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2 + shown * (RC.ROW_H + 2)))
     d.more:Show()
   else
     d.more:SetText("")
@@ -2466,10 +2474,22 @@ function RC.PaintRivals()
   local d, db = RC.rwin, RC.db
   if not (d and db) then return end
   local F = K()
-  do  -- the tabs: the one showing lit
+  do  -- the tabs: the one showing filled in the accent, the other a plain button
     local on, off = d.tab == "guild" and d.tabGuild or d.tabRivals, d.tab == "guild" and d.tabRivals or d.tabGuild
-    if on then local r, g, bl = F.color("accent") on.label:SetTextColor(r, g, bl, 1) end
-    if off then local r, g, bl = F.color("muted") off.label:SetTextColor(r, g, bl, 1) end
+    if on then
+      local r, g, bl = F.color("accent")
+      on.fill:SetColorTexture(r, g, bl, 0.28)
+      on.edge:set("accent", 1)
+      local ir, ig, ib = F.color("ink")
+      on.label:SetTextColor(ir, ig, ib, 1)
+    end
+    if off then
+      local r, g, bl = F.color("sunken")
+      off.fill:SetColorTexture(r, g, bl, 1)
+      off.edge:set("edge", 1)
+      local ir, ig, ib = F.color("ink2")
+      off.label:SetTextColor(ir, ig, ib, 1)
+    end
   end
   local leftDone = false
   if d.tab == "guild" then paintGuild(d, db) leftDone = true
@@ -2522,11 +2542,11 @@ function RC.PaintRivals()
   local shown = math.min(#list, #d.rows)
   if #list == 0 then
     d.more:SetText("no rivals yet - click a player on a death recap")
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2))
     d.more:Show()
   elseif #list > shown then
     d.more:SetText(("%d more - /bist rivals list"):format(#list - shown))
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20 + shown * (RC.ROW_H + 2)))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2 + shown * (RC.ROW_H + 2)))
     d.more:Show()
   else
     d.more:SetText("")
