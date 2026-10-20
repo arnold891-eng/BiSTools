@@ -54,6 +54,9 @@ NS.Registry:Register({
     { kind = "toggle", label = "guildmates (crest, alone)", rivalPreview = true, help = "A small teal guild crest under guildmates you pass - only while you are solo, never in a group or battleground.",
       get = function() return D().mates ~= false end,
       set = function(_, on) D().mates = on and true or false if not on then RC.ClearMates() end end },
+    { kind = "toggle", label = "recruits (gold crest)", rivalPreview = true, help = "A gold crest under somebody your guild is recruiting - from BiS> Nebbinator's shared list - and a line saying who is talking to them, so you can put in a good word.",
+      get = function() return D().recruits ~= false end,
+      set = function(_, on) D().recruits = on and true or false if not on then RC.ClearRecruits() end end },
     { kind = "toggle", label = "rival target button", help = "A button in the BiS> tools box that targets your gold rivals, even across the map.",
       get = function() return D().button ~= false end,
       set = function(_, on) D().button = on and true or false RC.ApplyButton(D()) end },
@@ -61,7 +64,7 @@ NS.Registry:Register({
   -- off: every mark down, the target button gone; the lists are kept
   OnDisable = function()
     for unit in pairs(RC.marks) do RC.UnmarkUnit(unit) end
-    RC.ClearMates() RC.ClearPals() RC.ClearCrowns()
+    RC.ClearMates() RC.ClearPals() RC.ClearCrowns() RC.ClearRecruits()
     RC.ApplyButton(D())
   end,
   -- on again: the button back, and every plate on screen looked at once more
@@ -74,6 +77,7 @@ NS.Registry:Register({
     RC.ApplyButton(D())
     RC.HookMenus(D())
     RC.HookGuild(D())
+    RC.HookNebbinator()
   end,
   -- the same words the recap tool always took for these, so old macros keep working; no word = the list
   -- (the roll-out preview of these marks lives with the bg tool's: Battleground.lua B.AttachPreview,
