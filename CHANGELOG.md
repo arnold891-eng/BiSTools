@@ -2,6 +2,10 @@
 
 - **Fixed: the Friends list blamed BiS Tools for a blocked action** ("tried to call the protected function SearchFriends()"). BiS Tools no longer adds its lines to menus opened from the Friends list. To add a friend as a pal or rival, right-click their name in chat or target them.
 - **A friends picker in the party window.** The new **friends** button lists your friends who are online, and your Battle.net friends playing WoW on your side. Click one to put them on the party list, and click again to take them off.
+- **Guild online, in rivals & pals.** The rivals & pals window has two tabs now: **rivals**, and **guild online** - everyone in your guild who is on. Right-click a guildmate to add them as a pal (or take them off), or to whisper them.
+- **The recruit crest.** With BiS> Nebbinator 4.0, anyone your guild is recruiting wears a gold version of the guild crest under their nameplate, and a line in chat says who in the guild is talking to them - so you can put in a good word. Option: "recruits (gold crest)".
+- **Social:** `/bist social why` lists the last five buffs that made you wave, not just the last one.
+- **For other addons:** BiSToolsAPI version 2 adds `IsRival(name)` (BiS Memories uses it to keep a picture when a rival kills you).
 
 ## 0.13.2
 
