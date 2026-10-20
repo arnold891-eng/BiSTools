@@ -1125,6 +1125,8 @@ function P.BuildWindow(db)
       "Your list (or, in the guild view, the ranks you picked): check who is online, x anyone you don't want this time, then Send." },
     { "guild", "accent", function() P.view = (P.view == "guild") and "list" or "guild" P.PaintWindow() end,
       "Your guild's ranks: tick the ones you want, then invite. 'party' takes you back to your list." },
+    { "friends", "accent", function() P.view = (P.view == "friends") and "list" or "friends" P.PaintWindow() end,
+      "Your friends online (and Battle.net friends in this game): click one to put them on the list, again to take them off. 'party' takes you back." },
     { "disband", "warn", function() P.ShiftDisband() end, "Shift-click. Leading: everyone out. Otherwise: you leave." },
   }
   local bw = (P.WIN_W - 12 - 3 * (#acts - 1)) / #acts
@@ -1134,9 +1136,57 @@ function P.BuildWindow(db)
     b:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6 + (i - 1) * (bw + 3), 6)
     f.buttons[a[1]] = b
   end
-  f.guildBtn = f.buttons.guild
+  f.guildBtn, f.friendsBtn = f.buttons.guild, f.buttons.friends
   f:Hide()
   return f
+end
+
+--- YOUR FRIENDS ONLINE, to pick from (Arn, 20 Oct, once the Friends list's right-click line had to go: "bummer
+--- because it was an easy way to add a friend" - he picked a picker in our own window). Character friends
+--- who are on, and Battle.net friends playing WoW on your side, by the character they're on: { name,
+--- classFile }, by name. Only READS the friends list (as P.Lookup does) - Blizzard's list is never touched.
+function P.FriendsOnline()
+  local out, seen = {}, {}
+  local function add(name, classFile)
+    name = type(name) == "string" and name:gsub("%-.*$", "") or nil
+    local k = name and P.Key(name)
+    if not k or seen[k] or k == P.Key(UnitName("player")) then return end
+    seen[k] = true
+    out[#out + 1] = { name = name, classFile = classFile }
+  end
+  local function fileOf(className)
+    for _, t in ipairs({ LOCALIZED_CLASS_NAMES_MALE or {}, LOCALIZED_CLASS_NAMES_FEMALE or {} }) do
+      for k, v in pairs(t) do if v == className then return k end end
+    end
+  end
+  local FL = C_FriendList
+  if FL and FL.GetNumFriends and FL.GetFriendInfoByIndex then
+    local okN, n = pcall(FL.GetNumFriends)
+    n = okN and plain(n) or 0
+    for i = 1, (type(n) == "number" and n or 0) do
+      local ok, f = pcall(FL.GetFriendInfoByIndex, i)
+      if ok and type(f) == "table" and plain(f.connected) then add(plain(f.name), fileOf(plain(f.className))) end
+    end
+  end
+  local BN = C_BattleNet
+  if BNGetNumFriends and BN and BN.GetFriendAccountInfo then
+    local okN, n = pcall(BNGetNumFriends)
+    n = okN and plain(n) or 0
+    local okM, mine = pcall(UnitFactionGroup, "player")
+    mine = okM and plain(mine) or nil
+    for i = 1, (type(n) == "number" and n or 0) do
+      local ok, a = pcall(BN.GetFriendAccountInfo, i)
+      local g = ok and type(a) == "table" and plain(a.gameAccountInfo) or nil
+      if type(g) == "table" and plain(g.isOnline) and plain(g.clientProgram) == (BNET_CLIENT_WOW or "WoW") then
+        local side = plain(g.factionName)
+        if not (mine and type(side) == "string" and side ~= mine) then        -- the other side can't be invited
+          add(plain(g.characterName), fileOf(plain(g.className)))
+        end
+      end
+    end
+  end
+  table.sort(out, function(a, b) return a.name < b.name end)
+  return out
 end
 
 --- Your guildmates online now, not you: { name (no realm), rank, rankIndex }, by name.
@@ -1361,11 +1411,12 @@ end
 function P.PaintWindow()
   local f, db = P.win, P.db
   if not (f and db and f:IsShown()) then return end
-  local guild = P.view == "guild"
-  f.con:Set("name", guild and "Party: guild" or "Party", "accent")
+  local guild, friends = P.view == "guild", P.view == "friends"
+  f.con:Set("name", guild and "Party: guild" or friends and "Party: friends" or "Party", "accent")
   -- party <-> guild: the button names where it takes you (Arn, 15 Oct: "this should say guild", then
-  -- "this should be party, so switch from party/guild")
+  -- "this should be party, so switch from party/guild"); the friends button the same way
   f.guildBtn.label:SetText(guild and "party" or "guild")
+  if f.friendsBtn then f.friendsBtn.label:SetText(friends and "party" or "friends") end
   local names, here = P.List(db), {}
   local entries
   -- THE LIST IN CLASS COLOURS (Arn, 17 Oct: "on the party window can it also determin class?"):
@@ -1375,6 +1426,9 @@ function P.PaintWindow()
     entries = {}
     for _, r in ipairs(P.Ranks()) do entries[#entries + 1] = { rank = r.rank, n = r.n } end
     names = entries
+  elseif friends then
+    names = P.FriendsOnline()
+    for _, e in ipairs(names) do who[P.Key(e.name) or "?"] = { online = true, classFile = e.classFile } end
   else
     who = P.Lookup()
     for _, m in ipairs(P.Members()) do
@@ -1396,7 +1450,7 @@ function P.PaintWindow()
     if guild then slot = (i <= P.ROWS) and i or nil end
     r:SetWidth(guild and full - 4 or colW - 4)
     local e = slot and names[slot + (P.offset or 0)]
-    local n = guild and e and e.name or (not guild and e) or nil
+    local n = e and (type(e) == "table" and e.name or e) or nil
     r.who, r.rank, r.empty = n, guild and e and e.rank or nil, nil
     if e then
       if r.rank then
@@ -1407,10 +1461,10 @@ function P.PaintWindow()
           or ("<%s> (%d)"):format(r.rank, e.n))
         r.name:SetTextColor(NS.Farm.color(r.empty and "dim" or picked and "good" or "accent"))
       else
-        local on = guild and P.Has(db, n)
+        local on = (guild or friends) and P.Has(db, n)
         local k = P.Key(n) or "?"
         -- when you last grouped, after the name (not for who is with you now - the green bar says it)
-        local last = not guild and not here[k] and type(db.lastWith) == "table" and db.lastWith[k] or nil
+        local last = not guild and not friends and not here[k] and type(db.lastWith) == "table" and db.lastWith[k] or nil
         local ago = last and P.Ago(last.t)
         r.last = last
         r.name:SetText(on and (n .. "  " .. NS.T.text("good", "+"))
@@ -1422,8 +1476,8 @@ function P.PaintWindow()
         else r_, g, b = classColour(w and w.classFile) end
         r.name:SetTextColor(r_, g, b, 1)
       end
-      if r.here then if not guild and not r.rank and here[P.Key(n) or "?"] then r.here:Show() else r.here:Hide() end end
-      if guild then r.x:Hide() r.pick:Show() else r.x:Show() r.pick:Hide() end
+      if r.here then if not guild and not friends and not r.rank and here[P.Key(n) or "?"] then r.here:Show() else r.here:Hide() end end
+      if guild or friends then r.x:Hide() r.pick:Show() else r.x:Show() r.pick:Hide() end
       r:Show()
     else
       r:Hide()
@@ -1437,6 +1491,10 @@ function P.PaintWindow()
       or np > 0 and ("%d rank%s picked - invite to check who"):format(np, np == 1 and "" or "s")
       or (GetTime and GetTime() or 0) < (P.nudgeUntil or 0) and NS.T.text("warn", "tick a rank first - click it, then invite")
       or "click ranks to pick them, then invite")
+  elseif friends then
+    f.more:SetText(#names == 0 and "none of your friends is online in this game"
+      or (extra > 0 and ("+%d more - click one: + on the list, again: off"):format(extra)
+      or "click a friend: + on the list, again: off"))
   else
     f.more:SetText(#names == 0 and "empty - save a group, add a name, or right-click a player"
       or (extra > 0 and ("+%d more (/bist party list)"):format(extra) or ""))
@@ -1465,10 +1523,10 @@ end
 -- "Add to party list", in the BiS section of a party or raid member's menu (Arn, 15 Oct). The game's own
 -- Menu.ModifyMenu, as the rivals' lines are; never inside an instance (RC.MenuSafe).
 P.MENUS = { "PARTY", "RAID_PLAYER", "RAID", "TARGET", "FOCUS", "PLAYER",
-  -- the Friends list too (Arn, 15 Oct, a Battle.net friend: "can it add the Darthsidiouz sithlord
-  -- to the party list?" - he asked for shift-click; that would mean hooking Blizzard's own list
-  -- buttons, which is what breaks the client on Forever, so it is the right-click line instead)
-  "FRIEND", "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
+  -- FRIEND is a chat name's menu too. The Friends list's own menus are left alone (Arn's BugGrabber,
+  -- 20 Oct: a line there tainted the list's refresh - SearchFriends refused; RC.FromFriendsList):
+  -- a friend goes on the party list by /bist party add <name>, or from a chat name
+  "FRIEND" }
 
 local function field(ctx, k)
   local ok, v = pcall(function() return ctx[k] end)
@@ -1479,6 +1537,7 @@ function P.MenuLine(db, root, ctx, kind)
   if not (R:Enabled("party") and root and root.CreateButton) then return end
   local RC = NS.Recap
   if RC and RC.MenuSafe and not RC.MenuSafe() then return end
+  if kind ~= "GUILD" and RC and RC.FromFriendsList and RC.FromFriendsList(ctx, kind) then return end   -- (see P.MENUS)
   local name
   if kind == "GUILD" then
     if not db.guildMenu then return end             -- switched off since: nothing until the /reload

@@ -3193,21 +3193,25 @@ do
       if id == 78 then return { accountName = "Elsewhere", gameAccountInfo = {} } end
     end }
     root.lines, root.click = {}, nil
-    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "Add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
-    root.click()
-    ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "Remove pal", "and next time it offers to take them off")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
-    ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
-    ok(root.lines[1] == "Add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
-    root.lines = {}
-    -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
+    -- NOT THE FRIENDS LIST (Arn's BugGrabber, 20 Oct: "AddOn 'BiSTools' tried to call the protected function
+    -- 'SearchFriends()'" from the list's Refresh): no line in a menu the Friends list opened - its own kinds,
+    -- a Battle.net account or the list's index on it, or the Friends window open
+    for _, kind in ipairs({ "BN_FRIEND", "BN_FRIEND_OFFLINE", "FRIEND_OFFLINE" }) do
+      RC.MenuLines(rdb2, root, { name = "ShinyPants" }, kind)
+    end
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "FRIEND")
+    RC.MenuLines(rdb2, root, { name = "Charfriend", friendsList = 3 }, "FRIEND")
+    ok(#root.lines == 0 and tostring(RC.menuDecision):find("Friends list", 1, true),
+      "a menu from the Friends list: no line, and /bist recap why says so", RC.menuDecision)
+    local keepFF = _G.FriendsFrame
+    _G.FriendsFrame = { IsVisible = function() return true end }
+    RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
+    ok(#root.lines == 0, "the Friends window open: its FRIEND menu gets nothing either")
+    _G.FriendsFrame = keepFF
+    local hooked = table.concat(RC.MENUS, " ")
+    ok(not hooked:find("BN_FRIEND", 1, true) and not hooked:find("FRIEND_OFFLINE", 1, true),
+      "the menus only the Friends list opens are never hooked", hooked)
+    -- A NAME IN CHAT opens FRIEND too: nothing says friend or foe - BOTH lines, you pick
     -- (Arn, 14 Oct: "if we cant see we add both?")
     RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
     ok(root.lines[1] == "Add pal" and root.lines[2] == "Add rival" and #root.lines == 2,
@@ -5608,6 +5612,38 @@ do
       cv.cancel.scripts.OnClick(cv.cancel)
       w.guildBtn.scripts.OnClick(w.guildBtn)
       ok(w.rows[1].name.text ~= "invite all <Officer> (1)" and w.guildBtn.label.text == "guild", "the button again (it read 'party'): back to your list")
+      -- THE FRIENDS VIEW (Arn, 20 Oct, once the Friends list's right-click line had to go: "bummer because it
+      -- was an easy way to add a friend"): your friends online, only read; a click puts one on the list
+      do
+        local keepFL, keepBNN, keepBN, keepUFG = _G.C_FriendList, _G.BNGetNumFriends, _G.C_BattleNet, _G.UnitFactionGroup
+        local chars = { { name = "Pally-Realm", connected = true, className = "Paladin" }, { name = "Sleepy", connected = false },
+                        { name = "Zed", connected = true, className = "Mage" } }
+        _G.C_FriendList = { GetNumFriends = function() return #chars end, GetFriendInfoByIndex = function(i) return chars[i] end }
+        local accounts = {
+          { gameAccountInfo = { isOnline = true, clientProgram = "WoW", characterName = "Darthsidiouz Sithlord", factionName = "Horde" } },
+          { gameAccountInfo = { isOnline = true, clientProgram = "WoW", characterName = "Alli Ance", factionName = "Alliance" } },
+          { gameAccountInfo = { isOnline = true, clientProgram = "BSAp" } },
+          { gameAccountInfo = { isOnline = false, clientProgram = "WoW", characterName = "Gone" } } }
+        _G.BNGetNumFriends = function() return #accounts end
+        _G.C_BattleNet = { GetFriendAccountInfo = function(i) return accounts[i] end }
+        _G.UnitFactionGroup = function() return "Horde", "Horde" end
+        local names = {}
+        for _, e in ipairs(P.FriendsOnline()) do names[#names + 1] = e.name end
+        ok(table.concat(names, ",") == "Darthsidiouz Sithlord,Pally,Zed",
+          "your friends online: character friends, and Battle.net friends in WoW on your side - by character", table.concat(names, ","))
+        w.friendsBtn.scripts.OnClick(w.friendsBtn)
+        ok(w.friendsBtn.label.text == "party", "the friends view: its button says party - where it takes you", w.friendsBtn.label.text)
+        local row
+        for _, r in ipairs(w.rows) do if r.shown and r.who == "Darthsidiouz Sithlord" then row = r end end
+        ok(row and row.pick.shown and not row.x.shown, "a friend a row, the whole row a button")
+        row.pick.scripts.OnClick(row.pick)
+        ok(P.Has(pdb, "Darthsidiouz Sithlord") and row.name.text:find("+", 1, true), "a click: on the party list, marked +", row.name.text)
+        row.pick.scripts.OnClick(row.pick)
+        ok(not P.Has(pdb, "Darthsidiouz Sithlord"), "again: off it")
+        w.friendsBtn.scripts.OnClick(w.friendsBtn)
+        ok(w.friendsBtn.label.text == "friends", "the button again: back to your list")
+        _G.C_FriendList, _G.BNGetNumFriends, _G.C_BattleNet, _G.UnitFactionGroup = keepFL, keepBNN, keepBN, keepUFG
+      end
       -- THE GUILD WINDOW'S OWN MENU, behind its switch (a line there may cost officers promote/kick)
       local keepMenu, hooked = _G.Menu, {}
       _G.Menu = { ModifyMenu = function(tag, fn) hooked[tag] = fn end }
