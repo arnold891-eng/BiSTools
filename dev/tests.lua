@@ -6022,6 +6022,13 @@ do
   local A = _G.BiSToolsAPI
   ok(A and A.major == 1 and A.version >= 1, "BiSToolsAPI is there, major 1")
   ok(A.PartyReady(), "ready while the party tool is on")
+  -- version 2 (21 Oct 2026, for BiS Memories): is this name a rival?
+  ok(A.version >= 2, "version 2")
+  local rdb = NS.Recap.DB()
+  NS.Recap.Rivals(rdb)["Latina Fatty"] = { class = "MAGE", added = 1 }
+  ok(A.IsRival("Latina Fatty") == true and A.IsRival("Someone Else") == false and A.IsRival(nil) == false,
+     "IsRival: a rival yes, anyone else no, no name no")
+  NS.Recap.Rivals(rdb)["Latina Fatty"] = nil
   P.pending = nil
   local n = A.InviteList("on the pasted roster", { "Darthsidiouz Sithlord", { name = "Kio Alpha", class = "Mage", classFile = "MAGE" }, 7, {} })
   ok(n == 2 and P.pending and #P.pending == 2, "names and people land on the confirm list; junk is skipped", n)
