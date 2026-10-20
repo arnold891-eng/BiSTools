@@ -3193,21 +3193,25 @@ do
       if id == 78 then return { accountName = "Elsewhere", gameAccountInfo = {} } end
     end }
     root.lines, root.click = {}, nil
-    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "Add pal" and #root.lines == 1, "a Battle.net friend's menu: add pal, never add rival", root.lines[1])
-    root.click()
-    ok(pals["Darthsidiouz Sithlord"] and pals["ShinyPants"] == nil, "the pal is the CHARACTER, not the BattleTag nickname")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "BN_FRIEND")
-    ok(root.lines[1] == "Remove pal", "and next time it offers to take them off")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "Elsewhere", bnetIDAccount = 78 }, "BN_FRIEND")
-    ok(#root.lines == 0, "a Battle.net friend not in this game: no line")
-    root.lines = {}
-    RC.MenuLines(rdb2, root, { name = "Foe", bnetIDAccount = 79 }, "BN_FRIEND")
-    ok(root.lines[1] == "Add rival" and #root.lines == 1, "a Battle.net friend on the OTHER faction: add rival", root.lines[1])
-    root.lines = {}
-    -- nothing says friend or foe (a character friend: no unit, no faction): BOTH lines, you pick
+    -- NOT THE FRIENDS LIST (Arn's BugGrabber, 20 Oct: "AddOn 'BiSTools' tried to call the protected function
+    -- 'SearchFriends()'" from the list's Refresh): no line in a menu the Friends list opened - its own kinds,
+    -- a Battle.net account or the list's index on it, or the Friends window open
+    for _, kind in ipairs({ "BN_FRIEND", "BN_FRIEND_OFFLINE", "FRIEND_OFFLINE" }) do
+      RC.MenuLines(rdb2, root, { name = "ShinyPants" }, kind)
+    end
+    RC.MenuLines(rdb2, root, { name = "ShinyPants", bnetIDAccount = 77 }, "FRIEND")
+    RC.MenuLines(rdb2, root, { name = "Charfriend", friendsList = 3 }, "FRIEND")
+    ok(#root.lines == 0 and tostring(RC.menuDecision):find("Friends list", 1, true),
+      "a menu from the Friends list: no line, and /bist recap why says so", RC.menuDecision)
+    local keepFF = _G.FriendsFrame
+    _G.FriendsFrame = { IsVisible = function() return true end }
+    RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
+    ok(#root.lines == 0, "the Friends window open: its FRIEND menu gets nothing either")
+    _G.FriendsFrame = keepFF
+    local hooked = table.concat(RC.MENUS, " ")
+    ok(not hooked:find("BN_FRIEND", 1, true) and not hooked:find("FRIEND_OFFLINE", 1, true),
+      "the menus only the Friends list opens are never hooked", hooked)
+    -- A NAME IN CHAT opens FRIEND too: nothing says friend or foe - BOTH lines, you pick
     -- (Arn, 14 Oct: "if we cant see we add both?")
     RC.MenuLines(rdb2, root, { name = "Charfriend" }, "FRIEND")
     ok(root.lines[1] == "Add pal" and root.lines[2] == "Add rival" and #root.lines == 2,

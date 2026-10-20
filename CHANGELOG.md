@@ -1,3 +1,7 @@
+## Unreleased
+
+- **Fixed: the Friends list blamed BiS Tools for a blocked action** ("tried to call the protected function SearchFriends()"). BiS Tools no longer adds its lines to menus opened from the Friends list. To add a friend as a pal or rival, right-click their name in chat or target them; to put one on the party list, use `/bist party add <name>`.
+
 ## 0.13.2
 
 - **Every tool in the BiS Tools list opens and closes the same way.** Click a tool to open its window, click it again to close it. Some used to close and some only opened. Shift-click still brings a window to the middle of the screen. **social** and **bg**, which have no window, open the options where their settings are.

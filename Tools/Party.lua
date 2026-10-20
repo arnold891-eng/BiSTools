@@ -1465,10 +1465,10 @@ end
 -- "Add to party list", in the BiS section of a party or raid member's menu (Arn, 15 Oct). The game's own
 -- Menu.ModifyMenu, as the rivals' lines are; never inside an instance (RC.MenuSafe).
 P.MENUS = { "PARTY", "RAID_PLAYER", "RAID", "TARGET", "FOCUS", "PLAYER",
-  -- the Friends list too (Arn, 15 Oct, a Battle.net friend: "can it add the Darthsidiouz sithlord
-  -- to the party list?" - he asked for shift-click; that would mean hooking Blizzard's own list
-  -- buttons, which is what breaks the client on Forever, so it is the right-click line instead)
-  "FRIEND", "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
+  -- FRIEND is a chat name's menu too. The Friends list's own menus are left alone (Arn's BugGrabber,
+  -- 20 Oct: a line there tainted the list's refresh - SearchFriends refused; RC.FromFriendsList):
+  -- a friend goes on the party list by /bist party add <name>, or from a chat name
+  "FRIEND" }
 
 local function field(ctx, k)
   local ok, v = pcall(function() return ctx[k] end)
@@ -1479,6 +1479,7 @@ function P.MenuLine(db, root, ctx, kind)
   if not (R:Enabled("party") and root and root.CreateButton) then return end
   local RC = NS.Recap
   if RC and RC.MenuSafe and not RC.MenuSafe() then return end
+  if kind ~= "GUILD" and RC and RC.FromFriendsList and RC.FromFriendsList(ctx, kind) then return end   -- (see P.MENUS)
   local name
   if kind == "GUILD" then
     if not db.guildMenu then return end             -- switched off since: nothing until the /reload

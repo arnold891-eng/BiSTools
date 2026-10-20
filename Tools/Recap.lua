@@ -1382,10 +1382,14 @@ RC.MENUS = { "ENEMY_PLAYER", "PLAYER", "FRIEND", "PARTY", "RAID_PLAYER", "CHAT_R
   -- Arn, 13 Oct: "i cant see the add rival when i right click them". A unit frame that opens its
   -- menu through the secure "togglemenu" action (EllesmereUI's do, to dodge 12.x's togglemenu gate)
   -- can file a player's menu as TARGET or FOCUS - so those carry the line too, for players only
-  "TARGET", "FOCUS",
-  -- the Friends list (Arn, 14 Oct: no line on a Battle.net friend's first right-click after a
-  -- reload - a kind learned only when it opens misses that first time)
-  "FRIEND_OFFLINE", "BN_FRIEND", "BN_FRIEND_OFFLINE" }
+  "TARGET", "FOCUS" }
+-- NOT THE FRIENDS LIST (Arn's BugGrabber, 20 Oct: "3x [ADDON_ACTION_FORBIDDEN] AddOn 'BiSTools' tried to
+-- call the protected function 'SearchFriends()'" from Blizzard_FriendsFrame's Refresh). A line of ours in
+-- a friends-list menu left the list's next refresh running tainted, and its friend search is protected.
+-- So, like the guild roster: the menus only the Friends list opens (FRIEND_OFFLINE, BN_FRIEND,
+-- BN_FRIEND_OFFLINE - hooked since 14 Oct) are never hooked again, and FRIEND - the one a name in chat
+-- opens too - gets no line when it comes from the list (RC.FromFriendsList).
+RC.FRIENDS_ONLY = { FRIEND_OFFLINE = true, BN_FRIEND = true, BN_FRIEND_OFFLINE = true }
 
 --- CAN A LINE GO INTO THE GAME'S RIGHT-CLICK MENU HERE? Not inside an instance. Arn's BugGrabber
 --- in a battleground, 13 Oct: "FrameUtil.lua:223: attempt to perform arithmetic on local 'frameLeft'
@@ -1437,6 +1441,20 @@ end
 -- the Friends list's menus: whoever is in them is a friend, so a pal - never a rival
 RC.FRIEND_MENUS = { FRIEND = true, FRIEND_OFFLINE = true, BN_FRIEND = true, BN_FRIEND_OFFLINE = true }
 
+--- Did this menu open from the Friends list? Its own kinds; a Battle.net account or the list's index on
+--- it; or the Friends window open while it opened (a chat name's FRIEND menu then goes without too).
+--- Only reads - nothing of the window is touched.
+function RC.FromFriendsList(ctx, kind)
+  if RC.FRIENDS_ONLY[kind or ""] then return true end
+  if field(ctx, "bnetIDAccount") ~= nil or field(ctx, "friendsList") ~= nil then return true end
+  local ff = rawget(_G, "FriendsFrame")
+  if type(ff) == "table" and ff.IsVisible then
+    local ok, shown = pcall(ff.IsVisible, ff)
+    if ok and shown == true then return true end
+  end
+  return false
+end
+
 --- A friend menu's character: a Battle.net friend through their account (the menu's own "name" is
 --- the BattleTag nickname - "ShinyPants" for "Darthsidiouz Sithlord"), a character friend by name.
 function RC.FriendName(ctx)
@@ -1482,6 +1500,10 @@ function RC.MenuLines(db, root, ctx, kind)
     return say("inside an instance (a battleground): the game's menu breaks with an addon line there - /bist recap rival adds your target")
   end
   if not (root and root.CreateButton) then return say("the menu would not take a line") end
+  if RC.FromFriendsList(ctx, kind) then
+    return say("the Friends list: a line there breaks the list's refresh (SearchFriends, Forever's taint) - "
+      .. "right-click their name in chat, or target them")
+  end
   -- a menu about a UNIT must be about a player (TARGET and FOCUS also open on mobs); a menu with no
   -- unit (a name in chat) is a player by where it came from
   local unit = field(ctx, "unit")
