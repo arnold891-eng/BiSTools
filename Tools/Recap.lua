@@ -284,6 +284,8 @@ RC.WHO_ROWS = 4
 -- the rivals & pals window, also 1.43:1
 RC.RW, RC.RH = 500, 350             -- 1.43:1, room for a rival's whole line
 RC.RIVAL_ROWS, RC.PAL_ROWS, RC.SUR_ROWS = 16, 10, 3
+RC.TAB_H = 18                        -- the rivals / guild online tabs: buttons, not captions (Arn, 21 Oct)
+RC.LIST_TOP = RC.HEADER + 8 + RC.TAB_H   -- the first row of either column, under the tabs
 
 local function K() return NS.Farm end
 
@@ -2292,7 +2294,7 @@ function RC.BuildRivals(db)
     b:SetSize(w, RC.ROW_H + 2)
     b.w = w
     b:SetPoint("TOPLEFT", d, "TOPLEFT", x, -y)
-    b:RegisterForClicks("LeftButtonUp")
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b.mark = b:CreateTexture(nil, "ARTWORK")
     b.mark:SetPoint("LEFT", b, "LEFT", 0, 0)
     b.mark:SetSize(7, 7)
@@ -2302,13 +2304,34 @@ function RC.BuildRivals(db)
     return b
   end
 
-  -- LEFT: the rivals
-  d.caption = F.fs(d, "rivals - gold: hunting, silver: not", 8, "muted")
-  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P, -(RC.HEADER + 5))
+  -- LEFT: the rivals - or, on its tab, your guildmates online (Arn, 21 Oct 2026: "can we have a tab that
+  -- generates the online guild people so we can right click and add to pals")
+  d.tab = "rivals"
+  -- TABS THAT LOOK LIKE BUTTONS (Arn, 21 Oct: "these are too small up here make them look like buttons"):
+  -- a box with an edge, 10 pt words; the one showing filled in the accent
+  local function tab(label, which, x, w)
+    local t = CreateFrame("Button", nil, d)
+    t:SetPoint("TOPLEFT", d, "TOPLEFT", x, -(RC.HEADER + 4))
+    t:SetSize(w, RC.TAB_H)
+    t.fill = F.tex(t, "BACKGROUND", "sunken", 1)
+    t.edge = F.border(t, "edge", 1)
+    t.label = F.fs(t, label, 10, "ink2")
+    t.label:SetPoint("CENTER", t, "CENTER", 0, 0)
+    t:SetScript("OnClick", function() RC.RivalsTab(which) end)
+    t:SetScript("OnEnter", function(self) if d.tab ~= which then self.edge:set("accent", 1) end end)
+    t:SetScript("OnLeave", function(self) if d.tab ~= which then self.edge:set("edge", 1) end end)
+    return t
+  end
+  -- the two buttons, then the caption: all inside the left column (it ends at the pals' caption)
+  d.tabRivals = tab("rivals", "rivals", P, 64)
+  d.tabGuild = tab("guild online", "guild", P + 68, 96)
+  d.caption = F.fs(d, "gold: hunting, silver: not", 8, "muted")
+  d.caption:SetPoint("TOPLEFT", d, "TOPLEFT", P + 172, -(RC.HEADER + 9))     -- 8 px past the second button
   d.rows = {}
   for i = 1, RC.RIVAL_ROWS do
-    local b = row(P, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), lw)
+    local b = row(P, RC.LIST_TOP + (i - 1) * (RC.ROW_H + 2), lw)
     b:SetScript("OnClick", function(self)
+      if self.mate then return RC.MateMenu(db, self, self.mate) end      -- the guild online tab
       if not self.rival then return end
       -- a GUILD row: click = make them yours (gold), shift-click = off the guild's list
       if self.guild then
@@ -2328,6 +2351,14 @@ function RC.BuildRivals(db)
       end
     end)
     b:SetScript("OnEnter", function(self)
+      if self.mate and GameTooltip then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(self.mate)
+        GameTooltip:AddLine(RC.IsMatePal(db, self.mate) and "Your pal. Right-click: remove pal, or whisper."
+          or "Right-click: add as a pal, or whisper.", 1, 1, 1, true)
+        GameTooltip:Show()
+        return
+      end
       if not (self.rival and GameTooltip) then return end
       GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
       GameTooltip:AddLine(self.rival)
@@ -2342,10 +2373,10 @@ function RC.BuildRivals(db)
   -- RIGHT: pals, then the surnames crowned
   local xR = P * 2 + lw
   d.palCap = F.fs(d, "pals - a heart over them", 8, "muted")
-  d.palCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -(RC.HEADER + 5))
+  d.palCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -(RC.LIST_TOP - 13))
   d.pals = {}
   for i = 1, RC.PAL_ROWS do
-    local b = row(xR, RC.HEADER + 18 + (i - 1) * (RC.ROW_H + 2), rw)
+    local b = row(xR, RC.LIST_TOP + (i - 1) * (RC.ROW_H + 2), rw)
     b:SetScript("OnClick", function(self)
       if not (self.pal and IsShiftKeyDown and IsShiftKeyDown()) then return end
       RC.Pals(db)[self.pal] = nil
@@ -2362,7 +2393,7 @@ function RC.BuildRivals(db)
     end)
     d.pals[i] = b
   end
-  local yS = RC.HEADER + 18 + RC.PAL_ROWS * (RC.ROW_H + 2) + 8
+  local yS = RC.LIST_TOP + RC.PAL_ROWS * (RC.ROW_H + 2) + 8
   d.surCap = F.fs(d, "surname crowns", 8, "muted")
   d.surCap:SetPoint("TOPLEFT", d, "TOPLEFT", xR, -yS)
   d.surs = {}
@@ -2389,7 +2420,11 @@ function RC.BuildRivals(db)
   -- ESCAPE CLOSES IT (Arn, 14 Oct: "esc not closing the bis rival and pal page"), like every
   -- Blizzard panel; however it closes, the recap's arrow and the saved state follow
   if UISpecialFrames then table.insert(UISpecialFrames, "BiSToolsRivals") end
-  d:HookScript("OnHide", function()
+  d:SetScript("OnEvent", function(self, event)
+    if event == "GUILD_ROSTER_UPDATE" and self:IsShown() and self.tab == "guild" then RC.PaintRivals() end
+  end)
+  d:HookScript("OnHide", function(self)
+    if self.UnregisterEvent then self:UnregisterEvent("GUILD_ROSTER_UPDATE") end   -- nothing heard while shut
     db.expanded = false
     local f = RC.win
     if f and f.moreBtn and f.moreBtn.label then f.moreBtn.label:SetText("R") end
@@ -2457,12 +2492,132 @@ local function ago(stamp)
   return ("%dd ago"):format(math.floor(s / 86400))
 end
 
+--- Switch the left column: "rivals" or "guild" (your guildmates online). The guild tab asks the game for a
+--- fresh roster and listens for its answer only while it shows.
+function RC.RivalsTab(which)
+  local d = RC.rwin
+  if not d then return end
+  d.tab = (which == "guild") and "guild" or "rivals"
+  if d.tab == "guild" then
+    if d.RegisterEvent then d:RegisterEvent("GUILD_ROSTER_UPDATE") end
+    local ask = (C_GuildInfo and C_GuildInfo.GuildRoster) or GuildRoster
+    if ask then pcall(ask) end
+  elseif d.UnregisterEvent then
+    d:UnregisterEvent("GUILD_ROSTER_UPDATE")
+  end
+  RC.PaintRivals()
+end
+
+--- A guildmate as a pal, on or off (the same record `/bist pal` and the target's menu write). By the WHOLE
+--- name: a roster's "Chain Healz" is not the pal "Chain Other" (RC.PalNamed's first-name road is for a plate
+--- that gives one word, and would mark a guildmate who shares a first name).
+function RC.IsMatePal(db, name) return RC.Pals(db)[name] ~= nil end
+function RC.MatePal(db, name)
+  local p, key = RC.Pals(db)[name], name
+  if p then
+    RC.Pals(db)[key] = nil
+    RC.ClearPals() RC.SpotPals(db)
+    NS.Print("%s is no longer a pal", key)
+  else
+    RC.Pals(db)[name] = { added = time and time() or 0 }
+    RC.SpotPals(db)
+    NS.Print("%s added to your pals - a little green heart over them, out of combat", T.text("good", name))
+  end
+  RC.PaintRivals()
+  return not p
+end
+
+--- A guildmate's right-click: add or remove the pal, or whisper them. The game's own menu kit where it has
+--- one (MenuUtil); a client without it toggles the pal on the click.
+function RC.MateMenu(db, owner, name)
+  local MU = MenuUtil
+  if not (MU and MU.CreateContextMenu) then return RC.MatePal(db, name) end
+  local ok = pcall(MU.CreateContextMenu, owner, function(_, root)
+    root:CreateTitle(name)
+    root:CreateButton(RC.IsMatePal(db, name) and "Remove pal" or "Add pal", function() RC.MatePal(db, name) end)
+    root:CreateButton("Whisper", function()
+      if ChatFrame_SendTell then pcall(ChatFrame_SendTell, name) end
+    end)
+  end)
+  if not ok then return RC.MatePal(db, name) end
+  return true
+end
+
+local function paintGuild(d, db)
+  local F = K()
+  d.caption:SetText("right-click: add as a pal")
+  local list = (NS.Party and NS.Party.GuildOnline and NS.Party.GuildOnline()) or {}
+  -- the pals first, then everyone else, each by name
+  table.sort(list, function(x, y)
+    local px, py = RC.IsMatePal(db, x.name) and 1 or 0, RC.IsMatePal(db, y.name) and 1 or 0
+    if px ~= py then return px > py end
+    return x.name < y.name
+  end)
+  for i, b in ipairs(d.rows) do
+    local e = list[i]
+    b.rival, b.guild = nil, nil
+    if e then
+      b.mate = e.name
+      local pal = RC.IsMatePal(db, e.name)
+      if pal then local r, g, bl = unpack(RC.PAL) b.mark:SetColorTexture(r, g, bl, 1)
+      else local r, g, bl = F.color("dim") b.mark:SetColorTexture(r, g, bl, 0.6) end
+      fitText(b.name, e.name, 150)
+      local cc = e.classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.classFile]
+      if cc then b.name:SetTextColor(cc.r, cc.g, cc.b, 1)
+      else local r, g, bl = F.color("ink") b.name:SetTextColor(r, g, bl, 1) end
+      fitText(b.info, (pal and "pal · " or "") .. (e.rank or ""), (b.w or 200) - 160)
+      b:Show()
+    else
+      b.mate = nil
+      b:Hide()
+    end
+  end
+  local shown = math.min(#list, #d.rows)
+  if #list == 0 then
+    d.more:SetText((IsInGuild and IsInGuild()) and "nobody else in the guild is online" or "you are not in a guild")
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2))
+    d.more:Show()
+  elseif #list > shown then
+    d.more:SetText(("%d more online"):format(#list - shown))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2 + shown * (RC.ROW_H + 2)))
+    d.more:Show()
+  else
+    d.more:SetText("")
+    d.more:Hide()
+  end
+  return #list
+end
+
 --- The rivals & pals window: left, the rivals - gold first, then the guild's, then silver, the most
---- recently seen first in each; right, the pals and the surnames crowned.
+--- recently seen first in each (or, on its tab, the guild online); right, the pals and the surnames crowned.
 function RC.PaintRivals()
   local d, db = RC.rwin, RC.db
   if not (d and db) then return end
   local F = K()
+  do  -- the tabs: the one showing filled in the accent, the other a plain button
+    local on, off = d.tab == "guild" and d.tabGuild or d.tabRivals, d.tab == "guild" and d.tabRivals or d.tabGuild
+    if on then
+      local r, g, bl = F.color("accent")
+      on.fill:SetColorTexture(r, g, bl, 0.28)
+      on.edge:set("accent", 1)
+      local ir, ig, ib = F.color("ink")
+      on.label:SetTextColor(ir, ig, ib, 1)
+    end
+    if off then
+      local r, g, bl = F.color("sunken")
+      off.fill:SetColorTexture(r, g, bl, 1)
+      off.edge:set("edge", 1)
+      local ir, ig, ib = F.color("ink2")
+      off.label:SetTextColor(ir, ig, ib, 1)
+    end
+  end
+  local leftDone = false
+  if d.tab == "guild" then paintGuild(d, db) leftDone = true
+  else
+    d.caption:SetText("gold: hunting, silver: not")
+    for _, b in ipairs(d.rows) do b.mate = nil end
+  end
+  if not leftDone then
   local list = {}
   for name, r in pairs(RC.Rivals(db)) do list[#list + 1] = { name = name, r = r, rank = r.active and 1 or 3 } end
   if db.guildShow ~= false then
@@ -2507,16 +2662,17 @@ function RC.PaintRivals()
   local shown = math.min(#list, #d.rows)
   if #list == 0 then
     d.more:SetText("no rivals yet - click a player on a death recap")
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2))
     d.more:Show()
   elseif #list > shown then
     d.more:SetText(("%d more - /bist rivals list"):format(#list - shown))
-    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.HEADER + 20 + shown * (RC.ROW_H + 2)))
+    d.more:SetPoint("TOPLEFT", d, "TOPLEFT", RC.PAD, -(RC.LIST_TOP + 2 + shown * (RC.ROW_H + 2)))
     d.more:Show()
   else
     d.more:SetText("")
     d.more:Hide()
   end
+  end   -- not leftDone
   -- the pals, the most recently added first
   local pals = {}
   for name, p in pairs(RC.Pals(db)) do pals[#pals + 1] = { name = name, p = p } end

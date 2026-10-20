@@ -2908,6 +2908,67 @@ do
   RC.SetExpanded(rdb, true)
   RC.rwin:Hide() if RC.rwin.scripts.OnHide then RC.rwin.scripts.OnHide(RC.rwin) end   -- what Escape does
   ok(rdb.expanded == false and w.rivalsBtn.label.text == "rivals >", "closed by Escape: the arrow turns back")
+  -- THE GUILD ONLINE TAB (Arn, 21 Oct 2026: "a tab that generates the online guild people so we can right click
+  -- and add to pals"). Forever's roster names are whole ("Name Surname-Realm"); a pal is matched whole.
+  do
+    local keepIG, keepGN, keepGR, keepMU, keepTell = _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo,
+      _G.MenuUtil, _G.ChatFrame_SendTell
+    local roster = { { "Chain Healz-Dreamscythe", "Officer", 1, true, "SHAMAN" },
+                     { "Chain Other-Dreamscythe", "Raider", 3, true, "MAGE" },
+                     { "Offline Guy-Dreamscythe", "Raider", 3, false, "ROGUE" } }
+    _G.IsInGuild = function() return true end
+    _G.GetNumGuildMembers = function() return #roster end
+    _G.GetGuildRosterInfo = function(i) local m = roster[i]
+      return m[1], m[2], m[3], 30, "x", "", "", "", m[4], 0, m[5] end
+    local asked = 0
+    local keepGI = _G.C_GuildInfo
+    _G.C_GuildInfo = { GuildRoster = function() asked = asked + 1 end }
+    local menuLines, menuFns = {}, {}
+    _G.MenuUtil = { CreateContextMenu = function(owner, gen)
+      menuLines, menuFns = {}, {}
+      local root = { CreateTitle = function(_, t) menuLines[#menuLines + 1] = "title:" .. t end,
+                     CreateButton = function(_, t, fn) menuLines[#menuLines + 1] = t menuFns[t] = fn end }
+      gen(owner, root)
+    end }
+    local told
+    _G.ChatFrame_SendTell = function(n) told = n end
+    RC.Pals(rdb)["Chain Healz"] = nil
+    RC.Pals(rdb)["Chain Other"] = nil
+    RC.Pals(rdb)["Chain Pal"] = { added = 1 }           -- a pal who shares a first name with two guildmates
+    RC.SetExpanded(rdb, true)
+    RC.rwin.tabGuild.scripts.OnClick(RC.rwin.tabGuild)
+    local d = RC.rwin
+    ok(d.tab == "guild" and asked == 1, "the guild online tab: open, and a fresh roster asked for")
+    ok(d.rows[1].mate == "Chain Healz" and d.rows[2].mate == "Chain Other" and not d.rows[3]:IsShown(),
+       "the guildmates online, whole names, the offline one left out", tostring(d.rows[1].mate))
+    ok(not RC.IsMatePal(rdb, "Chain Healz"), "a pal named Chain Pal does not make Chain Healz one (whole names)")
+    d.rows[2].scripts.OnClick(d.rows[2], "RightButton")
+    ok(menuLines[1] == "title:Chain Other" and menuLines[2] == "Add pal" and menuLines[3] == "Whisper",
+       "right-click: the name, Add pal, Whisper", table.concat(menuLines, "|"))
+    menuFns["Add pal"]()
+    ok(RC.Pals(rdb)["Chain Other"] and d.rows[1].mate == "Chain Other" and d.rows[1].info.text:find("pal", 1, true),
+       "added: a pal now, listed first", tostring(d.rows[1].info.text))
+    d.rows[1].scripts.OnClick(d.rows[1], "RightButton")
+    ok(menuLines[2] == "Remove pal", "and its menu offers to take them off again")
+    menuFns["Whisper"]()
+    ok(told == "Chain Other", "Whisper opens a whisper to them")
+    menuFns["Remove pal"]()
+    ok(RC.Pals(rdb)["Chain Other"] == nil, "removed")
+    ok(RC.rwin.events and RC.rwin.events.GUILD_ROSTER_UPDATE ~= false, "the tab listens for the roster's answer")
+    RC.rwin.tabRivals.scripts.OnClick(RC.rwin.tabRivals)
+    ok(d.tab == "rivals" and not d.rows[1].mate, "back on the rivals tab: rivals again")
+    _G.MenuUtil = nil
+    RC.SetExpanded(rdb, true)
+    RC.RivalsTab("guild")
+    d.rows[1].scripts.OnClick(d.rows[1], "RightButton")
+    ok(RC.Pals(rdb)["Chain Healz"] ~= nil, "a client without the menu kit: the click adds the pal straight away")
+    RC.Pals(rdb)["Chain Healz"] = nil
+    RC.Pals(rdb)["Chain Pal"] = nil
+    RC.RivalsTab("rivals")
+    RC.SetExpanded(rdb, false)
+    _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo, _G.MenuUtil, _G.ChatFrame_SendTell, _G.C_GuildInfo =
+      keepIG, keepGN, keepGR, keepMU, keepTell, keepGI
+  end
   -- NOT ON TOP OF THE RECAP (Arn: "needs the same brains to not overlap windows")
   do
     local keepR, keepRS, keepWR, keepWS = RC.rwin.GetRect, RC.rwin.GetEffectiveScale, w.GetRect, w.GetEffectiveScale
