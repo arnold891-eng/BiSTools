@@ -9,11 +9,13 @@
 -- more options live in BiS Tools" - "the library still draws nothing".
 --
 -- So the CLOCK is LibBiSComm's (minor 15, RIDE): every BiS addon learns a ride by watching you ride it and shares it
--- with your guild and group. This tool only SHOWS it: on a map with a zeppelin or a boat - or in its capital,
--- Orgrimmar for Durotar's tower - a card at the top left, one line per ride from here ("Zeppelin to Undercity -
--- arrives in 3:10", gold while it waits: "here now, leaves in 0:45"), and who timed it. Anywhere else, and in an
--- instance, nothing. It repaints once a second while it shows; nothing ticks while it is hidden. It also hands
--- the lib its saved table (db.clock), so the clock outlives a logout.
+-- with your guild and group. This tool only SHOWS it - A POP-UP (Arn, later that evening: "only pop out when it
+-- arrives and itll show up and say zep to grom leaves in 1 minute ... and if the zeps are far they hide"): at a
+-- tower or dock - or in its capital, Orgrimmar for Durotar's tower - a card at the top left while a ride waits at
+-- the dock, "Zeppelin to Grom'gol - leaves in 0:58", and who timed it; hidden while none waits. "all rides" (an
+-- option) shows every ride from here, coming and going. A watch looks once a second only where a ride is; nothing
+-- ticks anywhere else, or in an instance. It also hands the lib its saved table (db.clock), so the clock outlives
+-- a logout.
 local _, NS = ...
 local T, R = NS.T, NS.Registry
 
@@ -106,14 +108,47 @@ function RD.Place()
   end
 end
 
-function RD.Hide()
+--- The card away (the watch may go on: a ride can still come in).
+function RD.HideCard()
   local f = RD.frame
-  if not f then return end
-  f:SetScript("OnUpdate", nil)
-  f:Hide()
+  if f and f:IsShown() then f:Hide() end
 end
 
---- The card now: shown where a ride is (its map or its capital), hidden anywhere else. Answers its lines.
+--- Everything off: the card, and the once-a-second watch.
+function RD.Hide()
+  RD.HideCard()
+  RD.Watching(false)
+end
+
+--- THE WATCH: once a second while you are where a ride is (its zone, or its capital) - so the card can pop up the
+--- moment one docks; nothing ticks anywhere else.
+RD.watch = CreateFrame("Frame")
+function RD.Watching(on)
+  local w = RD.watch
+  if on and not w:GetScript("OnUpdate") then
+    RD.wait = RD.EVERY
+    w:SetScript("OnUpdate", function(_, elapsed)
+      RD.wait = RD.wait - (tonumber(elapsed) or 0)
+      if RD.wait > 0 then return end
+      RD.wait = RD.EVERY
+      RD.Paint()
+    end)
+  elseif not on and w:GetScript("OnUpdate") then
+    w:SetScript("OnUpdate", nil)
+  end
+end
+
+--- A ride in the card's words. THE POP-UP (Arn, 21 Oct: "i want it to only pop out when it arrives and itll show up
+--- and say zep to grom leaves in 1 minute ... and if the zeps are far they hide"): only what waits at the dock now,
+--- "Zeppelin to Grom'gol - leaves in 0:58". With "all rides" on: every ride from here, coming and going.
+function RD.Line(lib, e, all)
+  if all then return lib:RideLine(e.stop, e.sched) end
+  return ("%s to %s - leaves in %s"):format(e.stop.kind == "zeppelin" and "Zeppelin" or "Boat", tostring(e.stop.toName),
+    lib.RideClock(e.sched.left))
+end
+
+--- The card now: where a ride is, it pops up while one waits at the dock (or, with "all rides", shows them all);
+--- anywhere else, in an instance, or switched off: nothing. Answers the lines it shows.
 function RD.Paint(now)
   local lib, db = RD.Lib(), RD.db
   if not (lib and db and R:Enabled("rides") and db.card ~= false) then return RD.Hide() end
@@ -121,10 +156,17 @@ function RD.Paint(now)
   local map = RD.Map()
   local here = map and lib:RidesAt(map, now) or {}
   if #here == 0 then return RD.Hide() end
+  RD.Watching(true)
+  local all = db.all == true
+  local pick = {}
+  for _, e in ipairs(here) do
+    if all or (e.sched and e.sched.docked) then pick[#pick + 1] = e end
+  end
+  if #pick == 0 then RD.HideCard() return {} end
   local F = NS.Farm
   local f = RD.Build()
   local shown, newest = {}, nil
-  for i, e in ipairs(here) do
+  for i, e in ipairs(pick) do
     local fs = f.lines[i]
     if not fs then
       fs = F.fs(f, "", 11, "ink")
@@ -133,7 +175,7 @@ function RD.Paint(now)
       fs:SetJustifyH("LEFT")
       f.lines[i] = fs
     end
-    local text = lib:RideLine(e.stop, e.sched)
+    local text = RD.Line(lib, e, all)
     fs:SetText(text)
     local r, g, b = F.color((e.sched and e.sched.docked) and "gold" or (e.sched and "ink" or "dim"))
     fs:SetTextColor(r, g, b, 1)
@@ -141,8 +183,8 @@ function RD.Paint(now)
     shown[#shown + 1] = text
     if e.sched and (not newest or e.sched.age < newest.age) then newest = e.sched end
   end
-  for i = #here + 1, #f.lines do f.lines[i]:Hide() end
-  local h = RD.TOP + #here * RD.LINE
+  for i = #pick + 1, #f.lines do f.lines[i]:Hide() end
+  local h = RD.TOP + #pick * RD.LINE
   f.foot:ClearAllPoints()
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -h - 1)
   local foot = ""
@@ -156,16 +198,6 @@ function RD.Paint(now)
   if foot ~= "" then f.foot:Show() else f.foot:Hide() end
   f:SetHeight(h + (foot ~= "" and 16 or 6))
   if not f:IsShown() then f:Show() end
-  -- once a second while it shows (the countdown); nothing ticks while it is hidden
-  if not f:GetScript("OnUpdate") then
-    RD.wait = RD.EVERY
-    f:SetScript("OnUpdate", function(_, elapsed)
-      RD.wait = RD.wait - (tonumber(elapsed) or 0)
-      if RD.wait > 0 then return end
-      RD.wait = RD.EVERY
-      RD.Paint()
-    end)
-  end
   return shown
 end
 
@@ -196,12 +228,15 @@ end
 R:Register({
   name = "rides",
   desc = "a card with the zeppelins and boats from where you stand, timed by your guild",
-  usage = "/bist rides [on | off | who | reset]",
+  usage = "/bist rides [on | off | all | who | reset]",
   defaults = { card = true, who = true },
   options = {
-    { kind = "toggle", label = "the card", help = "On a map with a zeppelin or a boat - or in its capital - a little card at the top left: each ride from here, arriving or leaving, timed by your guild.",
+    { kind = "toggle", label = "the card", help = "At a zeppelin tower or a boat dock - or in its capital - a little card pops up at the top left while a ride waits: where it goes, and when it leaves. Timed by your guild.",
       get = function(db) return db.card ~= false end,
       set = function(db, on) db.card = on and true or false RD.Paint() end },
+    { kind = "toggle", label = "all rides", help = "Every ride from here, coming and going, with how long until it arrives. Off: the card only pops up while a ride waits at the dock.",
+      get = function(db) return db.all == true end,
+      set = function(db, on) db.all = on and true or false RD.Paint() end },
     { kind = "toggle", label = "who timed it", help = "The card's last line: who timed the ride, with which BiS addon, and how long ago.",
       get = function(db) return db.who ~= false end,
       set = function(db, on) db.who = on and true or false RD.Paint() end },
@@ -231,6 +266,10 @@ R:Register({
       db.card = args == "on"
       RD.Paint()
       return NS.Print("the ride card: %s", db.card and "on" or "off")
+    elseif args == "all" then
+      db.all = not db.all
+      RD.Paint()
+      return NS.Print("the ride card: %s", db.all and "every ride from here" or "only while one waits at the dock")
     elseif args == "who" then
       db.who = db.who == false
       RD.Paint()

@@ -1902,9 +1902,9 @@ do
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (8), social (2), threat (2), bg (4), map (7),
-  -- party (2), rides (3) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
+  -- party (2), rides (4) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
   -- the party list, 15 Oct; the recruit crest, 21 Oct; the ride card, 21 Oct)
-  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 3, "one row per section header and per option", #opt.rows)
+  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 4, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -6194,66 +6194,84 @@ end
 -- ------------------------------------------------------------ the rides tool (21 Oct 2026)
 -- Arn: "if you have BiS Tools installed, do you get a little card when you're in Orgrimmar in the top left side of
 -- the screen ... Zeppelin arriving, leaving in X amount of time" - the clock is the shared lib's (LibBiSComm 15:
--- anyone with any BiS addon who rides one times it for the guild); this tool shows it.
+-- anyone with any BiS addon who rides one times it for the guild); this tool shows it. Then, the same evening: "i
+-- want it to only pop out when it arrives and itll show up and say zep to grom leaves in 1 minute ... and if the zeps
+-- are far they hide" - a pop-up while a ride waits at the dock; "all rides" keeps the whole list for who wants it.
 do
   local RD, lib = NS.Rides, LibBiSComm
   ok(RD and R:Get("rides") and R:Enabled("rides"), "the rides tool, on by default (\"BiS Tools enables the card\")")
+  local rdb = R:DBFor(R:Get("rides"))
   local keepMap = W.map
+  local function tick() RD.watch.scripts.OnUpdate(RD.watch, 1.01) end
   W.map = 1429                                        -- Elwynn: no zeppelin, no boat
   fireAll("ZONE_CHANGED_NEW_AREA")
-  ok(not (RD.frame and RD.frame:IsShown()), "no ride from here: no card")
-  -- ORGRIMMAR: the tower stands on Durotar's map; the card shows in the city too
+  ok(not (RD.frame and RD.frame:IsShown()) and RD.watch.scripts.OnUpdate == nil, "no ride from here: no card, nothing ticks")
+  -- ORGRIMMAR (its tower stands on Durotar's map): nothing waiting at the dock - no card, but the watch is on
   W.map = 1454
   fireAll("ZONE_CHANGED_NEW_AREA")
-  local f = RD.frame
-  ok(f and f:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity") and f.lines[2].text:find("^Zeppelin to Grom'gol"),
-     "in Orgrimmar: a card with both of its zeppelins", f and f.lines[1] and f.lines[1].text)
-  ok(f.lines[1].text:find("not timed yet", 1, true) and f.foot.text:find("ride one once", 1, true),
-     "nobody has ridden them yet: it says so, and how the clock comes")
-  ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
-  -- a guildmate with only BiS Healing rode the Thundercaller 30 s ago: the lib hears it, the card shows it
+  ok(not (RD.frame and RD.frame:IsShown()) and RD.watch.scripts.OnUpdate ~= nil,
+     "in Orgrimmar, no zeppelin in: no card - the watch waits for one")
+  -- a guildmate with only BiS Healing rode the Thundercaller: it docked 30 s ago - the card pops up
   local now = lib.RideNow()
   lib.handlers.RIDE.AT("Arn", "org_uc~uc_org", "org_uc", tostring(now - 30), "356", tostring(now), "BiSHealing")
-  ok(f.lines[1].text == "Zeppelin to Undercity - here now, leaves in 0:30", "the zeppelin is in: here now, leaving in 0:30", f.lines[1].text)
-  ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "gold while it waits")
+  tick()
+  local f = RD.frame
+  ok(f and f:IsShown() and f.lines[1].text == "Zeppelin to Undercity - leaves in 0:30" and not (f.lines[2] and f.lines[2]:IsShown()),
+     "the zeppelin is in: the card pops up - \"Zeppelin to Undercity - leaves in 0:30\", only that one", f and f.lines[1].text)
+  ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
+  ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "in gold")
   ok(f.foot.text:find("timed by Arn - BiSHealing", 1, true), "and who timed it, with which addon", f.foot.text)
-  -- the countdown: once a second while it shows
+  -- the countdown: once a second
   W.now = W.now + 5
-  ok(f.scripts.OnUpdate ~= nil, "it ticks while it shows")
-  f.scripts.OnUpdate(f, 1.01)
+  tick()
   ok(f.lines[1].text:find("leaves in 0:25", 1, true), "five seconds on: leaves in 0:25", f.lines[1].text)
   W.now = W.now + 40
-  f.scripts.OnUpdate(f, 1.01)
-  ok(f.lines[1].text:find("^Zeppelin to Undercity %- arrives in %d+:%d%d$"), "gone: the next one arrives in ...", f.lines[1].text)
-  -- other addons ask BiS Tools (API version 3)
+  tick()
+  ok(not f:IsShown() and RD.watch.scripts.OnUpdate ~= nil, "it left: the card hides; the watch goes on for the next")
+  -- "all rides": the whole list, coming and going
+  S("rides all")
+  ok(rdb.all == true and f:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity %- arrives in %d+:%d%d$")
+     and f.lines[2].text:find("not timed yet", 1, true), "all rides: both zeppelins, coming and going", f.lines[1].text)
+  S("rides all")
+  ok(rdb.all == false and not f:IsShown(), "and back to the pop-up")
+  -- other addons ask BiS Tools (API version 3): the rides, timed or not, docked or not
   ok(BiSToolsAPI.version == 3, "BiSToolsAPI version 3: the rides")
   local rides = BiSToolsAPI.Rides(1454)
-  ok(#rides == 2 and rides[1].id == "org_uc" and rides[1].timed and rides[1].by == "Arn" and rides[1].line == f.lines[1].text
-     and rides[2].timed == false, "Rides(Orgrimmar): both zeppelins, the timed one with its words")
-  local card = BiSToolsAPI.RideCard()
-  ok(#card == 2 and card[1] == f.lines[1].text, "RideCard(): the lines the card shows")
+  ok(#rides == 2 and rides[1].id == "org_uc" and rides[1].timed and rides[1].by == "Arn" and not rides[1].docked
+     and rides[2].timed == false, "Rides(Orgrimmar): both zeppelins, the timed one with its numbers")
+  ok(#BiSToolsAPI.RideCard() == 0, "RideCard(): nothing while the card is hidden")
   -- kept between sessions: the lib writes into BiS Tools' saved table
-  local rdb = R:DBFor(R:Get("rides"))
   ok(rdb.clock and rdb.clock["org_uc~uc_org"] and rdb.clock["org_uc~uc_org"].by == "Arn", "the clock is in BiS Tools' saved table")
-  -- the options: off, and on again
+  -- the next one docks: it pops up again; the options
+  W.now = W.now + 356 - 45
+  tick()
+  ok(f:IsShown() and f.lines[1].text:find("leaves in", 1, true), "the next loop: it pops up again", f.lines[1].text)
+  local card = BiSToolsAPI.RideCard()
+  ok(#card == 1 and card[1] == f.lines[1].text, "RideCard(): the lines the card shows")
   S("rides off")
-  ok(not f:IsShown() and f.scripts.OnUpdate == nil and rdb.card == false, "/bist rides off: no card, nothing ticks")
+  ok(not f:IsShown() and RD.watch.scripts.OnUpdate == nil and rdb.card == false, "/bist rides off: no card, nothing ticks")
   S("rides on")
   ok(f:IsShown(), "/bist rides on: back")
   rdb.who = false RD.Paint()
   ok(not f.foot:IsShown(), "who timed it can be hidden")
   rdb.who = true RD.Paint()
-  -- Thunder Bluff: the Skycutter
+  fitsIn(f, "the ride card")
+  -- LEAN: a minute where a ride is - one look a second, the map and an instance question each
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() for _ = 1, 60 do W.now = W.now + 1 tick() end end)
+  print(("   cost: the ride card, a minute at the tower = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+  -- measured 180: the map, an instance question and the clock, once a second (only where a ride is)
+  ok(n <= 200, "the ride card: three cheap questions a second", n)
+  -- Thunder Bluff: the Skycutter, never timed - no card (with all rides: its line)
   W.map = 1456
   fireAll("ZONE_CHANGED_NEW_AREA")
-  ok(f:IsShown() and #BiSToolsAPI.RideCard() == 1 and f.lines[1].text:find("^Zeppelin to Zephras Isle"), "Thunder Bluff: the Skycutter to Zephras Isle", f.lines[1].text)
-  fitsIn(f, "the ride card")
-  -- LEAN: a minute of the card on screen - one repaint a second, the map asked once each
-  local Cost = dofile("../_bisdev/dev/cost.lua")
-  local n, by = Cost.Count(function() for _ = 1, 60 do W.now = W.now + 1 f.scripts.OnUpdate(f, 1.01) end end)
-  print(("   cost: the ride card, a minute on screen = %d calls (%s)"):format(n, Cost.Top(by, 3)))
-  ok(n <= 150, "the ride card: two cheap questions a second (measured 120 a minute)", n)
+  ok(not f:IsShown(), "Thunder Bluff, the Skycutter not timed: no card")
+  rdb.all = true RD.Paint()
+  ok(f:IsShown() and f.lines[1].text:find("^Zeppelin to Zephras Isle"), "all rides: its line", f.lines[1].text)
+  rdb.all = false
   -- in an instance: nothing; and back where no ride is: nothing ticks
+  W.map = 1454
+  RD.Paint()
   local keepInst = _G.IsInInstance
   _G.IsInInstance = function() return true, "party" end
   RD.Paint()
@@ -6261,7 +6279,7 @@ do
   _G.IsInInstance = keepInst
   W.map = 1429
   fireAll("ZONE_CHANGED_NEW_AREA")
-  ok(not f:IsShown() and f.scripts.OnUpdate == nil, "away from every ride: hidden, nothing ticks")
+  ok(not f:IsShown() and RD.watch.scripts.OnUpdate == nil, "away from every ride: hidden, nothing ticks")
   W.map = keepMap
 end
 

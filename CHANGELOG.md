@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **The ride card.** In a zone with a zeppelin or a boat - or in its capital: Orgrimmar, Thunder Bluff, Undercity - a little card at the top left lists each ride from there: "Zeppelin to Undercity - arrives in 3:10", and in gold while it waits, "here now, leaves in 0:45". The clock is your guild's: anyone with a BiS addon who rides one times it, and everyone in the guild gets it. The card's last line says who timed it. Options under **rides**: the card on or off, who timed it, its place (drag it anywhere). `/bist rides` lists the rides from where you stand.
+- **The ride card.** At a zeppelin tower or a boat dock - or in its capital: Orgrimmar, Thunder Bluff, Undercity - a little card pops up at the top left while a ride waits at the dock: "Zeppelin to Grom'gol - leaves in 0:58". It hides again when the ride leaves. The clock is your guild's: anyone with a BiS addon who rides one times it, and everyone in the guild gets it; the card's last line says who timed it. Options under **rides**: the card on or off, **all rides** (every ride from here, coming and going), who timed it, its place (drag it anywhere). `/bist rides` lists the rides from where you stand.
 - **For other addons:** BiSToolsAPI version 3 adds `Rides(map)` and `RideCard()`.
 - The shared BiS lib is version 15 (the ride clock).
 
