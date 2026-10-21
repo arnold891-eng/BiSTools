@@ -189,6 +189,7 @@ end
 --- The invites still out count too, and the game tells an addon nothing about them - so we count our
 --- own (P.out): sent, not yet in the group, younger than P.OUT_FOR (an unanswered invite runs out).
 P.PARTY, P.HOLD_FOR, P.OUT_FOR = 5, 120, 60
+P.KEYWORDS = { "inv", "invite", "123" }      -- the whispered keyword's choices (PartyAuto.lua)
 P.out = {}
 
 function P.Out(members)
@@ -241,8 +242,9 @@ function P.Held()
   if not P.timer then P.Pump() end
 end
 
---- Invite these names (none of them with you already): the party list's, or a guild rank's.
-function P.InviteNames(db, missing)
+--- Invite these names (none of them with you already): the party list's, or a guild rank's. `quiet`:
+--- no inviting show (a whispered keyword, PartyAuto.lua - nobody pressed anything).
+function P.InviteNames(db, missing, quiet)
   if #missing == 0 then NS.Print("party list: everyone is already with you") return 0 end
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
   local members = P.Members()
@@ -256,7 +258,9 @@ function P.InviteNames(db, missing)
     end
   end
   for _, n in ipairs(now) do P.queue[#P.queue + 1] = n end
-  if db.show ~= false then P.Show(missing) else
+  if quiet then
+    -- said by the caller
+  elseif db.show ~= false then P.Show(missing) else
     NS.Print("party list: inviting %d (%s)", #missing, table.concat(missing, ", "))
   end
   if later and #later > 0 then P.Hold(later) end
@@ -1740,7 +1744,7 @@ R:Register({
   -- toolbox is not overwhelming")
   defaultOff = true,
   desc = "your usual group: invite them all, or disband, in one click",
-  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | rank <rank> | disband]",
+  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | rank <rank> | keyword <word> | disband]",
   defaults = {},
   options = {
     { kind = "button", label = "save my group as the list", help = "Everyone you're grouped with now becomes your party list. The Invite button in the BiS> tools box then asks them all back in one click.",
@@ -1754,6 +1758,20 @@ R:Register({
     { kind = "toggle", label = "add from the guild window", help = "Puts 'Add to party list' on a guildmate's right-click in the guild window. TEST IT ONCE: the game may then refuse Promote / Demote / Remove for officers until a /reload. Off by default; turning it off needs a /reload.",
       get = function(db) return db.guildMenu == true end,
       set = function(db, on) db.guildMenu = on and true or false if on then P.HookGuildMenus(db) end end },
+    -- the hands-off switches (Tools/PartyAuto.lua), all off until turned on
+    { kind = "toggle", label = "accept invites from the guild", help = "A guildmate's party invite is accepted for you. Matched by who they really are, not just a first name.",
+      get = function(db) return db.acceptGuild == true end, set = function(db, on) db.acceptGuild = on and true or nil end },
+    { kind = "toggle", label = "accept invites from friends", help = "A friend's party invite - a character friend or a Battle.net friend - is accepted for you.",
+      get = function(db) return db.acceptFriends == true end, set = function(db, on) db.acceptFriends = on and true or nil end },
+    { kind = "toggle", label = "invite on a whispered keyword", help = "Whoever whispers you the keyword gets a party invite (you must lead, or be on your own). Past five, the party becomes a raid by itself.",
+      get = function(db) return db.keyword == true end, set = function(db, on) db.keyword = on and true or nil end },
+    { kind = "seg", label = "keyword", values = P.KEYWORDS,
+      help = "The word to whisper. Any case; spaces around it don't matter. Another word: /bist party keyword <word>.",
+      get = function(db) return P.Keyword(db) end, set = function(db, v) db.keywordText = v end },
+    { kind = "seg", label = "keyword from", values = { "known", "anyone" },
+      help = "Who the keyword works for: known - your guild and your friends only; anyone - whoever whispers it.",
+      get = function(db) return db.keywordFrom == "anyone" and "anyone" or "known" end,
+      set = function(db, v) db.keywordFrom = (v == "anyone") and "anyone" or nil end },
     { kind = "button", label = "clear the list", help = "Empty the party list.",
       button = "clear", action = function(db) db.names = {} NS.Print("party list: cleared") refresh() end },
   },
@@ -1787,6 +1805,10 @@ R:Register({
       else
         P.InviteRank(db, rest)
       end
+    elseif verb == "keyword" then
+      local word = rest:match("^(%S+)")
+      if word then db.keywordText = word:lower() end
+      NS.Print("party: the keyword is \"%s\" - invite on it is %s", P.Keyword(db), db.keyword and "on" or "off (options)")
     elseif verb == "disband" then
       if not P.Disband() then NS.Print("party list: you're not in a group") end
     elseif verb == "" then
