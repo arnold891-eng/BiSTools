@@ -146,7 +146,9 @@ local function send(name)
   local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
   if not invite then P.Refused(name, "this client has no invite call") return end
   local ok, err = pcall(invite, P.InviteName(name))
-  if not ok then P.Refused(name, err) end
+  if not ok then P.Refused(name, err) return end
+  local key = P.Key(name)
+  if key then P.out[key] = (GetTime and GetTime()) or 0 end
 end
 
 function P.Refused(name, why)
@@ -178,19 +180,86 @@ function P.Invite(db)
   return P.InviteNames(db, P.Missing(db))
 end
 
+--- MORE THAN A PARTY HOLDS BECOMES A RAID BY ITSELF (Arn, 21 Oct: "auto turn the party into raid when
+--- more than 5 people in the party or if the invited people will be more than 5"). The game counts the
+--- invites still out: a party - or you alone - takes five, and the sixth is refused "party is full".
+--- And a raid is made only from a party, so alone the first four go out, the rest WAIT (P.held), the
+--- first one to join makes it a party, it becomes a raid (P.Held, on GROUP_ROSTER_UPDATE), and then
+--- the rest go. Nobody joins in P.HOLD_FOR: the rest are dropped, and Invite again sends them.
+--- The invites still out count too, and the game tells an addon nothing about them - so we count our
+--- own (P.out): sent, not yet in the group, younger than P.OUT_FOR (an unanswered invite runs out).
+P.PARTY, P.HOLD_FOR, P.OUT_FOR = 5, 120, 60
+P.out = {}
+
+function P.Out(members)
+  local here = {}
+  for _, m in ipairs(members or P.Members()) do here[m.key] = true end
+  local now, n = (GetTime and GetTime()) or 0, 0
+  for k, t in pairs(P.out) do
+    if here[k] or now - t > P.OUT_FOR then P.out[k] = nil else n = n + 1 end
+  end
+  return n
+end
+
+function P.Convert()
+  local convert = (C_PartyInfo and C_PartyInfo.ConvertToRaid) or ConvertToRaid
+  if not convert then return end
+  local ok, err = pcall(convert)
+  if not ok then P.Refused("the raid", err) end
+end
+
+--- The names that wait for the raid, until it exists or P.HOLD_FOR runs out.
+function P.Hold(names)
+  if P.held then                                  -- more on top of who already waits: same wait
+    for _, n in ipairs(names) do P.held.names[#P.held.names + 1] = n end
+    NS.Print("party list: %d wait for the raid now", #P.held.names)
+    return
+  end
+  local h = { names = names }
+  P.held = h
+  NS.Print("party list: %d more wait for the raid - they go out once someone joins (%s)", #names,
+    table.concat(names, ", "))
+  if C_Timer and C_Timer.After then
+    C_Timer.After(P.HOLD_FOR, function()
+      if P.held ~= h then return end
+      P.held = nil
+      NS.Print("party list: nobody joined - %d not invited (%s). Press Invite again.", #names, table.concat(names, ", "))
+    end)
+  end
+end
+
+--- A roster change: the party exists now - make it a raid; the raid exists - send who waited.
+function P.Held()
+  local h = P.held
+  if not h or not P.Grouped() then return end
+  if not (IsInRaid and IsInRaid()) then
+    if P.Leads() then P.Convert() end
+    return
+  end
+  P.held = nil
+  for _, n in ipairs(h.names) do P.queue[#P.queue + 1] = n end
+  if not P.timer then P.Pump() end
+end
+
 --- Invite these names (none of them with you already): the party list's, or a guild rank's.
 function P.InviteNames(db, missing)
   if #missing == 0 then NS.Print("party list: everyone is already with you") return 0 end
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
-  local total = #P.Members() + 1 + #missing
-  if P.Grouped() and not (IsInRaid and IsInRaid()) and total > 5 then
-    local convert = (C_PartyInfo and C_PartyInfo.ConvertToRaid) or ConvertToRaid
-    if convert then pcall(convert) end
+  local members = P.Members()
+  local with = #members + 1 + P.Out(members) + #P.queue      -- in the group, asked, about to be asked
+  local now, later = missing, nil
+  if not (IsInRaid and IsInRaid()) and with + #missing > P.PARTY then
+    if P.Grouped() then P.Convert() end
+    now, later = {}, {}
+    for i, n in ipairs(missing) do
+      if i <= P.PARTY - with then now[#now + 1] = n else later[#later + 1] = n end
+    end
   end
-  for _, n in ipairs(missing) do P.queue[#P.queue + 1] = n end
+  for _, n in ipairs(now) do P.queue[#P.queue + 1] = n end
   if db.show ~= false then P.Show(missing) else
     NS.Print("party list: inviting %d (%s)", #missing, table.concat(missing, ", "))
   end
+  if later and #later > 0 then P.Hold(later) end
   if not P.timer then P.Pump() end
   return #missing
 end
@@ -1653,6 +1722,7 @@ ev:SetScript("OnEvent", function(_, event)
     end
     return
   end
+  if P.held then P.Held() end
   -- ONE roster walk for the note and the redraw both (the 40-man budget: 150 asks)
   P.__members = P.Members()
   local ok, err = pcall(function()
