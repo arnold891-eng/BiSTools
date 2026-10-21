@@ -146,7 +146,9 @@ local function send(name)
   local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
   if not invite then P.Refused(name, "this client has no invite call") return end
   local ok, err = pcall(invite, P.InviteName(name))
-  if not ok then P.Refused(name, err) end
+  if not ok then P.Refused(name, err) return end
+  local key = P.Key(name)
+  if key then P.out[key] = (GetTime and GetTime()) or 0 end
 end
 
 function P.Refused(name, why)
@@ -178,19 +180,90 @@ function P.Invite(db)
   return P.InviteNames(db, P.Missing(db))
 end
 
---- Invite these names (none of them with you already): the party list's, or a guild rank's.
-function P.InviteNames(db, missing)
+--- MORE THAN A PARTY HOLDS BECOMES A RAID BY ITSELF (Arn, 21 Oct: "auto turn the party into raid when
+--- more than 5 people in the party or if the invited people will be more than 5"). The game counts the
+--- invites still out: a party - or you alone - takes five, and the sixth is refused "party is full".
+--- And a raid is made only from a party, so alone the first four go out, the rest WAIT (P.held), the
+--- first one to join makes it a party, it becomes a raid (P.Held, on GROUP_ROSTER_UPDATE), and then
+--- the rest go. Nobody joins in P.HOLD_FOR: the rest are dropped, and Invite again sends them.
+--- The invites still out count too, and the game tells an addon nothing about them - so we count our
+--- own (P.out): sent, not yet in the group, younger than P.OUT_FOR (an unanswered invite runs out).
+P.PARTY, P.HOLD_FOR, P.OUT_FOR = 5, 120, 60
+P.KEYWORDS = { "inv", "invite", "123" }      -- the whispered keyword's choices (PartyAuto.lua)
+P.out = {}
+
+function P.Out(members)
+  local here = {}
+  for _, m in ipairs(members or P.Members()) do here[m.key] = true end
+  local now, n = (GetTime and GetTime()) or 0, 0
+  for k, t in pairs(P.out) do
+    if here[k] or now - t > P.OUT_FOR then P.out[k] = nil else n = n + 1 end
+  end
+  return n
+end
+
+function P.Convert()
+  local convert = (C_PartyInfo and C_PartyInfo.ConvertToRaid) or ConvertToRaid
+  if not convert then return end
+  local ok, err = pcall(convert)
+  if not ok then P.Refused("the raid", err) end
+end
+
+--- The names that wait for the raid, until it exists or P.HOLD_FOR runs out.
+function P.Hold(names)
+  if P.held then                                  -- more on top of who already waits: same wait
+    for _, n in ipairs(names) do P.held.names[#P.held.names + 1] = n end
+    NS.Print("party list: %d wait for the raid now", #P.held.names)
+    return
+  end
+  local h = { names = names }
+  P.held = h
+  NS.Print("party list: %d more wait for the raid - they go out once someone joins (%s)", #names,
+    table.concat(names, ", "))
+  if C_Timer and C_Timer.After then
+    C_Timer.After(P.HOLD_FOR, function()
+      if P.held ~= h then return end
+      P.held = nil
+      NS.Print("party list: nobody joined - %d not invited (%s). Press Invite again.", #names, table.concat(names, ", "))
+    end)
+  end
+end
+
+--- A roster change: the party exists now - make it a raid; the raid exists - send who waited.
+function P.Held()
+  local h = P.held
+  if not h or not P.Grouped() then return end
+  if not (IsInRaid and IsInRaid()) then
+    if P.Leads() then P.Convert() end
+    return
+  end
+  P.held = nil
+  for _, n in ipairs(h.names) do P.queue[#P.queue + 1] = n end
+  if not P.timer then P.Pump() end
+end
+
+--- Invite these names (none of them with you already): the party list's, or a guild rank's. `quiet`:
+--- no inviting show (a whispered keyword, PartyAuto.lua - nobody pressed anything).
+function P.InviteNames(db, missing, quiet)
   if #missing == 0 then NS.Print("party list: everyone is already with you") return 0 end
   if not P.Leads() then NS.Print("party list: only the leader (or an assistant) can invite") return 0 end
-  local total = #P.Members() + 1 + #missing
-  if P.Grouped() and not (IsInRaid and IsInRaid()) and total > 5 then
-    local convert = (C_PartyInfo and C_PartyInfo.ConvertToRaid) or ConvertToRaid
-    if convert then pcall(convert) end
+  local members = P.Members()
+  local with = #members + 1 + P.Out(members) + #P.queue      -- in the group, asked, about to be asked
+  local now, later = missing, nil
+  if not (IsInRaid and IsInRaid()) and with + #missing > P.PARTY then
+    if P.Grouped() then P.Convert() end
+    now, later = {}, {}
+    for i, n in ipairs(missing) do
+      if i <= P.PARTY - with then now[#now + 1] = n else later[#later + 1] = n end
+    end
   end
-  for _, n in ipairs(missing) do P.queue[#P.queue + 1] = n end
-  if db.show ~= false then P.Show(missing) else
+  for _, n in ipairs(now) do P.queue[#P.queue + 1] = n end
+  if quiet then
+    -- said by the caller
+  elseif db.show ~= false then P.Show(missing) else
     NS.Print("party list: inviting %d (%s)", #missing, table.concat(missing, ", "))
   end
+  if later and #later > 0 then P.Hold(later) end
   if not P.timer then P.Pump() end
   return #missing
 end
@@ -1653,6 +1726,7 @@ ev:SetScript("OnEvent", function(_, event)
     end
     return
   end
+  if P.held then P.Held() end
   -- ONE roster walk for the note and the redraw both (the 40-man budget: 150 asks)
   P.__members = P.Members()
   local ok, err = pcall(function()
@@ -1670,7 +1744,7 @@ R:Register({
   -- toolbox is not overwhelming")
   defaultOff = true,
   desc = "your usual group: invite them all, or disband, in one click",
-  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | rank <rank> | disband]",
+  usage = "/bist party [save | add <name> | remove <name> | list | clear | invite | rank <rank> | keyword <word> | disband]",
   defaults = {},
   options = {
     { kind = "button", label = "save my group as the list", help = "Everyone you're grouped with now becomes your party list. The Invite button in the BiS> tools box then asks them all back in one click.",
@@ -1684,6 +1758,20 @@ R:Register({
     { kind = "toggle", label = "add from the guild window", help = "Puts 'Add to party list' on a guildmate's right-click in the guild window. TEST IT ONCE: the game may then refuse Promote / Demote / Remove for officers until a /reload. Off by default; turning it off needs a /reload.",
       get = function(db) return db.guildMenu == true end,
       set = function(db, on) db.guildMenu = on and true or false if on then P.HookGuildMenus(db) end end },
+    -- the hands-off switches (Tools/PartyAuto.lua), all off until turned on
+    { kind = "toggle", label = "accept invites from the guild", help = "A guildmate's party invite is accepted for you. Matched by who they really are, not just a first name.",
+      get = function(db) return db.acceptGuild == true end, set = function(db, on) db.acceptGuild = on and true or nil end },
+    { kind = "toggle", label = "accept invites from friends", help = "A friend's party invite - a character friend or a Battle.net friend - is accepted for you.",
+      get = function(db) return db.acceptFriends == true end, set = function(db, on) db.acceptFriends = on and true or nil end },
+    { kind = "toggle", label = "invite on a whispered keyword", help = "Whoever whispers you the keyword gets a party invite (you must lead, or be on your own). Past five, the party becomes a raid by itself.",
+      get = function(db) return db.keyword == true end, set = function(db, on) db.keyword = on and true or nil end },
+    { kind = "seg", label = "keyword", values = P.KEYWORDS,
+      help = "The word to whisper. Any case; spaces around it don't matter. Another word: /bist party keyword <word>.",
+      get = function(db) return P.Keyword(db) end, set = function(db, v) db.keywordText = v end },
+    { kind = "seg", label = "keyword from", values = { "known", "anyone" },
+      help = "Who the keyword works for: known - your guild and your friends only; anyone - whoever whispers it.",
+      get = function(db) return db.keywordFrom == "anyone" and "anyone" or "known" end,
+      set = function(db, v) db.keywordFrom = (v == "anyone") and "anyone" or nil end },
     { kind = "button", label = "clear the list", help = "Empty the party list.",
       button = "clear", action = function(db) db.names = {} NS.Print("party list: cleared") refresh() end },
   },
@@ -1717,6 +1805,10 @@ R:Register({
       else
         P.InviteRank(db, rest)
       end
+    elseif verb == "keyword" then
+      local word = rest:match("^(%S+)")
+      if word then db.keywordText = word:lower() end
+      NS.Print("party: the keyword is \"%s\" - invite on it is %s", P.Keyword(db), db.keyword and "on" or "off (options)")
     elseif verb == "disband" then
       if not P.Disband() then NS.Print("party list: you're not in a group") end
     elseif verb == "" then

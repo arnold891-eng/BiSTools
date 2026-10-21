@@ -1918,7 +1918,8 @@ do
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (8), social (2), threat (2), bg (4), map (7),
   -- party (2), rides (4) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
   -- the party list, 15 Oct; the recruit crest, 21 Oct; the ride card, 21 Oct)
-  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 4, "one row per section header and per option", #opt.rows)
+  -- (+5 in party, 21 Oct: accept from the guild / friends, invite on a keyword, the keyword, from whom)
+  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 4 + 5, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -5551,12 +5552,25 @@ do
   P.db = pdb
   ok(not R:Enabled("party"), "the party tool starts OFF (Arn: so the BiS> tools box is not overwhelming)")
   R:SetEnabled("party", true)
-  local sent = { invite = {}, uninvite = {}, left = 0, raid = 0 }
+  local sent = { invite = {}, uninvite = {}, left = 0, raid = 0, full = {} }
   local keepPI, keepLead, keepRaid, keepIn = _G.C_PartyInfo, _G.UnitIsGroupLeader, W.raid, W.inRaid
-  _G.C_PartyInfo = { InviteUnit = function(n) sent.invite[#sent.invite + 1] = n end,
+  -- THE CLIENT'S RULES, NOT A KINDER ONE (Arn, 21 Oct: "auto turn the party into raid when more than 5"):
+  -- a party - or you alone - holds five counting the invites still out; one more is refused with
+  -- "party is full" in chat and no Lua error. A raid is made only from a party: alone, ConvertToRaid
+  -- does nothing. `sent.invite` is the invites out (a test that lets someone in moves them to W.raid).
+  _G.C_PartyInfo = { InviteUnit = function(n)
+                       if not W.inRaid and math.max(#W.raid, 1) + #sent.invite >= 5 then
+                         sent.full[#sent.full + 1] = n
+                         return
+                       end
+                       sent.invite[#sent.invite + 1] = n
+                     end,
                      UninviteUnit = function(n) sent.uninvite[#sent.uninvite + 1] = n end,
                      LeaveParty = function() sent.left = sent.left + 1 end,
-                     ConvertToRaid = function() sent.raid = sent.raid + 1 end }
+                     ConvertToRaid = function()
+                       sent.raid = sent.raid + 1
+                       if #W.raid > 1 then W.inRaid = true end
+                     end }
   local lead = true
   _G.UnitIsGroupLeader = function() return lead end
   W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" }, { name = "Kumlust" } }, true
@@ -5667,7 +5681,7 @@ do
         if r.shown then ok(r.name:GetStringWidth() <= r.w, "a rank line fits its width: " .. tostring(r.name.text), r.name:GetStringWidth() .. " in " .. r.w) end
       end
       ladder[3] = "Veteran"
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
       w.rows[1].pick.scripts.OnClick(w.rows[1].pick)
       ok(#sent.invite == 0, "a rank with nobody else on: dimmed, and a click does nothing")
       -- the row under the mouse lights up - a live rank, never a dimmed one (Arn, 15 Oct)
@@ -5677,7 +5691,7 @@ do
       ok(not w.rows[2].hl.shown, "and dark again when the mouse leaves")
       w.rows[1].pick.scripts.OnEnter(w.rows[1].pick)
       ok(not w.rows[1].hl.shown, "a dimmed rank does not light")
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
       W.raid, W.inRaid = { { name = "Me" } }, false
       -- LOOK BEFORE IT GOES (Arn, 15 Oct): a rank click prepares, then waits on a confirm list by
       -- class - nothing is sent until Send; x leaves someone out; who is already in shows apart
@@ -5775,7 +5789,7 @@ do
       local refreshL = closeL - 6 - cv.refresh.w
       ok(sendR < refreshL and cv.send.label:GetStringWidth() <= cv.send.w - 4, "the three buttons do not touch, and Send's words fit",
         sendR .. " < " .. refreshL)
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
       cv.send.scripts.OnClick(cv.send)
       ok(sent.invite[1] == "Newcomer", "the next wave: Send again", table.concat(sent.invite, ","))
       for _ = 1, 100 do box.scripts.OnUpdate(box, 0.05) end
@@ -5786,7 +5800,7 @@ do
       -- TWO RANKS, ONE LIST (Arn, 17 Oct: "gm rank selected officer and raiders")
       w.rows[2].pick.scripts.OnClick(w.rows[2].pick)              -- Officer too, Raider still picked
       ok(w.more.text == "2 ranks picked - invite to check who", "two picked", w.more.text)
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
       w.buttons.invite.scripts.OnClick(w.buttons.invite)
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
       local both = {}
@@ -5804,7 +5818,7 @@ do
       cv.cancel.scripts.OnClick(cv.cancel)
       P.picked = nil
       W.raid, W.inRaid = { { name = "Me" } }, false
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
       SlashCmdList.BISTOOLS("party rank officer")
       for _ = 1, 40 do box.scripts.OnUpdate(box, 0.05) end
       cv.send.scripts.OnClick(cv.send)
@@ -5874,7 +5888,7 @@ do
         pdb.names = {}
         for _, n in ipairs({ "Nebeon", "Asleep", "Stranger", "Pete" }) do P.Add(pdb, n) end
         W.raid, W.inRaid = { { name = "Me" } }, false
-        sent.invite = {}
+        sent.invite, P.out = {}, {}
         local cv = BiSToolsPartyLoading and BiSToolsPartyLoading.confirmView
         w.buttons.invite.scripts.OnClick(w.buttons.invite)
         ok(#sent.invite == 0 and P.run and P.run.prep, "invite in the party window sends nothing yet: it checks")
@@ -5937,14 +5951,14 @@ do
         P.EndShow()
         roster[4][4] = false
         pdb.names = keepList
-        sent.invite = {}
+        sent.invite, P.out = {}, {}
       end
       P.Remove(pdb, "Nebeon")
       if P.box then P.EndShow() end
       _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo = keepIG, keepGN, keepGR
       _G.GuildControlGetNumRanks, _G.GuildControlGetRankName = keepGCN, keepGCR
       W.raid, W.inRaid = keepRaidG, keepInG
-      sent.invite = {}
+      sent.invite, P.out = {}, {}
     end
     -- the empty list's hint: current words (no "g" button any more), and it fits the window
     local keepNames = pdb.names
@@ -6069,7 +6083,7 @@ do
   -- the BOX's Invite confirms first, and never shows in a battleground (Arn, 15 Oct: a stray click
   -- in the heat of battle)
   do
-    sent.invite = {}
+    sent.invite, P.out = {}, {}
     P.ibtn.scripts.OnClick(P.ibtn)
     ok(#sent.invite == 0 and not P.run and tostring(W.lastMsg):find("shift-click", 1, true),
       "a plain click on the box's Invite: nothing, but a reminder (Arn: shift-click only)", W.lastMsg)
@@ -6086,7 +6100,7 @@ do
     _G.IsInInstance = keepII3
     Bx.Refresh()
   end
-  sent.invite = {}
+  sent.invite, P.out = {}, {}
   P.Invite(pdb)
   ok(#sent.invite == 3, "solo: the whole list asked", #sent.invite)
   -- grouped with strangers: nothing of the list's shows
@@ -6147,10 +6161,22 @@ do
     ok(f.lines[#f.lines] == "Add to party list" and #f.lines == 5, "pal, rival (no faction seen: both) and the party line, together under it", table.concat(f.lines, " | "))
     f["fn" .. #f.lines]()
     ok(P.Has(pdb, "Darthsidiouz Sithlord"), "a friend goes on the list, surname and all")
-    sent.invite = {}
+    sent.invite, sent.full, sent.raid, P.out = {}, {}, 0, {}
     W.raid, W.inRaid = { { name = "Me" } }, false
     P.Invite(pdb)
-    W.runAfters(P.PUMP_GAP + 0.1)             -- four at a time: the fifth goes in the next batch
+    W.runAfters(P.PUMP_GAP + 0.1)
+    ok(#sent.invite == 4 and #sent.full == 0 and P.held and #P.held.names == 1,
+      "alone with five to ask: four go out, the fifth WAITS - the game would refuse it (party full)",
+      #sent.invite .. " out, " .. #sent.full .. " refused")
+    ok(sent.raid == 0, "and no raid yet: alone, there is no party to make one of", sent.raid)
+    -- Tobi accepts: a party of two - it becomes a raid, and once it is one the fifth goes out
+    W.raid = { { name = "Me" }, { name = table.remove(sent.invite, 1) } }
+    P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE")
+    ok(sent.raid == 1 and W.inRaid, "the first one in: the party becomes a raid by itself", sent.raid)
+    ok(P.held ~= nil, "the rest still wait: the raid is the NEXT roster change", P.held and #P.held.names)
+    P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE")
+    W.runAfters(P.PUMP_GAP + 0.1)
+    ok(P.held == nil and #sent.full == 0, "the raid is here: nobody waits, nothing refused")
     local asked = false
     for _, n in ipairs(sent.invite) do if n == "Darthsidiouz Sithlord" then asked = true end end
     ok(asked, "and the invite goes to Darthsidiouz Sithlord - Forever's whole name (Arn: /invite Nebeon completes to Nebeon Nolightforu)", table.concat(sent.invite, ","))
@@ -6164,8 +6190,42 @@ do
   _G.UnitExists = (function(ue) return function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] ~= nil end return ue(u) end end)(_G.UnitExists)
   local keepUN = _G.UnitName
   _G.UnitName = function(u) local i = u:match("^party(%d+)$") if i then return W.raid[tonumber(i) + 1] and W.raid[tonumber(i) + 1].name end return keepUN(u) end
+  sent.invite, sent.full, sent.raid, P.out = {}, {}, 0, {}
   P.Invite(pdb)
   ok(sent.raid == 1, "six of you: the party becomes a raid before the invites", sent.raid)
+  ok(#sent.invite == 3 and #sent.full == 0 and P.held and #P.held.names == 1,
+    "two of you: three go out at once, the fourth waits for the raid", #sent.invite .. " out")
+  P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE")
+  W.runAfters(P.PUMP_GAP + 0.1)
+  ok(P.held == nil and #sent.invite == 4 and #sent.full == 0, "the raid made: the last one goes, none refused", #sent.invite)
+  -- nobody ever joins: the waiting ones are dropped and said, not left to fire on some later group
+  W.raid, W.inRaid = { { name = "Me" } }, false
+  sent.invite, sent.full, sent.raid, P.out = {}, {}, 0, {}
+  pdb.names = { "A", "B", "C", "D", "E", "F" }
+  P.Invite(pdb)
+  ok(P.held and #P.held.names == 2, "alone with six: two wait", P.held and #P.held.names)
+  W.runAfters(P.HOLD_FOR + 1)
+  ok(P.held == nil, "two minutes and nobody joined: they are dropped (Invite again sends them)")
+  -- ONE AT A TIME (BiS Guild's raid-night pop-up: each raider invited as they log in): three of you,
+  -- two invites out - the next one would be the sixth, so the party becomes a raid and it waits
+  W.raid, W.inRaid = { { name = "Me" }, { name = "Tobi" }, { name = "Kio" } }, false
+  sent.invite, sent.full, sent.raid, P.out = {}, {}, 0, {}
+
+  _G.BiSToolsAPI.InviteOne("Ari")
+  _G.BiSToolsAPI.InviteOne("Mare")
+  ok(#sent.invite == 2 and sent.raid == 0 and P.held == nil, "three of you, two asked: five, still a party", #sent.invite)
+  _G.BiSToolsAPI.InviteOne("Shwed")
+  ok(sent.raid == 1 and P.held and P.held.names[1] == "Shwed" and #sent.full == 0,
+    "the third would be the sixth: the party becomes a raid and Shwed waits for it, not refused", #sent.full)
+  P.events.scripts.OnEvent(P.events, "GROUP_ROSTER_UPDATE")
+  ok(P.held == nil and sent.invite[3] == "Shwed", "the raid made: Shwed is asked", table.concat(sent.invite, ","))
+  -- an invite nobody answers stops counting after P.OUT_FOR
+  W.raid, W.inRaid = { { name = "Me" } }, false
+  sent.invite, sent.full, sent.raid, P.out = {}, {}, 0, {}
+  for _, n in ipairs({ "A", "B", "C", "D" }) do _G.BiSToolsAPI.InviteOne(n) end
+  ok(P.Out() == 4, "alone, four asked: four out", P.Out())
+  W.now = W.now + P.OUT_FOR + 1
+  ok(P.Out() == 0, "a minute unanswered: they no longer count", P.Out())
   _G.UnitName = keepUN
   -- cost: a group change in a 40-man raid with a full list re-asks the box, once
   W.raid, W.inRaid = { { name = "Me" } }, true
@@ -6205,6 +6265,121 @@ do
 
   R:SetEnabled("party", false)
   Bx.Refresh()
+end
+
+-- ------------------------------------------------------------ the party tool's hands-off switches (21 Oct 2026)
+-- Arn: "when a guild member invites you ... it'll auto accept an invite", "if somebody whispers you a key word,
+-- it'll invite". THE CLIENT'S SHAPES: PARTY_INVITE_REQUEST (name, isTank, isHealer, isDamage, isNativeRealm,
+-- allowMultipleRoles, inviterGUID); CHAT_MSG_WHISPER (text, "Name-Realm", ..., guid as the 12th); in a lockdown the
+-- whisper's text and sender are SECRET - type() says "string", a comparison throws.
+do
+  local P = NS.Party
+  local pdb = R:DBFor(R:Get("party"))
+  P.db = pdb
+  local guildG, friendG, bnetG = { ["Player-1-A"] = true }, { ["Player-1-B"] = true }, { ["Player-1-C"] = true }
+  local roster = { { "Nebeon Nolightforu-Realm" }, { "Kio Alpha-Realm" } }
+  local accepted, hidden = 0, {}
+  local keep = { AG = _G.AcceptGroup, SH = _G.StaticPopup_Hide, IGM = _G.IsGuildMember, FL = _G.C_FriendList,
+                 BN = _G.C_BattleNet, IG = _G.IsInGuild, GN = _G.GetNumGuildMembers, GR = _G.GetGuildRosterInfo,
+                 PI = _G.C_PartyInfo, raid = W.raid, inRaid = W.inRaid, type = _G.type, isv = _G.issecretvalue }
+  _G.AcceptGroup = function() accepted = accepted + 1 end
+  _G.StaticPopup_Hide = function(which) hidden[#hidden + 1] = which end
+  _G.IsGuildMember = function(g) return guildG[g] == true end
+  _G.C_FriendList = { IsFriend = function(g) return friendG[g] == true end, GetNumFriends = function() return 0 end }
+  _G.C_BattleNet = { GetAccountInfoByGUID = function(g) return bnetG[g] and { accountName = "x" } or nil end }
+  _G.IsInGuild = function() return true end
+  _G.GetNumGuildMembers = function() return #roster end
+  _G.GetGuildRosterInfo = function(i) return roster[i] and roster[i][1] end
+  local invited = {}
+  _G.C_PartyInfo = { InviteUnit = function(n) invited[#invited + 1] = n end, ConvertToRaid = function() end }
+  W.raid, W.inRaid = { { name = "Me" } }, false
+  P.out, P.held, P.queue = {}, nil, {}
+  local function invite(name, guid) fireAll("PARTY_INVITE_REQUEST", name, false, false, false, true, false, guid) end
+  local function whisper(text, sender, guid)
+    fireAll("CHAT_MSG_WHISPER", text, sender, "", "", "Me", "", 0, 0, "", 0, 1, guid)
+    W.runAfters(P.PUMP_GAP + 0.1)
+  end
+
+  R:SetEnabled("party", true)
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 0, "every switch off (the default): a guildmate's invite waits for you")
+  pdb.acceptGuild = true
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 1 and hidden[1] == "PARTY_INVITE", "accept from the guild: a guildmate's invite is accepted, the pop-up closed")
+  invite("Zed", "Player-1-B")
+  ok(accepted == 1, "a friend, with only the guild switch on: waits")
+  pdb.acceptFriends = true
+  invite("Zed", "Player-1-B")
+  invite("Bnet", "Player-1-C")
+  ok(accepted == 3, "accept from friends: a character friend and a Battle.net friend")
+  invite("Stranger", "Player-1-Z")
+  ok(accepted == 3, "a stranger: never")
+  -- THE SAME FIRST NAME, ANOTHER PERSON: by GUID, a stranger called Nebeon is a stranger
+  invite("Nebeon", "Player-1-Y")
+  ok(accepted == 3, "a stranger who shares a guildmate's first name: never (matched by who they are)")
+  -- no GUID in the event: a whole name in the roster counts, a first name alone never does
+  invite("Nebeon Nolightforu", nil)
+  ok(accepted == 4, "no GUID: the guildmate's WHOLE name is enough")
+  invite("Nebeon", nil)
+  ok(accepted == 4, "no GUID and only a first name: never - it could be anyone called that")
+  R:SetEnabled("party", false)
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 4, "the party tool off: nothing at all")
+  R:SetEnabled("party", true)
+
+  -- THE KEYWORD
+  whisper("inv", "Kio Alpha-Realm", "Player-1-A")
+  ok(#invited == 0, "invite on a keyword off (the default): a whisper is only a whisper")
+  pdb.keyword = true
+  if P.box then P.box:Hide() end
+  whisper("  INV ", "Kio Alpha-Realm", "Player-1-A")
+  ok(invited[1] == "Kio Alpha", "on: a guildmate whispers \"inv\" (any case, spaces around) - invited, whole name, no realm",
+     invited[1])
+  ok(not (P.box and P.box:IsShown()), "and no inviting show: nobody pressed anything")
+  whisper("inv", "Kio Alpha-Realm", "Player-1-A")
+  ok(#invited == 1, "the same person again within " .. P.KEYWORD_GAP .. " s: once is enough")
+  whisper("inv please", "Zed-Realm", "Player-1-B")
+  ok(#invited == 1, "a sentence with the word in it is not the keyword")
+  whisper("inv", "Stranger-Realm", "Player-1-Z")
+  ok(#invited == 1, "from \"known\" only (the default): a stranger's \"inv\" does nothing")
+  pdb.keywordFrom = "anyone"
+  whisper("inv", "Stranger-Realm", "Player-1-Z")
+  ok(invited[2] == "Stranger", "from anyone: invited", invited[2])
+  SlashCmdList.BISTOOLS("party keyword Raid")
+  ok(P.Keyword(pdb) == "raid", "/bist party keyword Raid: the word is raid", P.Keyword(pdb))
+  whisper("raid", "Zed-Realm", "Player-1-B")
+  ok(invited[3] == "Zed", "and \"raid\" invites now", invited[3])
+  -- A LOCKDOWN HIDES THE WHISPER: nothing compared, nothing thrown, nobody invited
+  local secretMeta = { __index = function() error("attempt to use a secret value", 2) end,
+                       __eq = function() error("attempt to compare a secret value", 2) end }
+  local realType = type
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  local okS = pcall(whisper, setmetatable({}, secretMeta), setmetatable({}, secretMeta), "Player-1-A")
+  _G.type, _G.issecretvalue = keep.type, keep.isv
+  ok(okS and #invited == 3, "a SECRET whisper (lockdown): no error, nobody invited")
+  -- not leading: said, not sent
+  W.raid = { { name = "Me" }, { name = "Tobi" } }
+  local keepLead = _G.UnitIsGroupLeader
+  _G.UnitIsGroupLeader = function() return false end
+  W.now = W.now + 60
+  whisper("raid", "Zed-Realm", "Player-1-B")
+  ok(#invited == 3, "someone else leads: nobody invited")
+  _G.UnitIsGroupLeader = keepLead
+  -- LEAN: whispers come all evening - an ordinary one, keyword on, asks the game nothing
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local nW, byW = Cost.Count(function()
+    for i = 1, 100 do fireAll("CHAT_MSG_WHISPER", "hey, are you on tonight? " .. i, "Zed-Realm", "", "", "Me", "", 0, 0, "", 0, i, "Player-1-B") end
+  end)
+  ok(nW == 0, "cost: 100 whispers that aren't the keyword = " .. nW .. " calls (measured 0)", Cost.Top and Cost.Top(byW, 3))
+  print(("   cost: 100 ordinary whispers, keyword on = %d calls"):format(nW))
+
+  pdb.acceptGuild, pdb.acceptFriends, pdb.keyword, pdb.keywordFrom, pdb.keywordText = nil, nil, nil, nil, nil
+  R:SetEnabled("party", false)
+  P.out, P.held, P.queue, P.asked = {}, nil, {}, nil
+  _G.AcceptGroup, _G.StaticPopup_Hide, _G.IsGuildMember, _G.C_FriendList, _G.C_BattleNet = keep.AG, keep.SH, keep.IGM, keep.FL, keep.BN
+  _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo, _G.C_PartyInfo = keep.IG, keep.GN, keep.GR, keep.PI
+  W.raid, W.inRaid = keep.raid, keep.inRaid
 end
 
 -- ------------------------------------------------------------ the rides tool (21 Oct 2026)
