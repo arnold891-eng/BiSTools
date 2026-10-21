@@ -1000,7 +1000,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 14 and lib._booted, "LibBiSComm 1.0 minor 14 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 15 and lib._booted, "LibBiSComm 1.0 minor 15 loaded and booted from Core/Init")
 -- Minor 8 sends one message a second, as the client allows. This suite is about summons and
 -- farming, fires dozens of sends with the clock standing still and jumps it without running
 -- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
@@ -1814,20 +1814,21 @@ do
   -- left click: the Hub, one row per tool
   mm.scripts.OnClick(mm, "LeftButton")
   local hub = BiSToolsHub
-  ok(hub and hub:IsShown() and #hub.rows == 9, "left click opens the Hub with a row per registered tool")
+  ok(hub and hub:IsShown() and #hub.rows == 10, "left click opens the Hub with a row per registered tool")
   ok(hub.scale == 1.2, "the Tools list is 20% bigger (Arn: \"lets make this 20% bigger\")")
   ok(hub.rows[1].key == "farm" and hub.rows[2].key == "summon" and hub.rows[3].key == "recap" and hub.rows[4].key == "rivals"
-     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map" and hub.rows[9].key == "party",
-     "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map, party")
+     and hub.rows[5].key == "social" and hub.rows[6].key == "threat" and hub.rows[7].key == "bg" and hub.rows[8].key == "map" and hub.rows[9].key == "party"
+     and hub.rows[10].key == "rides",
+     "rows in TOC order: farm, summon, recap, rivals, social, threat, bg, map, party, rides")
   -- RIVALS & PALS, their own tool (Arn, 14 Oct: "decouple from recap ... be its own thing")
   ok(hub.rows[4].name.text == "rivals & pals", "the rivals tool's row is titled rivals & pals")
   ok(hub.rows[1].name.text == "farm" and hub.rows[1].state.text:find("on", 1, true), "row: name + on")
-  ok(hub.con.slots.count and hub.con.slots.count.text == "7 of 9 on", "prompt slot counts the tools that are on (threat and party start off)")
+  ok(hub.con.slots.count and hub.con.slots.count.text == "8 of 10 on", "prompt slot counts the tools that are on (threat and party start off; rides on)")
   ok(not R:Enabled("threat") and hub.rows[6].name.text == "threat (beta)" and hub.rows[6].state.text:find("off", 1, true),
      "the threat tool starts OFF and is shown as \"threat (beta)\"")
   ok(hub.con:Width() <= H.W - 15 - 8, "hub prompt fits its header budget")
   ok(hub.closeBtn.point[4] == -3, "only an x in the header, at -3")
-  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 9 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
+  ok(hub.foot and hub.foot.label.text == "options" and hub.h == 16 + 10 * 16 + 4 + 16, "footer 'options' button; height = header + rows + footer")
   -- row click opens the tool window; shift-click drags it to the middle
   BiSToolsFarm:Hide() F.db.pos = { "TOPLEFT", 400, -300, "TOPLEFT" }
   hub.rows[1].scripts.OnClick(hub.rows[1], "LeftButton")
@@ -1877,7 +1878,7 @@ do
   for _, r in ipairs(BiSToolsOptions and BiSToolsOptions.rows or {}) do end
   -- right click toggles the tool; opening an off tool switches it on first
   hub.rows[2].scripts.OnClick(hub.rows[2], "RightButton")
-  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "6 of 9 on", "right click: summon off, row and count follow")
+  ok(not R:Enabled("summon") and hub.rows[2].state.text:find("off", 1, true) and hub.con.slots.count.text == "7 of 10 on", "right click: summon off, row and count follow")
   ok(lib:Enabled(), "and the lib is untouched by it")
   hub.rows[2].scripts.OnClick(hub.rows[2], "LeftButton")
   ok(R:Enabled("summon") and BiSToolsSummon:IsShown() and db_summon().mode == "on", "click on an off tool: switched on and its window pinned open")
@@ -1901,9 +1902,9 @@ do
   mm.GetChildren = nil
   ok(opt.con:Width() <= H.OPT_W - 15 - 8, "options prompt fits")
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (8), social (2), threat (2), bg (4), map (7),
-  -- party (2) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
-  -- the party list, 15 Oct; the recruit crest, 21 Oct)
-  ok(#opt.rows == 10 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4, "one row per section header and per option", #opt.rows)
+  -- party (2), rides (3) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
+  -- the party list, 15 Oct; the recruit crest, 21 Oct; the ride card, 21 Oct)
+  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 3, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -1972,7 +1973,7 @@ do
   local farmHdr = opt.rows[5]
   ok(farmHdr.ctl and farmHdr.ctl.on == true, "farm section box shows on")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
-  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "6 of 9 on", "box off: farm off, hub count follows")
+  ok(not R:Enabled("farm") and farmHdr.ctl.on == false and hub.con.slots.count.text == "7 of 10 on", "box off: farm off, hub count follows")
   farmHdr.ctl.scripts.OnClick(farmHdr.ctl)
   ok(R:Enabled("farm"), "and back on")
   -- toggle: nag
@@ -6188,6 +6189,80 @@ do
 
   R:SetEnabled("party", false)
   Bx.Refresh()
+end
+
+-- ------------------------------------------------------------ the rides tool (21 Oct 2026)
+-- Arn: "if you have BiS Tools installed, do you get a little card when you're in Orgrimmar in the top left side of
+-- the screen ... Zeppelin arriving, leaving in X amount of time" - the clock is the shared lib's (LibBiSComm 15:
+-- anyone with any BiS addon who rides one times it for the guild); this tool shows it.
+do
+  local RD, lib = NS.Rides, LibBiSComm
+  ok(RD and R:Get("rides") and R:Enabled("rides"), "the rides tool, on by default (\"BiS Tools enables the card\")")
+  local keepMap = W.map
+  W.map = 1429                                        -- Elwynn: no zeppelin, no boat
+  fireAll("ZONE_CHANGED_NEW_AREA")
+  ok(not (RD.frame and RD.frame:IsShown()), "no ride from here: no card")
+  -- ORGRIMMAR: the tower stands on Durotar's map; the card shows in the city too
+  W.map = 1454
+  fireAll("ZONE_CHANGED_NEW_AREA")
+  local f = RD.frame
+  ok(f and f:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity") and f.lines[2].text:find("^Zeppelin to Grom'gol"),
+     "in Orgrimmar: a card with both of its zeppelins", f and f.lines[1] and f.lines[1].text)
+  ok(f.lines[1].text:find("not timed yet", 1, true) and f.foot.text:find("ride one once", 1, true),
+     "nobody has ridden them yet: it says so, and how the clock comes")
+  ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
+  -- a guildmate with only BiS Healing rode the Thundercaller 30 s ago: the lib hears it, the card shows it
+  local now = lib.RideNow()
+  lib.handlers.RIDE.AT("Arn", "org_uc~uc_org", "org_uc", tostring(now - 30), "356", tostring(now), "BiSHealing")
+  ok(f.lines[1].text == "Zeppelin to Undercity - here now, leaves in 0:30", "the zeppelin is in: here now, leaving in 0:30", f.lines[1].text)
+  ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "gold while it waits")
+  ok(f.foot.text:find("timed by Arn - BiSHealing", 1, true), "and who timed it, with which addon", f.foot.text)
+  -- the countdown: once a second while it shows
+  W.now = W.now + 5
+  ok(f.scripts.OnUpdate ~= nil, "it ticks while it shows")
+  f.scripts.OnUpdate(f, 1.01)
+  ok(f.lines[1].text:find("leaves in 0:25", 1, true), "five seconds on: leaves in 0:25", f.lines[1].text)
+  W.now = W.now + 40
+  f.scripts.OnUpdate(f, 1.01)
+  ok(f.lines[1].text:find("^Zeppelin to Undercity %- arrives in %d+:%d%d$"), "gone: the next one arrives in ...", f.lines[1].text)
+  -- other addons ask BiS Tools (API version 3)
+  ok(BiSToolsAPI.version == 3, "BiSToolsAPI version 3: the rides")
+  local rides = BiSToolsAPI.Rides(1454)
+  ok(#rides == 2 and rides[1].id == "org_uc" and rides[1].timed and rides[1].by == "Arn" and rides[1].line == f.lines[1].text
+     and rides[2].timed == false, "Rides(Orgrimmar): both zeppelins, the timed one with its words")
+  local card = BiSToolsAPI.RideCard()
+  ok(#card == 2 and card[1] == f.lines[1].text, "RideCard(): the lines the card shows")
+  -- kept between sessions: the lib writes into BiS Tools' saved table
+  local rdb = R:DBFor(R:Get("rides"))
+  ok(rdb.clock and rdb.clock["org_uc~uc_org"] and rdb.clock["org_uc~uc_org"].by == "Arn", "the clock is in BiS Tools' saved table")
+  -- the options: off, and on again
+  S("rides off")
+  ok(not f:IsShown() and f.scripts.OnUpdate == nil and rdb.card == false, "/bist rides off: no card, nothing ticks")
+  S("rides on")
+  ok(f:IsShown(), "/bist rides on: back")
+  rdb.who = false RD.Paint()
+  ok(not f.foot:IsShown(), "who timed it can be hidden")
+  rdb.who = true RD.Paint()
+  -- Thunder Bluff: the Skycutter
+  W.map = 1456
+  fireAll("ZONE_CHANGED_NEW_AREA")
+  ok(f:IsShown() and #BiSToolsAPI.RideCard() == 1 and f.lines[1].text:find("^Zeppelin to Zephras Isle"), "Thunder Bluff: the Skycutter to Zephras Isle", f.lines[1].text)
+  fitsIn(f, "the ride card")
+  -- LEAN: a minute of the card on screen - one repaint a second, the map asked once each
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local n, by = Cost.Count(function() for _ = 1, 60 do W.now = W.now + 1 f.scripts.OnUpdate(f, 1.01) end end)
+  print(("   cost: the ride card, a minute on screen = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+  ok(n <= 150, "the ride card: two cheap questions a second (measured 120 a minute)", n)
+  -- in an instance: nothing; and back where no ride is: nothing ticks
+  local keepInst = _G.IsInInstance
+  _G.IsInInstance = function() return true, "party" end
+  RD.Paint()
+  ok(not f:IsShown(), "in an instance: no card")
+  _G.IsInInstance = keepInst
+  W.map = 1429
+  fireAll("ZONE_CHANGED_NEW_AREA")
+  ok(not f:IsShown() and f.scripts.OnUpdate == nil, "away from every ride: hidden, nothing ticks")
+  W.map = keepMap
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
