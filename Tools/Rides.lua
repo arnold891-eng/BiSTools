@@ -20,6 +20,11 @@ local _, NS = ...
 local T, R = NS.T, NS.Registry
 
 local RD = { W = 300, LINE = 16, TOP = 22, EVERY = 1 }
+-- THE ANNOUNCER (Arn, 21 Oct: "it should be this guys portrait telling you like he is announcing"): a row per ride
+-- that waits - his face (the stop's master, 3D, by npc id), his name, his line in quotes
+RD.ROW, RD.FACE = 46, 40
+-- who announces a ride when its stop has no master of its own (Forever's own crew; npc ids from Arn's probes)
+RD.CRIER, RD.CRIERNAME = {}, {}
 NS.Rides = RD
 
 function RD.Lib()
@@ -97,6 +102,50 @@ function RD.Build()
   return f
 end
 
+--- A row of the card: a face (3D), a name, a line that may wrap to two.
+function RD.Row(f, i)
+  f.rows = f.rows or {}
+  local row = f.rows[i]
+  if row then return row end
+  local F = NS.Farm
+  row = CreateFrame("Frame", nil, f)
+  row:SetSize(RD.W - 12, RD.ROW)
+  local m = CreateFrame("DressUpModel", nil, row)
+  m:SetSize(RD.FACE, RD.FACE)
+  m:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -2)
+  m:Hide()
+  row.face = m
+  row.who = F.fs(row, "", 10, "accent")
+  row.say = F.fs(row, "", 11, "gold")
+  row.say:SetJustifyH("LEFT")
+  if row.say.SetWordWrap then row.say:SetWordWrap(true) end
+  f.rows[i] = row
+  f.lines[i] = row.say                 -- the API's RideCard reads the lines
+  return row
+end
+
+--- His face: the creature by npc id, close (a portrait), asked again once if the client had to fetch it.
+function RD.Face(row, npc)
+  local m = row.face
+  if not npc then m:Hide() row.npc = nil return nil end
+  if row.npc == npc and m:IsShown() then return npc end
+  row.npc = npc
+  m:Show()
+  pcall(m.ClearModel, m)
+  pcall(m.SetCreature, m, npc)
+  if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 1) end
+  if C_Timer and C_Timer.After then
+    C_Timer.After(0.6, function()
+      if row.npc ~= npc then return end
+      local ok, file = pcall(m.GetModelFileID, m)
+      if ok and type(file) == "number" and file > 0 then return end
+      pcall(m.SetCreature, m, npc)
+      if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 1) end
+    end)
+  end
+  return npc
+end
+
 function RD.Place()
   local f, pos = RD.frame, RD.db and RD.db.pos
   if not f then return end
@@ -138,6 +187,12 @@ function RD.Watching(on)
   end
 end
 
+--- What the announcer says: "All aboard for Grom'gol - we lift off in 0:58!" (a ship sails).
+function RD.Cry(lib, e)
+  return ("\"All aboard for %s - we %s in %s!\""):format(tostring(e.stop.toName),
+    e.stop.kind == "zeppelin" and "lift off" or "sail", lib.RideClock(e.sched.left))
+end
+
 --- A ride in the card's words. THE POP-UP (Arn, 21 Oct: "i want it to only pop out when it arrives and itll show up
 --- and say zep to grom leaves in 1 minute ... and if the zeps are far they hide"): only what waits at the dock now,
 --- "Zeppelin to Grom'gol - leaves in 0:58". With "all rides" on: every ride from here, coming and going.
@@ -166,25 +221,35 @@ function RD.Paint(now)
   local F = NS.Farm
   local f = RD.Build()
   local shown, newest = {}, nil
+  local y = RD.TOP
   for i, e in ipairs(pick) do
-    local fs = f.lines[i]
-    if not fs then
-      fs = F.fs(f, "", 11, "ink")
-      fs:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -RD.TOP - (i - 1) * RD.LINE)
-      fs:SetWidth(RD.W - 16)
-      fs:SetJustifyH("LEFT")
-      f.lines[i] = fs
-    end
-    local text = RD.Line(lib, e, all)
-    fs:SetText(text)
+    local row = RD.Row(f, i)
+    local face = not all and (RD.CRIER[e.stop.id] or e.stop.npc) or nil
+    local who = (RD.CRIER[e.stop.id] and RD.CRIERNAME and RD.CRIERNAME[e.stop.id]) or e.stop.who
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -y)
+    RD.Face(row, face)
+    local x = face and (RD.FACE + 6) or 0
+    row.who:ClearAllPoints()
+    row.who:SetPoint("TOPLEFT", row, "TOPLEFT", x, -2)
+    row.say:ClearAllPoints()
+    row.say:SetPoint("TOPLEFT", row, "TOPLEFT", x, all and -2 or -14)
+    row.say:SetWidth(RD.W - 18 - x)
+    local text = all and RD.Line(lib, e, true) or RD.Cry(lib, e)
+    row.who:SetText(all and "" or tostring(who or ""))
+    if all then row.who:Hide() else row.who:Show() end
+    row.say:SetText(text)
     local r, g, b = F.color((e.sched and e.sched.docked) and "gold" or (e.sched and "ink" or "dim"))
-    fs:SetTextColor(r, g, b, 1)
-    fs:Show()
+    row.say:SetTextColor(r, g, b, 1)
+    row:Show()
+    local tall = all and RD.LINE or RD.ROW
+    row:SetHeight(tall)
+    y = y + tall
     shown[#shown + 1] = text
     if e.sched and (not newest or e.sched.age < newest.age) then newest = e.sched end
   end
-  for i = #pick + 1, #f.lines do f.lines[i]:Hide() end
-  local h = RD.TOP + #pick * RD.LINE
+  for i = #pick + 1, #f.rows do f.rows[i]:Hide() end
+  local h = y
   f.foot:ClearAllPoints()
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -h - 1)
   local foot = ""

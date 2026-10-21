@@ -123,8 +123,8 @@ function API.RideCard()
   local f = RD and RD.frame
   local out = {}
   if not (f and f:IsShown()) then return out end
-  for _, fs in ipairs(f.lines) do
-    if fs:IsShown() then out[#out + 1] = fs:GetText() end
+  for _, row in ipairs(f.rows or {}) do
+    if row:IsShown() then out[#out + 1] = row.say:GetText() end   -- a row of the card: its words
   end
   return out
 end

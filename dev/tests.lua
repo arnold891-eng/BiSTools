@@ -295,6 +295,20 @@ local frames = {}
 _G.CreateFrame = function(kind, name, parent, template)
   local f = { kind = kind, name = name, parent = parent, template = template,
     shown = true, scripts = {}, attrs = {}, events = {}, h = 0 }
+  -- A 3D MODEL (21 Oct 2026, the ride card's announcer - the first 3D in BiS Tools), as the client draws one by npc id
+  -- (BiS Shell's probe, 18 Oct): a creature the client never fetched draws NOTHING the first time it is asked and
+  -- the next time it does; GetModelFileID says whether it drew (0 = nothing).
+  if kind == "DressUpModel" or kind == "PlayerModel" then
+    W.knownCreature = W.knownCreature or {}
+    function f:SetCreature(id)
+      if type(id) ~= "number" then error("SetCreature needs an npc id", 2) end
+      self._creature = id
+      if W.knownCreature[id] then self._file = 100000 + id else self._file = 0 W.knownCreature[id] = true end
+    end
+    function f:ClearModel() self._creature, self._file = nil, nil end
+    function f:GetModelFileID() return self._file or 0 end
+    function f:SetPortraitZoom(z) self._zoom = z end
+  end
   -- ON FOREVER, REGISTERING THE COMBAT LOG IS A PROTECTED ACTION (6 Oct 2026, Arn's BugGrabber:
   -- "AddOn 'BiSTools' tried to call the protected function 'Frame:RegisterEvent()'"). The client
   -- does not throw - it records the blame and fires ADDON_ACTION_FORBIDDEN later, which is why a
@@ -2457,7 +2471,9 @@ local function fitsIn(root, what)
       local l = leftOf(fs, width)
       if l then
         measured = measured + 1
-        local w = realWidth(fs)
+        -- A WRAPPING BOX (the ride card's announcer, 21 Oct - the family kit's rule): a label given a width AND set to
+        -- word wrap goes down, not across - its box must fit, not its text on one line
+        local w = (fs.wrap and fs.w) and fs.w or realWidth(fs)
         if l < -1 or l + w > width + 1 then
           bad[#bad + 1] = ("%q needs %d px from %d, the window is %d"):format(plainText(fs.text), w, l, width)
         end
@@ -6216,21 +6232,24 @@ do
   lib.handlers.RIDE.AT("Arn", "org_uc~uc_org", "org_uc", tostring(now - 30), "356", tostring(now), "BiSHealing")
   tick()
   local f = RD.frame
-  ok(f and f:IsShown() and f.lines[1].text == "Zeppelin to Undercity - leaves in 0:30" and not (f.lines[2] and f.lines[2]:IsShown()),
-     "the zeppelin is in: the card pops up - \"Zeppelin to Undercity - leaves in 0:30\", only that one", f and f.lines[1].text)
+  ok(f and f:IsShown() and f.lines[1].text == '"All aboard for Undercity - we lift off in 0:30!"' and not (f.rows[2] and f.rows[2]:IsShown()),
+     "the zeppelin is in: the card pops up with his call, only that one", f and f.lines[1].text)
+  -- THE ANNOUNCER (Arn: "it should be this guys portrait telling you like he is announcing"): his face, his name
+  ok(f.rows[1].face:IsShown() and f.rows[1].face._creature == 9564 and f.rows[1].who.text == "Frezza",
+     "Frezza's face and name: he announces it")
   ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
   ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "in gold")
   ok(f.foot.text:find("timed by Arn - BiSHealing", 1, true), "and who timed it, with which addon", f.foot.text)
   -- the countdown: once a second
   W.now = W.now + 5
   tick()
-  ok(f.lines[1].text:find("leaves in 0:25", 1, true), "five seconds on: leaves in 0:25", f.lines[1].text)
+  ok(f.lines[1].text:find("lift off in 0:25", 1, true), "five seconds on: 0:25", f.lines[1].text)
   W.now = W.now + 40
   tick()
   ok(not f:IsShown() and RD.watch.scripts.OnUpdate ~= nil, "it left: the card hides; the watch goes on for the next")
   -- "all rides": the whole list, coming and going
   S("rides all")
-  ok(rdb.all == true and f:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity %- arrives in %d+:%d%d$")
+  ok(rdb.all == true and f:IsShown() and not f.rows[1].face:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity %- arrives in %d+:%d%d$")
      and f.lines[2].text:find("not timed yet", 1, true), "all rides: both zeppelins, coming and going", f.lines[1].text)
   S("rides all")
   ok(rdb.all == false and not f:IsShown(), "and back to the pop-up")
@@ -6245,7 +6264,7 @@ do
   -- the next one docks: it pops up again; the options
   W.now = W.now + 356 - 45
   tick()
-  ok(f:IsShown() and f.lines[1].text:find("leaves in", 1, true), "the next loop: it pops up again", f.lines[1].text)
+  ok(f:IsShown() and f.lines[1].text:find("lift off in", 1, true), "the next loop: it pops up again", f.lines[1].text)
   local card = BiSToolsAPI.RideCard()
   ok(#card == 1 and card[1] == f.lines[1].text, "RideCard(): the lines the card shows")
   S("rides off")
