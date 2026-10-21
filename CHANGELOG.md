@@ -1,5 +1,10 @@
 ## Unreleased
 
+- **Hands-off invites, in the party tool's options** (all off until you turn them on):
+  - **accept invites from the guild** - a guildmate's party invite is accepted for you;
+  - **accept invites from friends** - character friends and Battle.net friends;
+  - **invite on a whispered keyword** - whoever whispers you the word (`inv`, `invite` or `123`, or your own: `/bist party keyword <word>`) gets an invite. **keyword from**: known (your guild and friends) or anyone. You must lead, or be on your own; past five the party becomes a raid by itself.
+  - Matched by who people really are, not by first name - Forever has surnames, and two players can share a first name.
 - **Inviting more than a party holds makes the raid by itself.** The game counts invites still waiting for an answer, so on your own only four can go out, and a party can only become a raid once someone is in it. Now the first four go out, the rest wait, and when the first person joins the party turns into a raid and the rest are invited. Already in a party, it becomes a raid before the invite that would be the sixth. Invites sent one at a time (BiS Guild's raid-night pop-up) count too. If nobody joins within two minutes, the waiting ones are dropped with a line saying who - press Invite again.
 
 ## 0.15.0

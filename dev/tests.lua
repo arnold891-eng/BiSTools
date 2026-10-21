@@ -1918,7 +1918,8 @@ do
   -- sections: tools (3), farm (5), summon (7), recap (1), rivals (8), social (2), threat (2), bg (4), map (7),
   -- party (2), rides (4) (the rival settings moved out of recap into their own tool, 14 Oct; the overlay map, 14 Oct;
   -- the party list, 15 Oct; the recruit crest, 21 Oct; the ride card, 21 Oct)
-  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 4, "one row per section header and per option", #opt.rows)
+  -- (+5 in party, 21 Oct: accept from the guild / friends, invite on a keyword, the keyword, from whom)
+  ok(#opt.rows == 11 + 3 + 5 + 7 + 1 + 8 + 2 + 2 + 4 + 7 + 4 + 4 + 5, "one row per section header and per option", #opt.rows)
   -- THE BiSTheme STANDARD, 1.43:1 (Arn, 14 Oct): its sections poured into columns, the window that shape
   ok(math.abs(opt.w / opt.h - 1.43) < 0.01 and (opt.columns or 1) >= 2, "options: 1.43:1, in columns", opt.w .. "x" .. opt.h)
   local function find(label) for _, r in ipairs(opt.rows) do if r.name and r.name.text == label then return r end end end
@@ -6264,6 +6265,121 @@ do
 
   R:SetEnabled("party", false)
   Bx.Refresh()
+end
+
+-- ------------------------------------------------------------ the party tool's hands-off switches (21 Oct 2026)
+-- Arn: "when a guild member invites you ... it'll auto accept an invite", "if somebody whispers you a key word,
+-- it'll invite". THE CLIENT'S SHAPES: PARTY_INVITE_REQUEST (name, isTank, isHealer, isDamage, isNativeRealm,
+-- allowMultipleRoles, inviterGUID); CHAT_MSG_WHISPER (text, "Name-Realm", ..., guid as the 12th); in a lockdown the
+-- whisper's text and sender are SECRET - type() says "string", a comparison throws.
+do
+  local P = NS.Party
+  local pdb = R:DBFor(R:Get("party"))
+  P.db = pdb
+  local guildG, friendG, bnetG = { ["Player-1-A"] = true }, { ["Player-1-B"] = true }, { ["Player-1-C"] = true }
+  local roster = { { "Nebeon Nolightforu-Realm" }, { "Kio Alpha-Realm" } }
+  local accepted, hidden = 0, {}
+  local keep = { AG = _G.AcceptGroup, SH = _G.StaticPopup_Hide, IGM = _G.IsGuildMember, FL = _G.C_FriendList,
+                 BN = _G.C_BattleNet, IG = _G.IsInGuild, GN = _G.GetNumGuildMembers, GR = _G.GetGuildRosterInfo,
+                 PI = _G.C_PartyInfo, raid = W.raid, inRaid = W.inRaid, type = _G.type, isv = _G.issecretvalue }
+  _G.AcceptGroup = function() accepted = accepted + 1 end
+  _G.StaticPopup_Hide = function(which) hidden[#hidden + 1] = which end
+  _G.IsGuildMember = function(g) return guildG[g] == true end
+  _G.C_FriendList = { IsFriend = function(g) return friendG[g] == true end, GetNumFriends = function() return 0 end }
+  _G.C_BattleNet = { GetAccountInfoByGUID = function(g) return bnetG[g] and { accountName = "x" } or nil end }
+  _G.IsInGuild = function() return true end
+  _G.GetNumGuildMembers = function() return #roster end
+  _G.GetGuildRosterInfo = function(i) return roster[i] and roster[i][1] end
+  local invited = {}
+  _G.C_PartyInfo = { InviteUnit = function(n) invited[#invited + 1] = n end, ConvertToRaid = function() end }
+  W.raid, W.inRaid = { { name = "Me" } }, false
+  P.out, P.held, P.queue = {}, nil, {}
+  local function invite(name, guid) fireAll("PARTY_INVITE_REQUEST", name, false, false, false, true, false, guid) end
+  local function whisper(text, sender, guid)
+    fireAll("CHAT_MSG_WHISPER", text, sender, "", "", "Me", "", 0, 0, "", 0, 1, guid)
+    W.runAfters(P.PUMP_GAP + 0.1)
+  end
+
+  R:SetEnabled("party", true)
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 0, "every switch off (the default): a guildmate's invite waits for you")
+  pdb.acceptGuild = true
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 1 and hidden[1] == "PARTY_INVITE", "accept from the guild: a guildmate's invite is accepted, the pop-up closed")
+  invite("Zed", "Player-1-B")
+  ok(accepted == 1, "a friend, with only the guild switch on: waits")
+  pdb.acceptFriends = true
+  invite("Zed", "Player-1-B")
+  invite("Bnet", "Player-1-C")
+  ok(accepted == 3, "accept from friends: a character friend and a Battle.net friend")
+  invite("Stranger", "Player-1-Z")
+  ok(accepted == 3, "a stranger: never")
+  -- THE SAME FIRST NAME, ANOTHER PERSON: by GUID, a stranger called Nebeon is a stranger
+  invite("Nebeon", "Player-1-Y")
+  ok(accepted == 3, "a stranger who shares a guildmate's first name: never (matched by who they are)")
+  -- no GUID in the event: a whole name in the roster counts, a first name alone never does
+  invite("Nebeon Nolightforu", nil)
+  ok(accepted == 4, "no GUID: the guildmate's WHOLE name is enough")
+  invite("Nebeon", nil)
+  ok(accepted == 4, "no GUID and only a first name: never - it could be anyone called that")
+  R:SetEnabled("party", false)
+  invite("Nebeon", "Player-1-A")
+  ok(accepted == 4, "the party tool off: nothing at all")
+  R:SetEnabled("party", true)
+
+  -- THE KEYWORD
+  whisper("inv", "Kio Alpha-Realm", "Player-1-A")
+  ok(#invited == 0, "invite on a keyword off (the default): a whisper is only a whisper")
+  pdb.keyword = true
+  if P.box then P.box:Hide() end
+  whisper("  INV ", "Kio Alpha-Realm", "Player-1-A")
+  ok(invited[1] == "Kio Alpha", "on: a guildmate whispers \"inv\" (any case, spaces around) - invited, whole name, no realm",
+     invited[1])
+  ok(not (P.box and P.box:IsShown()), "and no inviting show: nobody pressed anything")
+  whisper("inv", "Kio Alpha-Realm", "Player-1-A")
+  ok(#invited == 1, "the same person again within " .. P.KEYWORD_GAP .. " s: once is enough")
+  whisper("inv please", "Zed-Realm", "Player-1-B")
+  ok(#invited == 1, "a sentence with the word in it is not the keyword")
+  whisper("inv", "Stranger-Realm", "Player-1-Z")
+  ok(#invited == 1, "from \"known\" only (the default): a stranger's \"inv\" does nothing")
+  pdb.keywordFrom = "anyone"
+  whisper("inv", "Stranger-Realm", "Player-1-Z")
+  ok(invited[2] == "Stranger", "from anyone: invited", invited[2])
+  SlashCmdList.BISTOOLS("party keyword Raid")
+  ok(P.Keyword(pdb) == "raid", "/bist party keyword Raid: the word is raid", P.Keyword(pdb))
+  whisper("raid", "Zed-Realm", "Player-1-B")
+  ok(invited[3] == "Zed", "and \"raid\" invites now", invited[3])
+  -- A LOCKDOWN HIDES THE WHISPER: nothing compared, nothing thrown, nobody invited
+  local secretMeta = { __index = function() error("attempt to use a secret value", 2) end,
+                       __eq = function() error("attempt to compare a secret value", 2) end }
+  local realType = type
+  _G.type = function(v) if getmetatable(v) == secretMeta then return "string" end return realType(v) end
+  _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
+  local okS = pcall(whisper, setmetatable({}, secretMeta), setmetatable({}, secretMeta), "Player-1-A")
+  _G.type, _G.issecretvalue = keep.type, keep.isv
+  ok(okS and #invited == 3, "a SECRET whisper (lockdown): no error, nobody invited")
+  -- not leading: said, not sent
+  W.raid = { { name = "Me" }, { name = "Tobi" } }
+  local keepLead = _G.UnitIsGroupLeader
+  _G.UnitIsGroupLeader = function() return false end
+  W.now = W.now + 60
+  whisper("raid", "Zed-Realm", "Player-1-B")
+  ok(#invited == 3, "someone else leads: nobody invited")
+  _G.UnitIsGroupLeader = keepLead
+  -- LEAN: whispers come all evening - an ordinary one, keyword on, asks the game nothing
+  local Cost = dofile("../_bisdev/dev/cost.lua")
+  local nW, byW = Cost.Count(function()
+    for i = 1, 100 do fireAll("CHAT_MSG_WHISPER", "hey, are you on tonight? " .. i, "Zed-Realm", "", "", "Me", "", 0, 0, "", 0, i, "Player-1-B") end
+  end)
+  ok(nW == 0, "cost: 100 whispers that aren't the keyword = " .. nW .. " calls (measured 0)", Cost.Top and Cost.Top(byW, 3))
+  print(("   cost: 100 ordinary whispers, keyword on = %d calls"):format(nW))
+
+  pdb.acceptGuild, pdb.acceptFriends, pdb.keyword, pdb.keywordFrom, pdb.keywordText = nil, nil, nil, nil, nil
+  R:SetEnabled("party", false)
+  P.out, P.held, P.queue, P.asked = {}, nil, {}, nil
+  _G.AcceptGroup, _G.StaticPopup_Hide, _G.IsGuildMember, _G.C_FriendList, _G.C_BattleNet = keep.AG, keep.SH, keep.IGM, keep.FL, keep.BN
+  _G.IsInGuild, _G.GetNumGuildMembers, _G.GetGuildRosterInfo, _G.C_PartyInfo = keep.IG, keep.GN, keep.GR, keep.PI
+  W.raid, W.inRaid = keep.raid, keep.inRaid
 end
 
 -- ------------------------------------------------------------ the rides tool (21 Oct 2026)
