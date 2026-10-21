@@ -35,5 +35,6 @@ Tools\ThreatWindow.lua
 Tools\Battleground.lua
 Tools\Overlay.lua
 Tools\Party.lua
+Tools\Rides.lua
 API.lua
 Tools\Hub.lua

@@ -16,10 +16,18 @@
 -- Since version 2 (21 Oct 2026, for BiS Memories - a death at a rival's hands is worth a picture):
 --   IsRival(name) -> true when that name is on your rivals list (gold or silver), false when not, or
 --                    nil, "not ready". Read-only; the rivals tool switched off still answers.
+--
+-- Since version 3 (21 Oct 2026, the ride clock - Arn: "can other addons api call BiS Tools for that flight timer"):
+--   Rides(map)     -> the zeppelins and boats from that map (default: where you stand; a capital counts as its zone),
+--                     a list of { id, name, ship, kind = "zeppelin"|"boat", to, docked, left (seconds: to the
+--                     arrival, or while docked to the departure), timed (false until somebody rode it), by, via,
+--                     age, line = the card's words }. The clock itself is LibBiSComm's (any BiS addon learns and
+--                     shares it); this is the same answer the card shows. nil, "not ready" without the lib.
+--   RideCard()     -> the lines the card shows now (a copy), or an empty list when it is hidden.
 --------------------------------------------------------------------------------
 local _, NS = ...
 
-local API = { major = 1, version = 2 }
+local API = { major = 1, version = 3 }
 BiSToolsAPI = API
 
 local function Party()
@@ -87,4 +95,36 @@ function API.IsRival(name)
   local ok, db = pcall(RC.DB)
   if not ok or type(db) ~= "table" then return nil, "not ready" end
   return RC.Rivals(db)[name] ~= nil
+end
+
+-- the rides from a map (version 3): read off the shared lib's clock - never changed here
+function API.Rides(map)
+  local RD = NS.Rides
+  local lib = RD and RD.Lib()
+  if not lib then return nil, "not ready" end
+  if map == nil then map = RD.Map() end
+  if type(map) ~= "number" then return {} end
+  local out = {}
+  for _, e in ipairs(lib:RidesAt(map)) do
+    local s, sc = e.stop, e.sched
+    out[#out + 1] = {
+      id = s.id, name = s.name, ship = s.ship, kind = s.kind, to = s.toName,
+      timed = sc ~= nil, docked = sc and sc.docked or false, left = sc and sc.left or nil,
+      by = sc and sc.by or nil, via = sc and sc.via or nil, age = sc and sc.age or nil,
+      line = lib:RideLine(s, sc),
+    }
+  end
+  return out
+end
+
+-- what the ride card shows now (version 3): a copy of its lines, empty while it is hidden
+function API.RideCard()
+  local RD = NS.Rides
+  local f = RD and RD.frame
+  local out = {}
+  if not (f and f:IsShown()) then return out end
+  for _, row in ipairs(f.rows or {}) do
+    if row:IsShown() then out[#out + 1] = row.say:GetText() end   -- a row of the card: its words
+  end
+  return out
 end
