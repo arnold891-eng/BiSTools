@@ -1,4 +1,4 @@
-## Unreleased
+## 0.16.0
 
 - **Hands-off invites, in the party tool's options** (all off until you turn them on):
   - **accept invites from the guild** - a guildmate's party invite is accepted for you;
