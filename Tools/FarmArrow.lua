@@ -124,9 +124,11 @@ function A.Build(db)
   return f
 end
 
---- Should it be on screen at all: the farm tool on, the arrow not switched off, a mob being farmed.
+--- Should it be on screen at all: the farm tool on, the arrow switched ON, a mob being farmed.
+--- OFF UNTIL ASKED (Arn, 22 Oct: "turn the arrow off by default too", after his cousin wanted it gone): only a saved
+--- `true` - /bist farm arrow on - shows it. A save that never touched it (nil) is off now, with no switch needed.
 function A.Wanted(db)
-  return db.arrow ~= false and db.active ~= nil and NS.Registry:Enabled("farm")
+  return db.arrow == true and db.active ~= nil and NS.Registry:Enabled("farm")
 end
 
 function A.Refresh(db)
@@ -187,7 +189,7 @@ end
 
 --- /bist farm arrow [on|off]
 function A.Set(db, want)
-  if want == nil then want = db.arrow == false end
+  if want == nil then want = db.arrow ~= true end
   db.arrow = want and true or false
   A.Refresh(db)
   return db.arrow

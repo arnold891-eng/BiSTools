@@ -2587,6 +2587,10 @@ do
   ok(text == "up" and mark == nil, "and says it is up; it has no mark of its own")
   ok(d and d > 0, "with a distance in yards")
 
+  -- OFF BY DEFAULT (Arn, 22 Oct): a save that never touched it shows nothing; a bare toggle turns it on
+  fdb.arrow = nil
+  ok(not A.Wanted(fdb), "never switched: the arrow is off")
+  ok(A.Set(fdb) == true and A.Set(fdb) == false, "/bist farm arrow with no word: on, then off again")
   S("farm arrow on")
   ok(BiSToolsFarmArrow and BiSToolsFarmArrow:IsShown(), "/bist farm arrow on shows it")
   A.Refresh(fdb)
