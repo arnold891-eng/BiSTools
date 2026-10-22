@@ -557,6 +557,21 @@ end
 local pass = 0
 local function ok(cond, msg, got) if not cond then error("FAIL: " .. msg .. (got ~= nil and ("  [" .. tostring(got) .. "]") or ""), 2) end pass = pass + 1 end
 
+-- THE FIND SOUND IS OFF BY DEFAULT (Arn, 22 Oct: the whisper ping kept going off in Orgrimmar). A fresh install
+-- starts "off"; an old save holding the old default "first" turns "off" once; a chosen "always" stays, and
+-- "first" chosen again after the switch stays too.
+ok(db.sound == "off" and db.soundOff1, "fresh install: find sound off", db.sound)
+do
+  local farm, keepDb, keepEv = R:Get("farm"), F.db, F.events
+  local old, chose, again = { sound = "first" }, { sound = "always" }, { sound = "first", soundOff1 = true }
+  farm:OnInit(old) farm:OnInit(chose) farm:OnInit(again)
+  F.db, F.events = keepDb, keepEv
+  ok(old.sound == "off" and old.soundOff1, "an old save's \"first\" turns off once", old.sound)
+  ok(chose.sound == "always", "a chosen \"always\" stays", chose.sound)
+  ok(again.sound == "first", "\"first\" picked again after the switch stays", again.sound)
+end
+S("farm sound first")                            -- the find-sound checks below were written for "first"
+
 -- ------------------------------------------------------------ checks
 ok(BiSToolsFarm and BiSToolsFarm:IsShown(), "window shown on login (db.shown default)")
 ok(BiSToolsFarm.h == 16 + 4 + 16 + 4, "no kills: header + search well only")
