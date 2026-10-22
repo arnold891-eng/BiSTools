@@ -6415,6 +6415,24 @@ do
   ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
   ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "in gold")
   ok(f.foot.text:find("timed by Arn - BiSHealing", 1, true), "and who timed it, with which addon", f.foot.text)
+  -- HOW SURE, NOT HOW OLD (Arn, 22 Oct, the card reading "634:12 ago": "instead be a confidence % the longer its been
+  -- since a reading the less confidence its correct")
+  ok(f.foot.text:find("100% sure", 1, true) and not f.foot.text:find("ago", 1, true), "just timed: 100% sure, no age",
+     f.foot.text)
+  local uc = lib.rideById["org_uc"]
+  local function sure(age, stop) return RD.Confidence({ rtt = 356, age = age }, stop) end
+  ok(sure(600, uc) == 100, "ten minutes on a measured loop: still sure", sure(600, uc))
+  ok(sure(3600, uc) >= 60 and sure(3600, uc) <= 75, "an hour on: about two in three", sure(3600, uc))
+  ok(sure(38052, uc) < 10, "Arn's 10 1/2 hours: under 10% - don't trust the countdown", sure(38052, uc))
+  ok(sure(3600, uc) > sure(10800, uc) and sure(10800, uc) > sure(38052, uc), "the longer since, the less sure")
+  local learned = { id = "nowhere", kind = "zeppelin" }
+  local keepKey = lib.RideKey
+  lib.RideKey = function(self, s) if s == learned then return "nowhere~nowhere" end return keepKey(self, s) end
+  ok(sure(3600, learned) < sure(3600, uc), "a loop learned from rides drifts faster than a measured one",
+     sure(3600, learned) .. " < " .. sure(3600, uc))
+  lib.RideKey = keepKey
+  ok(RD.SureColour(95) == "good" and RD.SureColour(60) == "gold" and RD.SureColour(20) == "warn", "green, gold, red")
+  ok(RD.Confidence(nil, uc) == nil and RD.Confidence({ age = 5 }, uc) == nil, "nothing to judge by: no number")
   -- the countdown: once a second
   W.now = W.now + 5
   tick()

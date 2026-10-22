@@ -33,6 +33,39 @@ function RD.Lib()
   return nil
 end
 
+--- HOW SURE THE CARD IS, NOT HOW OLD (Arn, 22 Oct, the card reading "timed by Chain Healz - BiSGamba, 634:12 ago": "id
+--- like the time ... instead be a confidence % the longer its been since a reading the less confidence its correct").
+--- A reading is right when it is taken (give or take RD.READ_ERR); after that, every lap the ride runs can carry the
+--- loop's own small error, and the laps add up. The % is the chance the countdown is still within RD.SURE_WITHIN
+--- seconds of the truth - a bell curve as wide as the reading's error and the loop's error times the laps since.
+--- A loop measured end to end (the lib's RIDE_LOOP) drifts slower than one learned from rides.
+RD.SURE_WITHIN, RD.READ_ERR = 10, 2
+RD.LAP_ERR = { measured = 1, learned = 4 }
+
+local function erf(x)                          -- Abramowitz and Stegun 7.1.26: good to 1.5e-7
+  local s = x < 0 and -1 or 1
+  x = math.abs(x)
+  local t = 1 / (1 + 0.3275911 * x)
+  local p = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t
+  return s * (1 - p * math.exp(-x * x))
+end
+
+--- 0-100: how likely the countdown for this ride is still right, or nil with nothing to judge by.
+function RD.Confidence(sched, stop)
+  if not (sched and type(sched.rtt) == "number" and sched.rtt > 0 and type(sched.age) == "number") then return nil end
+  local lib = RD.Lib()
+  local measured = lib and type(lib.RIDE_LOOP) == "table" and stop and lib.RideKey
+    and lib.RIDE_LOOP[lib:RideKey(stop)] ~= nil
+  local drift = math.max(0, sched.age) / sched.rtt * (measured and RD.LAP_ERR.measured or RD.LAP_ERR.learned)
+  local width = math.sqrt(RD.READ_ERR ^ 2 + drift ^ 2)
+  return math.floor(100 * erf(RD.SURE_WITHIN / (width * math.sqrt(2))) + 0.5)
+end
+
+function RD.SureColour(pct)
+  if pct >= 80 then return "good" elseif pct >= 50 then return "gold" end
+  return "warn"
+end
+
 local function plainNum(v)
   if v == nil or type(v) ~= "number" then return nil end
   if issecretvalue then
@@ -220,7 +253,7 @@ function RD.Paint(now)
   if #pick == 0 then RD.HideCard() return {} end
   local F = NS.Farm
   local f = RD.Build()
-  local shown, newest = {}, nil
+  local shown, newest, newestStop = {}, nil, nil
   local y = RD.TOP
   for i, e in ipairs(pick) do
     local row = RD.Row(f, i)
@@ -246,7 +279,7 @@ function RD.Paint(now)
     row:SetHeight(tall)
     y = y + tall
     shown[#shown + 1] = text
-    if e.sched and (not newest or e.sched.age < newest.age) then newest = e.sched end
+    if e.sched and (not newest or e.sched.age < newest.age) then newest, newestStop = e.sched, e.stop end
   end
   for i = #pick + 1, #f.rows do f.rows[i]:Hide() end
   local h = y
@@ -254,8 +287,9 @@ function RD.Paint(now)
   f.foot:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -h - 1)
   local foot = ""
   if newest and db.who ~= false then
-    foot = ("timed by %s%s, %s ago"):format(tostring(newest.by or "?"),
-      newest.via and (" - " .. newest.via) or "", lib.RideClock(math.max(0, newest.age)))
+    local sure = RD.Confidence(newest, newestStop)
+    foot = ("timed by %s%s%s"):format(tostring(newest.by or "?"), newest.via and (" - " .. newest.via) or "",
+      sure and (" - " .. NS.T.text(RD.SureColour(sure), sure .. "% sure")) or "")
   elseif not newest then
     foot = "ride one once - your guild gets the clock"
   end
@@ -302,7 +336,7 @@ R:Register({
     { kind = "toggle", label = "all rides", help = "Every ride from here, coming and going, with how long until it arrives. Off: the card only pops up while a ride waits at the dock.",
       get = function(db) return db.all == true end,
       set = function(db, on) db.all = on and true or false RD.Paint() end },
-    { kind = "toggle", label = "who timed it", help = "The card's last line: who timed the ride, with which BiS addon, and how long ago.",
+    { kind = "toggle", label = "who timed it", help = "The card's last line: who timed the ride, with which BiS addon, and how sure the countdown is - the chance it is still within 10 seconds, lower the longer since the ride was timed.",
       get = function(db) return db.who ~= false end,
       set = function(db, on) db.who = on and true or false RD.Paint() end },
     { kind = "button", label = "the card's place", button = "reset", help = "Back to the top left.",
