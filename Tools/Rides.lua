@@ -41,6 +41,10 @@ end
 --- A loop measured end to end (the lib's RIDE_LOOP) drifts slower than one learned from rides.
 RD.SURE_WITHIN, RD.READ_ERR = 10, 2
 RD.LAP_ERR = { measured = 1, learned = 4 }
+-- A SERVER RESTART RESETS EVERY ZEPPELIN, and the client cannot tell us one happened. Past RD.RESTART_AFTER the timing
+-- may belong to a world that has since restarted: 0%. (Polestar's timetable drops its own after 6 h for the same
+-- reason - studied 22 Oct; Arn: "add the 6 hour drop".)
+RD.RESTART_AFTER = 6 * 3600
 
 local function erf(x)                          -- Abramowitz and Stegun 7.1.26: good to 1.5e-7
   local s = x < 0 and -1 or 1
@@ -53,6 +57,7 @@ end
 --- 0-100: how likely the countdown for this ride is still right, or nil with nothing to judge by.
 function RD.Confidence(sched, stop)
   if not (sched and type(sched.rtt) == "number" and sched.rtt > 0 and type(sched.age) == "number") then return nil end
+  if sched.age > RD.RESTART_AFTER then return 0 end
   local lib = RD.Lib()
   local measured = lib and type(lib.RIDE_LOOP) == "table" and stop and lib.RideKey
     and lib.RIDE_LOOP[lib:RideKey(stop)] ~= nil

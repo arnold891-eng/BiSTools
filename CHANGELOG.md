@@ -1,6 +1,6 @@
 ## Unreleased
 
-- **The ride card says how sure it is.** Its last line used to say how long ago the ride was timed ("634:12 ago"). Now it says how likely the countdown still is to be right, within 10 seconds: "timed by Chain Healz - BiSGamba - 67% sure", green, gold or red. A fresh timing is 100%; every lap the zeppelin runs since lowers it, faster on routes the clock only learned from rides than on the ones it has measured.
+- **The ride card says how sure it is.** Its last line used to say how long ago the ride was timed ("634:12 ago"). Now it says how likely the countdown still is to be right, within 10 seconds: "timed by Chain Healz - BiSGamba - 67% sure", green, gold or red. A fresh timing is 100%; every lap the zeppelin runs since lowers it, faster on routes the clock only learned from rides than on the ones it has measured. Six hours on it says 0%: a server restart resets every zeppelin, and the game can't tell us one happened.
 
 ## 0.16.0
 

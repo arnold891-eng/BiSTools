@@ -6423,7 +6423,8 @@ do
   local function sure(age, stop) return RD.Confidence({ rtt = 356, age = age }, stop) end
   ok(sure(600, uc) == 100, "ten minutes on a measured loop: still sure", sure(600, uc))
   ok(sure(3600, uc) >= 60 and sure(3600, uc) <= 75, "an hour on: about two in three", sure(3600, uc))
-  ok(sure(38052, uc) < 10, "Arn's 10 1/2 hours: under 10% - don't trust the countdown", sure(38052, uc))
+  ok(sure(38052, uc) == 0, "Arn's 10 1/2 hours: past 6 h a restart may have reset it - 0%", sure(38052, uc))
+  ok(sure(6 * 3600 - 60, uc) > 0 and sure(6 * 3600 + 60, uc) == 0, "the 6-hour line: a minute before, some; a minute after, none")
   ok(sure(3600, uc) > sure(10800, uc) and sure(10800, uc) > sure(38052, uc), "the longer since, the less sure")
   local learned = { id = "nowhere", kind = "zeppelin" }
   local keepKey = lib.RideKey
