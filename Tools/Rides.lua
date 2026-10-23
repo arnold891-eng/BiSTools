@@ -304,6 +304,27 @@ function RD.TrakWatching(on)
 end
 
 RD.STRIP_W = RD.W - 12                                      -- a row's width: the strip sits in the card, under its row
+-- WHERE AM I ON IT (Arn, 23 Oct: "can it guesstimate what track we are on and put our 2d portrait there?"): riding a
+-- ride the lib saw you board (lib.riding) - your face rides its block; standing within RD.NEAR map units of a stop
+-- (the lib's own measured spots) - your face at that line's "here" end, by the dock; anywhere else, no face: a guess
+-- that far off would be wrong. Where you stand is asked once a second, and only while RIDE-TRAK is open.
+RD.ME, RD.NEAR = 18, 4
+RD.ROUND = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+
+--- Which of the card's rides you are on or at: its index in the list, and "ride" (aboard) or "dock" (on its
+--- platform); nil when neither.
+function RD.Mine(lib, list)
+  local on = lib.riding and lib.riding.from
+  if on and lib.RideKey then
+    local key = lib:RideKey(on)
+    for i, e in ipairs(list) do if lib:RideKey(e.stop) == key then return i, "ride" end end
+  end
+  if RD.seenX and RD.seenMap and lib.RideNear then
+    local near = lib:RideNear(RD.seenMap, RD.seenX, RD.seenY, RD.NEAR)
+    for i, e in ipairs(list) do if near and e.stop == near then return i, "dock" end end
+  end
+  return nil
+end
 
 --- One strip of the card's: built once, reused.
 function RD.Strip(f, i)
@@ -333,6 +354,16 @@ function RD.Strip(f, i)
   s.sweep:SetSize(3, 16)
   s.word = F.fs(s, "", 9, "dim")
   s.word:SetPoint("BOTTOM", s, "BOTTOM", 0, 3)
+  -- YOU (RD.Mine): your own face, round, above the line where you are
+  s.me = s:CreateTexture(nil, "OVERLAY", nil, 7)
+  s.me:SetSize(RD.ME, RD.ME)
+  if s.CreateMaskTexture and s.me.AddMaskTexture then
+    local m = s:CreateMaskTexture()
+    m:SetAllPoints(s.me)
+    m:SetTexture(RD.ROUND, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    s.me:AddMaskTexture(m)
+  end
+  s.me:Hide()
   f.strips[i] = s
   return s
 end
@@ -386,6 +417,21 @@ function RD.PaintTrak(list, t)
     s:Show()
   end
   RD.HideStrips(#list + 1)
+  -- you: above your ride's block while aboard, above "here" while on its platform
+  local mi, how = RD.Mine(lib, list)
+  for i = 1, #list do
+    local s = f.strips[i]
+    local x = how == "dock" and 0 or (type(out[i]) == "number" and out[i]) or nil
+    if i == mi and x then
+      if not s.me.face then s.me.face = pcall(SetPortraitTexture, s.me, "player") end
+      s.me:ClearAllPoints()
+      s.me:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, 2 + RD.ME / 2 + 4)
+      s.me:Show()
+    else
+      s.me:Hide()
+    end
+  end
+  RD.mine = mi and how or nil
   RD.TrakWatching(true)
   return out
 end
@@ -439,7 +485,12 @@ function RD.Paint(now, quick)
   -- do not change between a quarter-second and the next
   local t = quick and GetTime and GetTime() or nil         -- the clock only on the quick road: the card alone never asks
   if not (t and RD.seenAt and t >= RD.seenAt and t - RD.seenAt < 1) then
-    RD.seenAt, RD.seenInside, RD.seenMap = t, RD.Inside(), RD.Map()
+    RD.seenAt, RD.seenInside = t, RD.Inside()
+    if db.trak and lib.RideSpot then                         -- RIDE-TRAK open: your spot too, for your face on it
+      RD.seenMap, RD.seenX, RD.seenY = lib:RideSpot()
+    else
+      RD.seenMap, RD.seenX, RD.seenY = RD.Map(), nil, nil
+    end
   end
   if RD.seenInside then return RD.Hide() end
   local map = RD.seenMap

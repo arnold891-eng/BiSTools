@@ -72,6 +72,11 @@ _G.UISpecialFrames = {}   -- the client always has it: the frames Escape closes 
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return W.shift or false end
+-- a unit's 2D face painted onto a texture (the client's own call; the ride card puts yours on RIDE-TRAK)
+_G.SetPortraitTexture = function(tex, unit)
+  if type(tex) ~= "table" or type(unit) ~= "string" then error("SetPortraitTexture(texture, unit)", 2) end
+  tex.portrait = unit
+end
 W.cursor = { 0, 0 }
 _G.GetCursorPosition = function() return W.cursor[1], W.cursor[2] end
 W.interactKey = "NUMPADMULTIPLY"
@@ -6521,6 +6526,38 @@ do
   ok(y1 == -(RD.TOP + RD.ROW) and y2 == -(RD.TOP + RD.ROW + RD.TRAK_H + 4 + RD.ROW),
      "each ride's line right under its own announcer's row, in the card", tostring(y1) .. " / " .. tostring(y2))
   fitsIn(f, "the ride card with RIDE-TRAK open")
+  -- YOUR FACE ON IT (Arn: "can it guesstimate what track we are on and put our 2d portrait there?")
+  do
+    local keepMap2, kx, ky = W.map, W.px, W.py
+    W.map, W.px, W.py = 1411, 0.508, 0.137            -- Durotar, on the Undercity platform of Orgrimmar's tower
+    RD.seenAt = nil
+    RD.Paint()
+    local mine
+    for i, s in ipairs(f.strips) do if s:IsShown() and s.me.shown then mine = i end end
+    local ucRow
+    for i, e in ipairs(RD.trakList or {}) do if e.stop.id == "org_uc" then ucRow = i end end
+    ok(mine and mine == ucRow and f.strips[mine].me.portrait == "player" and RD.mine == "dock",
+       "on the Undercity platform: your face on the Undercity line, at the dock end", tostring(mine) .. " vs " .. tostring(ucRow))
+    ok(f.strips[mine].me.anchor and f.strips[mine].me.anchor[4] == RD.TRAK_IN, "at its 'here' end", f.strips[mine].me.anchor and f.strips[mine].me.anchor[4])
+    -- aboard: the lib saw you leave on it - your face rides the zeppelin's block
+    W.px, W.py = 0.30, 0.30                            -- out over the zone, nowhere near a platform
+    lib.riding = { from = lib.rideById["org_uc"], t0 = 0 }
+    RD.seenAt = nil
+    RD.Paint()
+    local s = f.strips[ucRow]
+    ok(s.me.shown and RD.mine == "ride" and s.me.anchor[4] == s.ride.anchor[4], "aboard: your face rides on its block",
+       tostring(s.me.anchor[4]) .. " vs " .. tostring(s.ride.anchor[4]))
+    -- neither aboard nor on a platform: no guess
+    lib.riding = nil
+    RD.seenAt = nil
+    RD.Paint()
+    local any = false
+    for _, st2 in ipairs(f.strips) do if st2.me.shown then any = true end end
+    ok(not any and RD.mine == nil, "away from every platform, riding nothing: no face - no wrong guess")
+    W.map, W.px, W.py = keepMap2, kx, ky
+    RD.seenAt = nil
+    RD.Paint()
+  end
   -- open, every ride from here is on it: the timed zeppelin on its line, the one nobody timed scanning
   ok(st[1]:IsShown() and st[1].ride.shown and st[1].there.text == "Undercity" and st[1].word.text:find("leaves in", 1, true),
      "the Undercity zeppelin: a block on its line, docked here", st[1].word.text)
