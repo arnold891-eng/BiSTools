@@ -113,16 +113,32 @@ function RD.Build()
   f:EnableMouse(true)
   f:SetMovable(true)
   f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", function(self) if not InCombatLockdown() then self:StartMoving() end end)
+  f:SetScript("OnDragStart", function(self)
+    RD.dragged = true
+    if not InCombatLockdown() then self:StartMoving() end
+  end)
   f:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     local p, _, rp, x, y = self:GetPoint()
     if RD.db then RD.db.pos = { p, rp, x, y } end
   end)
+  -- SHIFT-CLICK: RIDE-TRAK (Arn, 23 Oct: "people [should] be able to shift left click this and show a mock tracker
+  -- like tram trak"). A plain click, or the end of a drag, does nothing.
+  f:SetScript("OnMouseUp", function(_, button)
+    local dragged = RD.dragged
+    RD.dragged = nil
+    if button == "LeftButton" and not dragged and IsShiftKeyDown and IsShiftKeyDown() then RD.ToggleTrak() end
+  end)
   F.tex(f, "BACKGROUND", "frame", 0.88)
   F.border(f, "edge", 1)
   f.title = F.fs(f, "BiS> rides from here", 10, "accent")
   f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -6)
+  -- THE X (Arn, 23 Oct: "some people might want to close it and if they close it it should stop popping up ... we
+  -- should print the command to enable it again")
+  f.x = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+  f.x:SetSize(20, 20)
+  f.x:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
+  f.x:SetScript("OnClick", function() RD.Close() end)
   f.lines = {}
   f.foot = F.fs(f, "", 9, "dim")
   f:SetScript("OnEnter", function(self)
@@ -131,7 +147,8 @@ function RD.Build()
     GameTooltip:SetText("BiS> rides")
     GameTooltip:AddLine("Every zeppelin and boat runs a fixed loop. Anyone with a BiS addon who rides one times it, "
       .. "and your guild and group get the clock - so one rider sets it for everyone.", 0.8, 0.8, 0.8, true)
-    GameTooltip:AddLine("Drag to move it. /bist rides off hides it.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("Shift-click: RIDE-TRAK - where each ride is on its line, live.", 0.4, 1, 0.5, true)
+    GameTooltip:AddLine("Drag to move it. The X stops it popping up (/bist rides on brings it back).", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
   end)
   f:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -199,12 +216,167 @@ end
 function RD.HideCard()
   local f = RD.frame
   if f and f:IsShown() then f:Hide() end
+  if f and f.trak then f.trak:Hide() end                     -- RIDE-TRAK goes with it, and stops repainting
+  RD.TrakWatching(false)
 end
 
 --- Everything off: the card, and the once-a-second watch.
 function RD.Hide()
   RD.HideCard()
   RD.Watching(false)
+  RD.TrakWatching(false)
+end
+
+--- The X: the card stops popping up, and says how to bring it back.
+function RD.Close()
+  if RD.db then RD.db.card = false end
+  RD.Paint()
+  NS.Print("the ride card won't pop up any more - |cff66ff80/bist rides on|r brings it back")
+end
+
+--------------------------------------------------------------------
+-- RIDE-TRAK: each ride on its line, live (BiS Shell's TRAM-TRAK, for every zeppelin and boat)
+--------------------------------------------------------------------
+-- A strip per ride under the card: here on the left, its far end on the right, the ride a gold block on the line,
+-- moving; not timed yet = SCANNING, a bar sweeping the line. Open, the card stays up where a ride is (every ride
+-- from here, docked or not) - the point is watching them come. The line's place comes from the lib's own schedule
+-- (docked, seconds left, the loop): it docks here, crosses in half a loop less a dwell, docks there, comes back.
+-- Open, it repaints RD.TRAK_EVERY seconds; closed, nothing of it ticks.
+RD.TRAK_H, RD.TRAK_IN, RD.TRAK_EVERY = 38, 30, 0.25
+
+--- Where a ride is on its line: 0 = here, 1 = its far end; and what it is doing ("here", "out", "there", "back")
+--- with the seconds until the next thing happens.
+function RD.Where(sched, dwell)
+  if not (sched and type(sched.rtt) == "number" and type(sched.left) == "number") then return nil end
+  local rtt, D = sched.rtt, dwell or 60
+  local half = rtt / 2
+  local phase = sched.docked and (D - sched.left) or (rtt - sched.left)
+  if phase < D then return 0, "here", D - phase end
+  if phase < half then return (phase - D) / (half - D), "out", half - phase end
+  if phase < half + D then return 1, "there", half + D - phase end
+  return 1 - (phase - half - D) / (half - D), "back", rtt - phase
+end
+
+--- The server's second, smoothed with the frame clock so a block glides instead of hopping once a second.
+function RD.SmoothNow(lib)
+  local s, t = lib.RideNow(), (GetTime and GetTime()) or 0
+  if s ~= RD.lastS then RD.lastS, RD.lastT = s, t end
+  return s + math.max(0, math.min(0.99, t - (RD.lastT or t)))
+end
+
+function RD.ToggleTrak(on)
+  local db = RD.db
+  if not db then return nil end
+  if on == nil then on = not db.trak end
+  db.trak = on and true or nil
+  RD.Paint()
+  return db.trak
+end
+
+RD.trakWatch = CreateFrame("Frame")
+function RD.TrakWatching(on)
+  local w = RD.trakWatch
+  if on and not w:GetScript("OnUpdate") then
+    RD.trakWait = RD.TRAK_EVERY
+    w:SetScript("OnUpdate", function(_, elapsed)
+      RD.trakWait = RD.trakWait - (tonumber(elapsed) or 0)
+      if RD.trakWait > 0 then return end
+      RD.trakWait = RD.TRAK_EVERY
+      RD.PaintTrak()
+    end)
+  elseif not on and w:GetScript("OnUpdate") then
+    w:SetScript("OnUpdate", nil)
+  end
+end
+
+--- One strip: built once, reused.
+function RD.Strip(t, i)
+  t.strips = t.strips or {}
+  local s = t.strips[i]
+  if s then return s end
+  local F = NS.Farm
+  s = CreateFrame("Frame", nil, t)
+  s:SetSize(RD.W, RD.TRAK_H)
+  local bg = s:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints(s)
+  bg:SetColorTexture(0.02, 0.05, 0.03, 0.9)                 -- TRAM-TRAK's green-black screen
+  s.line = s:CreateTexture(nil, "BORDER")
+  s.line:SetColorTexture(0.4, 1, 0.5, 0.6)
+  s.line:SetHeight(2)
+  s.line:SetPoint("LEFT", s, "LEFT", RD.TRAK_IN, 2)
+  s.line:SetPoint("RIGHT", s, "RIGHT", -RD.TRAK_IN, 2)
+  s.here = F.fs(s, "here", 9, "ink")
+  s.here:SetPoint("BOTTOMLEFT", s, "LEFT", 4, 4)
+  s.there = F.fs(s, "", 9, "ink")
+  s.there:SetPoint("BOTTOMRIGHT", s, "RIGHT", -4, 4)
+  s.ride = s:CreateTexture(nil, "OVERLAY")
+  s.ride:SetColorTexture(1, 0.82, 0.2, 1)
+  s.ride:SetSize(12, 8)
+  s.sweep = s:CreateTexture(nil, "OVERLAY")
+  s.sweep:SetColorTexture(0.4, 1, 0.5, 0.9)
+  s.sweep:SetSize(3, 16)
+  s.word = F.fs(s, "", 9, "dim")
+  s.word:SetPoint("BOTTOM", s, "BOTTOM", 0, 3)
+  t.strips[i] = s
+  return s
+end
+
+--- The strips for the rides on the card, placed and painted now.
+function RD.PaintTrak(list)
+  local lib, f = RD.Lib(), RD.frame
+  local db = RD.db
+  if not (lib and f and f:IsShown() and db and db.trak) then
+    if f and f.trak then f.trak:Hide() end
+    RD.TrakWatching(false)
+    return nil
+  end
+  list = list or RD.trakList or {}
+  RD.trakList = list
+  local t = f.trak
+  if not t then
+    t = CreateFrame("Frame", nil, f)
+    f.trak = t
+    t:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+    t:SetSize(RD.W, RD.TRAK_H)
+  end
+  local now = RD.SmoothNow(lib)
+  local span = RD.W - 2 * RD.TRAK_IN
+  local out = {}
+  for i, e in ipairs(list) do
+    local s = RD.Strip(t, i)
+    s:ClearAllPoints()
+    s:SetPoint("TOPLEFT", t, "TOPLEFT", 0, -(i - 1) * (RD.TRAK_H + 2))
+    s.there:SetText(tostring(e.stop.toName or "?"))
+    local sched = lib:RideSched(e.stop, now)
+    local x, what, secs = RD.Where(sched, lib.RIDE_DWELL)
+    if not x then
+      -- SCANNING: nobody has timed it - the bar sweeps the line, a computer at work
+      s.ride:Hide()
+      s.sweep:ClearAllPoints()
+      s.sweep:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + (now * 0.5 % 1) * span, 2)
+      s.sweep:Show()
+      s.word:SetText("SCANNING - ride it once to lock on" .. string.rep(".", math.floor(now * 2) % 4))
+      out[i] = "scanning"
+    else
+      s.sweep:Hide()
+      s.ride:ClearAllPoints()
+      s.ride:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, 2)
+      s.ride:Show()
+      local clock = lib.RideClock(secs)
+      local to = tostring(e.stop.toName or "?")
+      s.word:SetText(what == "here" and ("Docked here - leaves in " .. clock)
+        or what == "out" and ("On its way to " .. to .. " - there in " .. clock)
+        or what == "there" and ("Docked at " .. to .. " - leaves in " .. clock)
+        or ("Coming back - here in " .. clock))
+      out[i] = x
+    end
+    s:Show()
+  end
+  for i = #list + 1, #(t.strips or {}) do t.strips[i]:Hide() end
+  t:SetHeight(math.max(1, #list * (RD.TRAK_H + 2)))
+  t:Show()
+  RD.TrakWatching(true)
+  return out
 end
 
 --- THE WATCH: once a second while you are where a ride is (its zone, or its capital) - so the card can pop up the
@@ -251,9 +423,10 @@ function RD.Paint(now)
   if #here == 0 then return RD.Hide() end
   RD.Watching(true)
   local all = db.all == true
+  local trak = db.trak == true                  -- RIDE-TRAK open: every ride from here stays on the card
   local pick = {}
   for _, e in ipairs(here) do
-    if all or (e.sched and e.sched.docked) then pick[#pick + 1] = e end
+    if all or trak or (e.sched and e.sched.docked) then pick[#pick + 1] = e end
   end
   if #pick == 0 then RD.HideCard() return {} end
   local F = NS.Farm
@@ -262,7 +435,9 @@ function RD.Paint(now)
   local y = RD.TOP
   for i, e in ipairs(pick) do
     local row = RD.Row(f, i)
-    local face = not all and (RD.CRIER[e.stop.id] or e.stop.npc) or nil
+    -- the announcer for a ride that waits; with RIDE-TRAK open, one still on its way is a plain line
+    local plain = all or not (e.sched and e.sched.docked)
+    local face = not plain and (RD.CRIER[e.stop.id] or e.stop.npc) or nil
     local who = (RD.CRIER[e.stop.id] and RD.CRIERNAME and RD.CRIERNAME[e.stop.id]) or e.stop.who
     row:ClearAllPoints()
     row:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -y)
@@ -271,16 +446,16 @@ function RD.Paint(now)
     row.who:ClearAllPoints()
     row.who:SetPoint("TOPLEFT", row, "TOPLEFT", x, -2)
     row.say:ClearAllPoints()
-    row.say:SetPoint("TOPLEFT", row, "TOPLEFT", x, all and -2 or -14)
+    row.say:SetPoint("TOPLEFT", row, "TOPLEFT", x, plain and -2 or -14)
     row.say:SetWidth(RD.W - 18 - x)
-    local text = all and RD.Line(lib, e, true) or RD.Cry(lib, e)
-    row.who:SetText(all and "" or tostring(who or ""))
-    if all then row.who:Hide() else row.who:Show() end
+    local text = plain and RD.Line(lib, e, true) or RD.Cry(lib, e)
+    row.who:SetText(plain and "" or tostring(who or ""))
+    if plain then row.who:Hide() else row.who:Show() end
     row.say:SetText(text)
     local r, g, b = F.color((e.sched and e.sched.docked) and "gold" or (e.sched and "ink" or "dim"))
     row.say:SetTextColor(r, g, b, 1)
     row:Show()
-    local tall = all and RD.LINE or RD.ROW
+    local tall = plain and RD.LINE or RD.ROW
     row:SetHeight(tall)
     y = y + tall
     shown[#shown + 1] = text
@@ -302,6 +477,7 @@ function RD.Paint(now)
   if foot ~= "" then f.foot:Show() else f.foot:Hide() end
   f:SetHeight(h + (foot ~= "" and 16 or 6))
   if not f:IsShown() then f:Show() end
+  RD.PaintTrak(trak and pick or {})
   return shown
 end
 
@@ -332,7 +508,7 @@ end
 R:Register({
   name = "rides",
   desc = "a card with the zeppelins and boats from where you stand, timed by your guild",
-  usage = "/bist rides [on | off | all | who | reset]",
+  usage = "/bist rides [on | off | all | who | trak | reset]",
   defaults = { card = true, who = true },
   options = {
     { kind = "toggle", label = "the card", help = "At a zeppelin tower or a boat dock - or in its capital - a little card pops up at the top left while a ride waits: where it goes, and when it leaves. Timed by your guild.",
@@ -382,6 +558,9 @@ R:Register({
       db.pos = nil
       RD.Place()
       return NS.Print("the ride card is back at the top left")
+    elseif args == "trak" then
+      return NS.Print("RIDE-TRAK: %s", RD.ToggleTrak() and "open - every ride from here, on its line"
+        or "closed (shift-click the card to open it)")
     end
     local lib = RD.Lib()
     if not lib then return NS.Print("the shared BiS lib is too old for the ride clock") end

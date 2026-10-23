@@ -440,6 +440,8 @@ _G.CreateFrame = function(kind, name, parent, template)
         if p and p.name == nm then W.target = p break end
       end
     end
+    -- the client runs OnClick between the two (23 Oct 2026: the ride card's X was untestable without it)
+    if self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton", true) end
     if self.scripts.PostClick then self.scripts.PostClick(self, "LeftButton", true) end
   end
   if name then frames[name] = true _G[name] = f end
@@ -6488,6 +6490,62 @@ do
   ok(not f.foot:IsShown(), "who timed it can be hidden")
   rdb.who = true RD.Paint()
   fitsIn(f, "the ride card")
+  -- RIDE-TRAK (Arn, 23 Oct: "shift left click this and show a mock tracker like tram trak"): a strip per ride, the
+  -- ride a block on its line - here, crossing, there, coming back - read off the lib's own schedule
+  local D = lib.RIDE_DWELL
+  local function at(docked, left) return RD.Where({ rtt = 356, docked = docked, left = left }, D) end
+  local x0, w0 = at(true, 30)
+  local x1, w1, s1 = at(false, 356 - 60 - 59)        -- a minute out, half its crossing gone
+  local x2, w2 = at(false, 356 - 178 - 10)           -- docked over there
+  local x3, w3, s3 = at(false, 30)                   -- 30 s from here, on its way back
+  ok(x0 == 0 and w0 == "here", "docked here: the left end")
+  ok(w1 == "out" and math.abs(x1 - 0.5) < 0.01 and math.abs(s1 - 59) < 0.01, "crossing: halfway, there in 59 s", tostring(x1))
+  ok(x2 == 1 and w2 == "there", "docked at the far end: the right end")
+  ok(w3 == "back" and x3 > 0 and x3 < 0.3 and s3 == 30, "coming back: nearly here, 30 s", tostring(x3))
+  ok(RD.Where(nil) == nil, "not timed: nowhere to put it")
+  -- the click: only a SHIFT-click opens it; a plain click or a drag's end does nothing
+  W.shift = false
+  f.scripts.OnMouseUp(f, "LeftButton")
+  ok(not rdb.trak, "a plain click: nothing")
+  W.shift = true
+  f.scripts.OnDragStart(f)
+  f.scripts.OnMouseUp(f, "LeftButton")
+  ok(not rdb.trak, "shift held at the end of a drag: still nothing")
+  f.scripts.OnMouseUp(f, "LeftButton")
+  W.shift = false
+  ok(rdb.trak == true and f.trak and f.trak:IsShown(), "shift-click: RIDE-TRAK opens under the card")
+  -- open, every ride from here is on it: the timed zeppelin on its line, the one nobody timed scanning
+  local st = f.trak.strips
+  ok(st[1]:IsShown() and st[1].ride.shown and st[1].there.text == "Undercity" and st[1].word.text:find("leaves in", 1, true),
+     "the Undercity zeppelin: a block on its line, docked here", st[1].word.text)
+  ok(st[2] and st[2]:IsShown() and st[2].sweep.shown and not st[2].ride.shown
+     and st[2].word.text:find("SCANNING", 1, true), "the one nobody timed: SCANNING", st[2] and st[2].word.text)
+  ok(RD.trakWatch.scripts.OnUpdate ~= nil, "open, it repaints a few times a second")
+  -- it leaves: the card stays up (open, every ride shows) and the block moves off along the line
+  W.now = W.now + 120
+  tick()
+  ok(f:IsShown() and st[1].word.text:find("On its way to Undercity", 1, true), "it left: still on the card, on its way",
+     st[1].word.text)
+  ok(not f.rows[1].face:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity"), "a ride on its way: a plain line, not the announcer",
+     f.lines[1].text)
+  RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.3)
+  local Cost2 = dofile("../_bisdev/dev/cost.lua")
+  local nt, tby = Cost2.Count(function() for _ = 1, 240 do W.now = W.now + 0.25 RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.26) end end)
+  print(("   cost: RIDE-TRAK open, a minute = %d calls (%s)"):format(nt, Cost2.Top(tby, 3)))
+  ok(nt <= 1000, "RIDE-TRAK open: a few cheap questions a repaint, only while open", nt)
+  -- shift-click again: closed, the pop-up as before, its repaint stopped
+  W.shift = true
+  f.scripts.OnMouseUp(f, "LeftButton")
+  W.shift = false
+  ok(not rdb.trak and not f.trak:IsShown() and RD.trakWatch.scripts.OnUpdate == nil, "shift-click again: closed, nothing of it ticks")
+  -- THE X (Arn: "if they close it it should stop popping up ... print the command to enable it again")
+  rdb.all = true RD.Paint()
+  W.lastMsg = nil
+  f.x:Click()
+  ok(rdb.card == false and not f:IsShown(), "the X: the card off - it stops popping up")
+  ok(W.lastMsg and W.lastMsg:find("/bist rides on", 1, true), "and says how to bring it back", W.lastMsg)
+  S("rides on")
+  rdb.all = false RD.Paint()
   -- LEAN: a minute where a ride is - one look a second, the map and an instance question each
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n, by = Cost.Count(function() for _ = 1, 60 do W.now = W.now + 1 tick() end end)
