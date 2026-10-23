@@ -72,6 +72,8 @@ _G.UISpecialFrames = {}   -- the client always has it: the frames Escape closes 
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return W.shift or false end
+-- your own feet: walking or still (a zeppelin carries you with them still)
+_G.IsPlayerMoving = function() return W.moving and true or false end
 -- a unit's 2D face painted onto a texture (the client's own call; the ride card puts yours on RIDE-TRAK)
 _G.SetPortraitTexture = function(tex, unit)
   if type(tex) ~= "table" or type(unit) ~= "string" then error("SetPortraitTexture(texture, unit)", 2) end
@@ -6547,7 +6549,23 @@ do
     local s = f.strips[ucRow]
     ok(s.me.shown and RD.mine == "ride" and s.me.anchor[4] == s.ride.anchor[4], "aboard: your face rides on its block",
        tostring(s.me.anchor[4]) .. " vs " .. tostring(s.ride.anchor[4]))
+    -- THE DOCK WINS (Arn, on the platform in Ghost Wolf: "it thought i was on - should have a check to put me back on
+    -- the dock"): the lib says riding, but you stand on the platform, running on your own feet
+    W.px, W.py, W.moving = 0.508, 0.137, true
+    RD.seenAt = nil RD.Paint()
+    W.now = W.now + 1
+    W.px = 0.512
+    RD.seenAt = nil RD.Paint()
+    ok(RD.mine == "dock" and f.strips[ucRow].me.anchor[4] == RD.TRAK_IN,
+       "on the platform, running in Ghost Wolf: back on the dock, whatever the lib's riding says", tostring(RD.mine))
+    -- but carried off it - moving fast while your feet are still - you are aboard, even this close
+    W.moving = false
+    W.now = W.now + 1
+    W.px = 0.518
+    RD.seenAt = nil RD.Paint()
+    ok(RD.mine == "ride", "carried off the platform, feet still: aboard", tostring(RD.mine) .. " " .. tostring(RD.seenSpeed))
     -- neither aboard nor on a platform: no guess
+    W.px, W.py, W.moving = 0.30, 0.30, false
     lib.riding = nil
     RD.seenAt = nil
     RD.Paint()

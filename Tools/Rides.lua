@@ -314,17 +314,22 @@ RD.ROUND = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 --- Which of the card's rides you are on or at: its index in the list, and "ride" (aboard) or "dock" (on its
 --- platform); nil when neither.
 function RD.Mine(lib, list)
+  local near = RD.seenX and RD.seenMap and lib.RideNear and lib:RideNear(RD.seenMap, RD.seenX, RD.seenY, RD.NEAR) or nil
+  -- THE DOCK WINS (Arn, 23 Oct, on the platform in Ghost Wolf: "it thought i was on - should have a check to put me
+  -- back on the dock"): on a platform you are at the dock, whatever the lib's riding says - unless you are being
+  -- CARRIED right now (moving RD.CARRIED map units a second while your own feet are still, the lib's own rule)
+  local carried = RD.seenSpeed and RD.seenSpeed >= RD.CARRIED and RD.seenFeet == false
   local on = lib.riding and lib.riding.from
-  if on and lib.RideKey then
+  if on and lib.RideKey and (carried or not near) then
     local key = lib:RideKey(on)
     for i, e in ipairs(list) do if lib:RideKey(e.stop) == key then return i, "ride" end end
   end
-  if RD.seenX and RD.seenMap and lib.RideNear then
-    local near = lib:RideNear(RD.seenMap, RD.seenX, RD.seenY, RD.NEAR)
-    for i, e in ipairs(list) do if near and e.stop == near then return i, "dock" end end
+  if near then
+    for i, e in ipairs(list) do if e.stop == near then return i, "dock" end end
   end
   return nil
 end
+RD.CARRIED = 0.2                                            -- the lib's RIDE_CARRY: a zeppelin cruises at 0.5-0.6
 
 --- One strip of the card's: built once, reused.
 function RD.Strip(f, i)
@@ -487,7 +492,18 @@ function RD.Paint(now, quick)
   if not (t and RD.seenAt and t >= RD.seenAt and t - RD.seenAt < 1) then
     RD.seenAt, RD.seenInside = t, RD.Inside()
     if db.trak and lib.RideSpot then                         -- RIDE-TRAK open: your spot too, for your face on it
+      local m0, x0, y0, c0 = RD.seenMap, RD.seenX, RD.seenY, RD.seenClock
       RD.seenMap, RD.seenX, RD.seenY = lib:RideSpot()
+      RD.seenClock = t or (GetTime and GetTime()) or 0
+      -- how fast you go, and whether your own feet move: carried or walking (RD.Mine)
+      RD.seenSpeed = nil
+      if m0 and m0 == RD.seenMap and x0 and RD.seenX and c0 then
+        RD.seenSpeed = math.sqrt((RD.seenX - x0) ^ 2 + (RD.seenY - y0) ^ 2) / math.max(0.2, RD.seenClock - c0)
+      end
+      local okF, feet = pcall(IsPlayerMoving or function() return nil end)
+      local hidden = issecretvalue and select(2, pcall(issecretvalue, feet))
+      RD.seenFeet = nil                                     -- a hidden yes/no is never tested
+      if okF and hidden ~= true and feet ~= nil then RD.seenFeet = feet and true or false end
     else
       RD.seenMap, RD.seenX, RD.seenY = RD.Map(), nil, nil
     end
