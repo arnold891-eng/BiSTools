@@ -269,8 +269,9 @@ function RD.Where(sched, dwell)
 end
 
 --- The server's second, smoothed with the frame clock so a block glides instead of hopping once a second.
-function RD.SmoothNow(lib)
-  local s, t = lib.RideNow(), (GetTime and GetTime()) or 0
+function RD.SmoothNow(lib, t)
+  local s = lib.RideNow()
+  t = t or (GetTime and GetTime()) or 0
   if s ~= RD.lastS then RD.lastS, RD.lastT = s, t end
   return s + math.max(0, math.min(0.99, t - (RD.lastT or t)))
 end
@@ -293,7 +294,9 @@ function RD.TrakWatching(on)
       RD.trakWait = RD.trakWait - (tonumber(elapsed) or 0)
       if RD.trakWait > 0 then return end
       RD.trakWait = RD.TRAK_EVERY
-      RD.PaintTrak()
+      -- the whole card, not only the strips: a goblin's "0:21" over his strip's "0:20" (Arn's screenshot, 23 Oct)
+      -- was the once-a-second words lagging the strips' four
+      RD.Paint(nil, true)
     end)
   elseif not on and w:GetScript("OnUpdate") then
     w:SetScript("OnUpdate", nil)
@@ -341,7 +344,7 @@ function RD.HideStrips(from)
 end
 
 --- What the card's strips show now (Paint places them, each under its row; this only fills them in).
-function RD.PaintTrak(list)
+function RD.PaintTrak(list, t)
   local lib, f = RD.Lib(), RD.frame
   local db = RD.db
   if not (lib and f and f:IsShown() and db and db.trak) then
@@ -351,7 +354,7 @@ function RD.PaintTrak(list)
   end
   list = list or RD.trakList or {}
   RD.trakList = list
-  local now = RD.SmoothNow(lib)
+  local now = RD.SmoothNow(lib, t)
   local span = RD.STRIP_W - 2 * RD.TRAK_IN
   local out = {}
   for i, e in ipairs(list) do
@@ -429,11 +432,17 @@ end
 
 --- The card now: where a ride is, it pops up while one waits at the dock (or, with "all rides", shows them all);
 --- anywhere else, in an instance, or switched off: nothing. Answers the lines it shows.
-function RD.Paint(now)
+function RD.Paint(now, quick)
   local lib, db = RD.Lib(), RD.db
   if not (lib and db and R:Enabled("rides") and db.card ~= false) then return RD.Hide() end
-  if RD.Inside() then return RD.Hide() end
-  local map = RD.Map()
+  -- QUICK (RIDE-TRAK's four a second): where you are, asked at most once a second - the map and "in an instance?"
+  -- do not change between a quarter-second and the next
+  local t = quick and GetTime and GetTime() or nil         -- the clock only on the quick road: the card alone never asks
+  if not (t and RD.seenAt and t >= RD.seenAt and t - RD.seenAt < 1) then
+    RD.seenAt, RD.seenInside, RD.seenMap = t, RD.Inside(), RD.Map()
+  end
+  if RD.seenInside then return RD.Hide() end
+  local map = RD.seenMap
   local here = map and lib:RidesAt(map, now) or {}
   if #here == 0 then return RD.Hide() end
   RD.Watching(true)
@@ -499,7 +508,7 @@ function RD.Paint(now)
   if foot ~= "" then f.foot:Show() else f.foot:Hide() end
   f:SetHeight(h + (foot ~= "" and 16 or 6))
   if not f:IsShown() then f:Show() end
-  RD.PaintTrak(trak and pick or {})
+  RD.PaintTrak(trak and pick or {}, t)
   return shown
 end
 

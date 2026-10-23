@@ -6546,7 +6546,10 @@ do
   local Cost2 = dofile("../_bisdev/dev/cost.lua")
   local nt, tby = Cost2.Count(function() for _ = 1, 240 do W.now = W.now + 0.25 RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.26) end end)
   print(("   cost: RIDE-TRAK open, a minute = %d calls (%s)"):format(nt, Cost2.Top(tby, 3)))
+  -- the whole card four times a second while open (its words and its strips in step, Arn's "0:21" over "0:20"):
+  -- the clock mostly; where you are only once a second
   ok(nt <= 1000, "RIDE-TRAK open: a few cheap questions a repaint, only while open", nt)
+  ok((tby["C_Map.GetBestMapForUnit"] or 0) <= 61, "where you are: still once a second, not four", tby["C_Map.GetBestMapForUnit"])
   -- shift-click again: closed, the pop-up as before, its repaint stopped
   W.shift = true
   f.scripts.OnMouseUp(f, "LeftButton")
