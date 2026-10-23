@@ -1,4 +1,4 @@
-# BiS Tools — CurseForge page text (0.7.0)
+# BiS Tools — CurseForge page text (0.17.0)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Tools, project 1686340 → Edit → Description), in the Markdown editor.
@@ -75,6 +75,14 @@ Type a mob's name, kill one, or right-click it and pick **BiS: track in farm**.
 - **A purple crosshair on every live copy** in view, so you can see the next one coming.
 - **Spawn timers.** Where you killed it, and when it's back. On the minimap, on the world map, and as a big arrow pointing at the next one up.
 - **RestedXP's targets.** If you run RestedXP, the mobs your guide step wants show in the farm window and wear the purple crosshair too.
+
+## Zeppelins, boats and the tram
+
+At a zeppelin tower, a boat dock or a Deeprun Tram platform, a small card pops up while your ride waits: the zeppelin master or dockhand in 3D, calling **"All aboard for Grom'gol - we lift off in 0:58!"**. It hides again when the ride leaves.
+
+- **Your guild's clock.** Anyone with any BiS addon who rides once times that route for the whole guild. The card's last line says who timed it and how sure the countdown still is: **100% sure** just after a ride, lower with every lap since, 0% after six hours (a server restart resets every ride).
+- **RIDE-TRAK.** Shift-click the card and each ride gets a little line map under its announcer: here on the left, where it goes on the right, the ride a gold block moving between them - and your own face on it once you're aboard. The tram shows both of its cars.
+- **Close it for good** with the X; `/bist rides on` brings it back.
 
 ## The BiS> tools box
 

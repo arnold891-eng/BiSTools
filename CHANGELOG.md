@@ -1,4 +1,4 @@
-## Unreleased
+## 0.17.0
 
 - **The farm's find sound is off by default.** The whisper ping for "a fresh copy of your mob turned up" kept going off in busy cities. It is now off for everyone once, unless you had picked "always". Want it back: `/bist farm sound first` (or the farm's options).
 - **The farm's spawn arrow is off by default too.** The big floating arrow to the next spawn now shows only once you ask for it: `/bist farm arrow on`. Anyone who had switched it on keeps it.
