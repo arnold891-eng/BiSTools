@@ -6513,9 +6513,15 @@ do
   ok(not rdb.trak, "shift held at the end of a drag: still nothing")
   f.scripts.OnMouseUp(f, "LeftButton")
   W.shift = false
-  ok(rdb.trak == true and f.trak and f.trak:IsShown(), "shift-click: RIDE-TRAK opens under the card")
+  local st = f.strips
+  ok(rdb.trak == true and st and st[1]:IsShown(), "shift-click: RIDE-TRAK opens")
+  -- each strip right under its goblin (Arn: "id like the tracker under the respective goblin so its easier to read")
+  local y1 = st[1].point and st[1].point[5]
+  local y2 = st[2] and st[2].point and st[2].point[5]
+  ok(y1 == -(RD.TOP + RD.ROW) and y2 == -(RD.TOP + RD.ROW + RD.TRAK_H + 4 + RD.ROW),
+     "each ride's line right under its own announcer's row, in the card", tostring(y1) .. " / " .. tostring(y2))
+  fitsIn(f, "the ride card with RIDE-TRAK open")
   -- open, every ride from here is on it: the timed zeppelin on its line, the one nobody timed scanning
-  local st = f.trak.strips
   ok(st[1]:IsShown() and st[1].ride.shown and st[1].there.text == "Undercity" and st[1].word.text:find("leaves in", 1, true),
      "the Undercity zeppelin: a block on its line, docked here", st[1].word.text)
   ok(st[2] and st[2]:IsShown() and st[2].sweep.shown and not st[2].ride.shown
@@ -6545,7 +6551,8 @@ do
   W.shift = true
   f.scripts.OnMouseUp(f, "LeftButton")
   W.shift = false
-  ok(not rdb.trak and not f.trak:IsShown() and RD.trakWatch.scripts.OnUpdate == nil, "shift-click again: closed, nothing of it ticks")
+  ok(not rdb.trak and not st[1]:IsShown() and not st[2]:IsShown() and RD.trakWatch.scripts.OnUpdate == nil,
+     "shift-click again: closed, nothing of it ticks")
   -- THE X (Arn: "if they close it it should stop popping up ... print the command to enable it again")
   rdb.all = true RD.Paint()
   W.lastMsg = nil

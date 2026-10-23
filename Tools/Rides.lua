@@ -226,7 +226,7 @@ end
 function RD.HideCard()
   local f = RD.frame
   if f and f:IsShown() then f:Hide() end
-  if f and f.trak then f.trak:Hide() end                     -- RIDE-TRAK goes with it, and stops repainting
+  RD.HideStrips(1)                                          -- RIDE-TRAK goes with it, and stops repainting
   RD.TrakWatching(false)
 end
 
@@ -247,7 +247,8 @@ end
 --------------------------------------------------------------------
 -- RIDE-TRAK: each ride on its line, live (BiS Shell's TRAM-TRAK, for every zeppelin and boat)
 --------------------------------------------------------------------
--- A strip per ride under the card: here on the left, its far end on the right, the ride a gold block on the line,
+-- A strip per ride, right under its announcer's row (Arn, 23 Oct: "id like the tracker under the respective goblin
+-- so its easier to read"): here on the left, its far end on the right, the ride a gold block on the line,
 -- moving; not timed yet = SCANNING, a bar sweeping the line. Open, the card stays up where a ride is (every ride
 -- from here, docked or not) - the point is watching them come. The line's place comes from the lib's own schedule
 -- (docked, seconds left, the loop): it docks here, crosses in half a loop less a dwell, docks there, comes back.
@@ -299,14 +300,16 @@ function RD.TrakWatching(on)
   end
 end
 
---- One strip: built once, reused.
-function RD.Strip(t, i)
-  t.strips = t.strips or {}
-  local s = t.strips[i]
+RD.STRIP_W = RD.W - 12                                      -- a row's width: the strip sits in the card, under its row
+
+--- One strip of the card's: built once, reused.
+function RD.Strip(f, i)
+  f.strips = f.strips or {}
+  local s = f.strips[i]
   if s then return s end
   local F = NS.Farm
-  s = CreateFrame("Frame", nil, t)
-  s:SetSize(RD.W, RD.TRAK_H)
+  s = CreateFrame("Frame", nil, f)
+  s:SetSize(RD.STRIP_W, RD.TRAK_H)
   local bg = s:CreateTexture(nil, "BACKGROUND")
   bg:SetAllPoints(s)
   bg:SetColorTexture(0.02, 0.05, 0.03, 0.9)                 -- TRAM-TRAK's green-black screen
@@ -327,35 +330,32 @@ function RD.Strip(t, i)
   s.sweep:SetSize(3, 16)
   s.word = F.fs(s, "", 9, "dim")
   s.word:SetPoint("BOTTOM", s, "BOTTOM", 0, 3)
-  t.strips[i] = s
+  f.strips[i] = s
   return s
 end
 
---- The strips for the rides on the card, placed and painted now.
+--- The card's strips from the i-th on, away.
+function RD.HideStrips(from)
+  local f = RD.frame
+  for i = from or 1, #(f and f.strips or {}) do f.strips[i]:Hide() end
+end
+
+--- What the card's strips show now (Paint places them, each under its row; this only fills them in).
 function RD.PaintTrak(list)
   local lib, f = RD.Lib(), RD.frame
   local db = RD.db
   if not (lib and f and f:IsShown() and db and db.trak) then
-    if f and f.trak then f.trak:Hide() end
+    RD.HideStrips(1)
     RD.TrakWatching(false)
     return nil
   end
   list = list or RD.trakList or {}
   RD.trakList = list
-  local t = f.trak
-  if not t then
-    t = CreateFrame("Frame", nil, f)
-    f.trak = t
-    t:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
-    t:SetSize(RD.W, RD.TRAK_H)
-  end
   local now = RD.SmoothNow(lib)
-  local span = RD.W - 2 * RD.TRAK_IN
+  local span = RD.STRIP_W - 2 * RD.TRAK_IN
   local out = {}
   for i, e in ipairs(list) do
-    local s = RD.Strip(t, i)
-    s:ClearAllPoints()
-    s:SetPoint("TOPLEFT", t, "TOPLEFT", 0, -(i - 1) * (RD.TRAK_H + 2))
+    local s = RD.Strip(f, i)
     s.there:SetText(tostring(e.stop.toName or "?"))
     local sched = lib:RideSched(e.stop, now)
     local x, what, secs = RD.Where(sched, lib.RIDE_DWELL)
@@ -382,9 +382,7 @@ function RD.PaintTrak(list)
     end
     s:Show()
   end
-  for i = #list + 1, #(t.strips or {}) do t.strips[i]:Hide() end
-  t:SetHeight(math.max(1, #list * (RD.TRAK_H + 2)))
-  t:Show()
+  RD.HideStrips(#list + 1)
   RD.TrakWatching(true)
   return out
 end
@@ -476,6 +474,12 @@ function RD.Paint(now)
     local tall = plain and RD.LINE or RD.ROW
     row:SetHeight(tall)
     y = y + tall
+    if trak then                                            -- its own line, right under him
+      local s = RD.Strip(f, i)
+      s:ClearAllPoints()
+      s:SetPoint("TOPLEFT", f, "TOPLEFT", 6, -y)
+      y = y + RD.TRAK_H + 4
+    end
     shown[#shown + 1] = text
     if e.sched and (not newest or e.sched.age < newest.age) then newest, newestStop = e.sched, e.stop end
   end
