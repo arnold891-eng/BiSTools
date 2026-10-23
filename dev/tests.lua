@@ -72,6 +72,13 @@ _G.UISpecialFrames = {}   -- the client always has it: the frames Escape closes 
 _G.IsInInstance = function() return false, "none" end
 _G.GetInstanceInfo = function() return W.me.zone, "none", 0, "", 0, 0, false, W.me.inst end
 _G.IsShiftKeyDown = function() return W.shift or false end
+-- your own feet: walking or still (a zeppelin carries you with them still)
+_G.IsPlayerMoving = function() return W.moving and true or false end
+-- a unit's 2D face painted onto a texture (the client's own call; the ride card puts yours on RIDE-TRAK)
+_G.SetPortraitTexture = function(tex, unit)
+  if type(tex) ~= "table" or type(unit) ~= "string" then error("SetPortraitTexture(texture, unit)", 2) end
+  tex.portrait = unit
+end
 W.cursor = { 0, 0 }
 _G.GetCursorPosition = function() return W.cursor[1], W.cursor[2] end
 W.interactKey = "NUMPADMULTIPLY"
@@ -251,7 +258,7 @@ W.labels = {}
 local function FontString()
   local s = { shown = true }
   W.labels[#W.labels + 1] = s
-  function s:SetFont(_, size) self.size = size end
+  function s:SetFont(_, size, flags) self.size, self.flags = size, flags end
   function s:SetPoint(p, rel, rp, x, y)
     if type(rel) == "number" then self.x, self.y = rel, rp self.anchor = { p, nil, p, rel, rp }
     else self.x, self.y = x, y self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
@@ -440,6 +447,8 @@ _G.CreateFrame = function(kind, name, parent, template)
         if p and p.name == nm then W.target = p break end
       end
     end
+    -- the client runs OnClick between the two (23 Oct 2026: the ride card's X was untestable without it)
+    if self.scripts.OnClick then self.scripts.OnClick(self, "LeftButton", true) end
     if self.scripts.PostClick then self.scripts.PostClick(self, "LeftButton", true) end
   end
   if name then frames[name] = true _G[name] = f end
@@ -556,6 +565,21 @@ local function kill(name, guid, src, mark)
 end
 local pass = 0
 local function ok(cond, msg, got) if not cond then error("FAIL: " .. msg .. (got ~= nil and ("  [" .. tostring(got) .. "]") or ""), 2) end pass = pass + 1 end
+
+-- THE FIND SOUND IS OFF BY DEFAULT (Arn, 22 Oct: the whisper ping kept going off in Orgrimmar). A fresh install
+-- starts "off"; an old save holding the old default "first" turns "off" once; a chosen "always" stays, and
+-- "first" chosen again after the switch stays too.
+ok(db.sound == "off" and db.soundOff1, "fresh install: find sound off", db.sound)
+do
+  local farm, keepDb, keepEv = R:Get("farm"), F.db, F.events
+  local old, chose, again = { sound = "first" }, { sound = "always" }, { sound = "first", soundOff1 = true }
+  farm:OnInit(old) farm:OnInit(chose) farm:OnInit(again)
+  F.db, F.events = keepDb, keepEv
+  ok(old.sound == "off" and old.soundOff1, "an old save's \"first\" turns off once", old.sound)
+  ok(chose.sound == "always", "a chosen \"always\" stays", chose.sound)
+  ok(again.sound == "first", "\"first\" picked again after the switch stays", again.sound)
+end
+S("farm sound first")                            -- the find-sound checks below were written for "first"
 
 -- ------------------------------------------------------------ checks
 ok(BiSToolsFarm and BiSToolsFarm:IsShown(), "window shown on login (db.shown default)")
@@ -1014,7 +1038,7 @@ W.px, W.py = 0.5, 0.5
 -- ---------------------------------------------------------------- comm lib + summon tool
 local lib = _G.LibBiSComm
 local SM = NS.Summon
-ok(lib and lib.MINOR == 16 and lib._booted, "LibBiSComm 1.0 minor 16 loaded and booted from Core/Init")
+ok(lib and lib.MINOR == 17 and lib._booted, "LibBiSComm 1.0 minor 17 loaded and booted from Core/Init")
 -- Minor 8 sends one message a second, as the client allows. This suite is about summons and
 -- farming, fires dozens of sends with the clock standing still and jumps it without running
 -- timers - so it turns the pace off. The pace itself is proven in _bisdev/comm/tests.lua.
@@ -2572,6 +2596,10 @@ do
   ok(text == "up" and mark == nil, "and says it is up; it has no mark of its own")
   ok(d and d > 0, "with a distance in yards")
 
+  -- OFF BY DEFAULT (Arn, 22 Oct): a save that never touched it shows nothing; a bare toggle turns it on
+  fdb.arrow = nil
+  ok(not A.Wanted(fdb), "never switched: the arrow is off")
+  ok(A.Set(fdb) == true and A.Set(fdb) == false, "/bist farm arrow with no word: on, then off again")
   S("farm arrow on")
   ok(BiSToolsFarmArrow and BiSToolsFarmArrow:IsShown(), "/bist farm arrow on shows it")
   A.Refresh(fdb)
@@ -6415,6 +6443,25 @@ do
   ok(f.point and f.point[1] == "TOPLEFT", "at the top left")
   ok(f.lines[1].color and f.lines[1].color[1] > 0.8 and f.lines[1].color[3] < 0.5, "in gold")
   ok(f.foot.text:find("timed by Arn - BiSHealing", 1, true), "and who timed it, with which addon", f.foot.text)
+  -- HOW SURE, NOT HOW OLD (Arn, 22 Oct, the card reading "634:12 ago": "instead be a confidence % the longer its been
+  -- since a reading the less confidence its correct")
+  ok(f.foot.text:find("100% sure", 1, true) and not f.foot.text:find("ago", 1, true), "just timed: 100% sure, no age",
+     f.foot.text)
+  local uc = lib.rideById["org_uc"]
+  local function sure(age, stop) return RD.Confidence({ rtt = 356, age = age }, stop) end
+  ok(sure(600, uc) == 100, "ten minutes on a measured loop: still sure", sure(600, uc))
+  ok(sure(3600, uc) >= 60 and sure(3600, uc) <= 75, "an hour on: about two in three", sure(3600, uc))
+  ok(sure(38052, uc) == 0, "Arn's 10 1/2 hours: past 6 h a restart may have reset it - 0%", sure(38052, uc))
+  ok(sure(6 * 3600 - 60, uc) > 0 and sure(6 * 3600 + 60, uc) == 0, "the 6-hour line: a minute before, some; a minute after, none")
+  ok(sure(3600, uc) > sure(10800, uc) and sure(10800, uc) > sure(38052, uc), "the longer since, the less sure")
+  local learned = { id = "nowhere", kind = "zeppelin" }
+  local keepKey = lib.RideKey
+  lib.RideKey = function(self, s) if s == learned then return "nowhere~nowhere" end return keepKey(self, s) end
+  ok(sure(3600, learned) < sure(3600, uc), "a loop learned from rides drifts faster than a measured one",
+     sure(3600, learned) .. " < " .. sure(3600, uc))
+  lib.RideKey = keepKey
+  ok(RD.SureColour(95) == "good" and RD.SureColour(60) == "gold" and RD.SureColour(20) == "warn", "green, gold, red")
+  ok(RD.Confidence(nil, uc) == nil and RD.Confidence({ age = 5 }, uc) == nil, "nothing to judge by: no number")
   -- the countdown: once a second
   W.now = W.now + 5
   tick()
@@ -6450,6 +6497,139 @@ do
   ok(not f.foot:IsShown(), "who timed it can be hidden")
   rdb.who = true RD.Paint()
   fitsIn(f, "the ride card")
+  -- RIDE-TRAK (Arn, 23 Oct: "shift left click this and show a mock tracker like tram trak"): a strip per ride, the
+  -- ride a block on its line - here, crossing, there, coming back - read off the lib's own schedule
+  local D = lib.RIDE_DWELL
+  local function at(docked, left) return RD.Where({ rtt = 356, docked = docked, left = left }, D) end
+  local x0, w0 = at(true, 30)
+  local x1, w1, s1 = at(false, 356 - 60 - 59)        -- a minute out, half its crossing gone
+  local x2, w2 = at(false, 356 - 178 - 10)           -- docked over there
+  local x3, w3, s3 = at(false, 30)                   -- 30 s from here, on its way back
+  ok(x0 == 0 and w0 == "here", "docked here: the left end")
+  ok(w1 == "out" and math.abs(x1 - 0.5) < 0.01 and math.abs(s1 - 59) < 0.01, "crossing: halfway, there in 59 s", tostring(x1))
+  ok(x2 == 1 and w2 == "there", "docked at the far end: the right end")
+  ok(w3 == "back" and x3 > 0 and x3 < 0.3 and s3 == 30, "coming back: nearly here, 30 s", tostring(x3))
+  ok(RD.Where(nil) == nil, "not timed: nowhere to put it")
+  -- the click: only a SHIFT-click opens it; a plain click or a drag's end does nothing
+  W.shift = false
+  f.scripts.OnMouseUp(f, "LeftButton")
+  ok(not rdb.trak, "a plain click: nothing")
+  W.shift = true
+  f.scripts.OnDragStart(f)
+  f.scripts.OnMouseUp(f, "LeftButton")
+  ok(not rdb.trak, "shift held at the end of a drag: still nothing")
+  f.scripts.OnMouseUp(f, "LeftButton")
+  W.shift = false
+  local st = f.strips
+  ok(rdb.trak == true and st and st[1]:IsShown(), "shift-click: RIDE-TRAK opens")
+  -- each strip right under its goblin (Arn: "id like the tracker under the respective goblin so its easier to read")
+  local y1 = st[1].point and st[1].point[5]
+  local y2 = st[2] and st[2].point and st[2].point[5]
+  ok(y1 == -(RD.TOP + RD.ROW) and y2 == -(RD.TOP + RD.ROW + RD.TRAK_H + 4 + RD.ROW),
+     "each ride's line right under its own announcer's row, in the card", tostring(y1) .. " / " .. tostring(y2))
+  fitsIn(f, "the ride card with RIDE-TRAK open")
+  -- YOUR FACE ON IT (Arn: "can it guesstimate what track we are on and put our 2d portrait there?")
+  do
+    local keepMap2, kx, ky = W.map, W.px, W.py
+    W.map, W.px, W.py = 1411, 0.508, 0.137            -- Durotar, on the Undercity platform of Orgrimmar's tower
+    RD.seenAt = nil
+    RD.Paint()
+    local mine
+    for i, s in ipairs(f.strips) do if s:IsShown() and s.me.shown then mine = i end end
+    local ucRow
+    for i, e in ipairs(RD.trakList or {}) do if e.stop.id == "org_uc" then ucRow = i end end
+    ok(mine and mine == ucRow and f.strips[mine].me.portrait == "player" and RD.mine == "dock",
+       "on the Undercity platform: your face on the Undercity line, at the dock end", tostring(mine) .. " vs " .. tostring(ucRow))
+    ok(f.strips[mine].me.anchor and f.strips[mine].me.anchor[4] == RD.TRAK_IN, "at its 'here' end", f.strips[mine].me.anchor and f.strips[mine].me.anchor[4])
+    -- the lanes (Arn: "re arrange stuff so stuff does not get cut off" - his face sat on "Undercity"): face above the
+    -- line, the end names below it, all inside the strip
+    local sm = f.strips[mine]
+    local faceLow, faceHigh = sm.me.anchor[5] - RD.ME / 2, sm.me.anchor[5] + RD.ME / 2
+    ok(faceLow > RD.LINE_Y and faceHigh <= RD.TRAK_H / 2, "your face in its own lane: above the line, inside the strip",
+       faceLow .. ".." .. faceHigh)
+    ok(sm.here.anchor and sm.here.anchor[5] < RD.LINE_Y and sm.there.anchor and sm.there.anchor[5] < RD.LINE_Y,
+       "'here' and where it goes: under the line, never under your face")
+    -- THEY POP (Arn, 23 Oct, Forever's own map: "look how little map changes make the name pop out more")
+    ok(sm.here.flags == "OUTLINE" and sm.there.flags == "OUTLINE" and sm.word.flags == "OUTLINE",
+       "the names and words outlined, standing off the line", tostring(sm.here.flags))
+    -- aboard: the lib saw you leave on it - your face rides the zeppelin's block
+    W.px, W.py = 0.30, 0.30                            -- out over the zone, nowhere near a platform
+    lib.riding = { from = lib.rideById["org_uc"], t0 = 0 }
+    RD.seenAt = nil
+    RD.Paint()
+    local s = f.strips[ucRow]
+    ok(s.me.shown and RD.mine == "ride" and s.me.anchor[4] == s.ride.anchor[4], "aboard: your face rides on its block",
+       tostring(s.me.anchor[4]) .. " vs " .. tostring(s.ride.anchor[4]))
+    -- THE DOCK WINS (Arn, on the platform in Ghost Wolf: "it thought i was on - should have a check to put me back on
+    -- the dock"): the lib says riding, but you stand on the platform, running on your own feet
+    W.px, W.py, W.moving = 0.508, 0.137, true
+    RD.seenAt = nil RD.Paint()
+    W.now = W.now + 1
+    W.px = 0.512
+    RD.seenAt = nil RD.Paint()
+    ok(RD.mine == "dock" and f.strips[ucRow].me.anchor[4] == RD.TRAK_IN,
+       "on the platform, running in Ghost Wolf: back on the dock, whatever the lib's riding says", tostring(RD.mine))
+    -- but carried off it - moving fast while your feet are still - you are aboard, even this close
+    W.moving = false
+    W.now = W.now + 1
+    W.px = 0.518
+    RD.seenAt = nil RD.Paint()
+    ok(RD.mine == "ride", "carried off the platform, feet still: aboard", tostring(RD.mine) .. " " .. tostring(RD.seenSpeed))
+    -- neither aboard nor on a platform: no guess
+    W.px, W.py, W.moving = 0.30, 0.30, false
+    lib.riding = nil
+    RD.seenAt = nil
+    RD.Paint()
+    local any = false
+    for _, st2 in ipairs(f.strips) do if st2.me.shown then any = true end end
+    ok(not any and RD.mine == nil, "away from every platform, riding nothing: no face - no wrong guess")
+    W.map, W.px, W.py = keepMap2, kx, ky
+    RD.seenAt = nil
+    RD.Paint()
+  end
+  -- open, every ride from here is on it: the timed zeppelin on its line, the one nobody timed scanning
+  ok(st[1]:IsShown() and st[1].ride.shown and st[1].there.text == "Undercity" and st[1].word.text:find("leaves in", 1, true),
+     "the Undercity zeppelin: a block on its line, docked here", st[1].word.text)
+  ok(st[2] and st[2]:IsShown() and st[2].sweep.shown and not st[2].ride.shown
+     and st[2].word.text:find("SCANNING", 1, true), "the one nobody timed: SCANNING", st[2] and st[2].word.text)
+  ok(RD.trakWatch.scripts.OnUpdate ~= nil, "open, it repaints a few times a second")
+  -- it leaves: the card stays up (open, every ride shows) and the block moves off along the line
+  W.now = W.now + 120
+  tick()
+  ok(f:IsShown() and st[1].word.text:find("On its way to Undercity", 1, true), "it left: still on the card, on its way",
+     st[1].word.text)
+  ok(f.rows[1].face:IsShown() and f.lines[1].text:find("Next one for Undercity is here in", 1, true),
+     "RIDE-TRAK open: the announcer stays, and says when it's back (Arn: 'it should not close the cards')", f.lines[1].text)
+  ok(f.lines[2].text:find("Nobody's timed", 1, true), "and for the one nobody timed, he says so", f.lines[2].text)
+  -- his face, a little way out (Arn: "the goblins are cut off"), tried live with /bist rides zoom
+  ok(f.rows[1].face._zoom == RD.ZOOM and RD.ZOOM < 1, "his face at zoom " .. RD.ZOOM .. ", not 1", tostring(f.rows[1].face._zoom))
+  S("rides zoom 0.6")
+  ok(rdb.zoom == 0.6 and f.rows[1].face._zoom == 0.6, "/bist rides zoom 0.6: every face asked again at 0.6", tostring(f.rows[1].face._zoom))
+  S("rides zoom 9")
+  ok(rdb.zoom == 0.6, "a zoom out of range: ignored, the current one said")
+  rdb.zoom = nil
+  RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.3)
+  local Cost2 = dofile("../_bisdev/dev/cost.lua")
+  local nt, tby = Cost2.Count(function() for _ = 1, 240 do W.now = W.now + 0.25 RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.26) end end)
+  print(("   cost: RIDE-TRAK open, a minute = %d calls (%s)"):format(nt, Cost2.Top(tby, 3)))
+  -- the whole card four times a second while open (its words and its strips in step, Arn's "0:21" over "0:20"):
+  -- the clock mostly; where you are only once a second
+  ok(nt <= 1000, "RIDE-TRAK open: a few cheap questions a repaint, only while open", nt)
+  ok((tby["C_Map.GetBestMapForUnit"] or 0) <= 61, "where you are: still once a second, not four", tby["C_Map.GetBestMapForUnit"])
+  -- shift-click again: closed, the pop-up as before, its repaint stopped
+  W.shift = true
+  f.scripts.OnMouseUp(f, "LeftButton")
+  W.shift = false
+  ok(not rdb.trak and not st[1]:IsShown() and not st[2]:IsShown() and RD.trakWatch.scripts.OnUpdate == nil,
+     "shift-click again: closed, nothing of it ticks")
+  -- THE X (Arn: "if they close it it should stop popping up ... print the command to enable it again")
+  rdb.all = true RD.Paint()
+  W.lastMsg = nil
+  f.x:Click()
+  ok(rdb.card == false and not f:IsShown(), "the X: the card off - it stops popping up")
+  ok(W.lastMsg and W.lastMsg:find("/bist rides on", 1, true), "and says how to bring it back", W.lastMsg)
+  S("rides on")
+  rdb.all = false RD.Paint()
   -- LEAN: a minute where a ride is - one look a second, the map and an instance question each
   local Cost = dofile("../_bisdev/dev/cost.lua")
   local n, by = Cost.Count(function() for _ = 1, 60 do W.now = W.now + 1 tick() end end)
@@ -6475,6 +6655,71 @@ do
   fireAll("ZONE_CHANGED_NEW_AREA")
   ok(not f:IsShown() and RD.watch.scripts.OnUpdate == nil, "away from every ride: hidden, nothing ticks")
   W.map = keepMap
+end
+
+-- THE DEEPRUN TRAM ON THE CARD (LibBiSComm 17; Arn, 23 Oct: "go ahead with the tram in the library" - "i can ship in
+-- both but dont want two cards floating"). Against the CANONICAL lib, loaded on its own; skipped until it has the tram.
+do
+  local chunk = loadfile("../_bisdev/LibBiSComm-1.0/LibBiSComm-1.0.lua")
+  local env = setmetatable({}, { __index = function(_, k) if k == "LibBiSComm" then return nil end return _G[k] end })
+  env._G = env
+  local tlib
+  if chunk then
+    setfenv(chunk, env)
+    if pcall(chunk) then tlib = rawget(env, "LibBiSComm") end
+  end
+  if not (tlib and tlib.TRAM_MAP and tlib.RideSure) then
+    print("   (the tram on the ride card: skipped - the canonical lib has no tram yet)")
+  else
+    local RD = NS.Rides
+    local rdb = R:DBFor(R:Get("rides"))
+    local real = _G.LibBiSComm
+    local keep = { map = W.map, inst = _G.GetInstanceInfo, pos = _G.UnitPosition, ii = _G.IsInInstance, api = rawget(_G, "BiSShellAPI") }
+    _G.LibBiSComm = tlib
+    W.map = nil                                         -- no map in the tram: measured
+    _G.GetInstanceInfo = function() return "Deeprun Tram", "none", 0, "", 0, 0, false, 369 end
+    _G.IsInInstance = function() return true, "none" end
+    local along, across = 2471.3, -33.4                 -- Stormwind's platform
+    _G.UnitPosition = function(u) if u == "player" then return across, along, 0, 369 end end
+    rdb.card, rdb.all, rdb.trak = true, false, nil
+    local now = tlib.RideNow()
+    tlib:RideSet("tram_if~tram_sw", "tram_sw", now - 5, 143.2, now, "Arn", "BiSShell")   -- it docked 5 s ago
+    RD.seenAt = nil
+    RD.Paint()
+    local f = RD.frame
+    ok(f:IsShown() and f.lines[1].text:find("All aboard for Ironforge - we roll in 0:08", 1, true) and not (f.rows[2] and f.rows[2]:IsShown()),
+       "in the tram, on Stormwind's platform: the tram to Ironforge, waiting - only your side's", f.lines[1].text)
+    ok(f.foot.text:find("100% sure", 1, true), "how sure: the lib's own number", f.foot.text)
+    -- one card: TRAM-TRAK up, ours waits
+    _G.BiSShellAPI = { major = 1, version = 2, TramShown = function() return true end }
+    RD.seenAt = nil
+    RD.Paint()
+    ok(not f:IsShown() and RD.watch.scripts.OnUpdate ~= nil, "BiS Shell's TRAM-TRAK up: our card waits (the watch goes on)")
+    _G.BiSShellAPI = { major = 1, version = 2, TramShown = function() return false end }
+    RD.Paint()
+    ok(f:IsShown(), "TRAM-TRAK away: ours is back")
+    -- RIDE-TRAK: both cars on the line, and you at the dock
+    rdb.trak = true
+    RD.seenAt = nil
+    RD.Paint()
+    local s = f.strips[1]
+    ok(s.ride.shown and s.ride2.shown and s.ride.anchor[4] ~= s.ride2.anchor[4], "RIDE-TRAK: both cars, each its own block")
+    ok(s.me.shown and RD.mine == "dock", "and you at Stormwind's end")
+    -- aboard, half way: your face where you are on the line
+    tlib.riding = { from = tlib.rideById.tram_sw, t0 = 0 }
+    along, across = (2471.3 - 12) / 2, -45.6
+    RD.seenAt = nil
+    RD.Paint()
+    local mx = s.me.anchor[4]
+    ok(RD.mine == "ride" and math.abs(mx - (RD.TRAK_IN + 0.5 * (RD.STRIP_W - 2 * RD.TRAK_IN))) < 2,
+       "aboard, half way down the tunnel: your face half way along the line", mx)
+    tlib.riding = nil
+    rdb.trak = nil
+    _G.LibBiSComm = real
+    W.map, _G.GetInstanceInfo, _G.UnitPosition, _G.IsInInstance, _G.BiSShellAPI = keep.map, keep.inst, keep.pos, keep.ii, keep.api
+    RD.seenAt = nil
+    RD.Paint()
+  end
 end
 
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,

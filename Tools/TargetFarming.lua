@@ -141,9 +141,10 @@ function F.Clean(u)
 end
 
 -- ---------------------------------------------------------------- sound
--- db.sound: "first"  = voice line on the first find, quiet ping after (default)
+-- db.sound: "first"  = voice line on the first find, quiet ping after
 --           "always" = voice line on every find
---           "off"    = nothing
+--           "off"    = nothing (the default since 22 Oct 2026 - Arn: "lets turn that one off by default";
+--                      the whisper ping kept going off in Orgrimmar)
 F.VOICE_LINE = "Skull"
 F.MARK_NAMES = { "Star", "Circle", "Diamond", "Triangle", "Moon", "Square", "Cross", "Skull" }
 F.PING = 3081 -- TELL_MESSAGE (whisper ping): audible over combat, not a siren
@@ -160,7 +161,7 @@ function F.Speak(text)
 end
 function F.Found(db, line)
   db.finds = (db.finds or 0) + 1
-  local mode = db.sound or "first"
+  local mode = db.sound or "off"
   if mode == "off" then return end
   if mode == "always" or db.finds == 1 then F.Speak(line or F.VOICE_LINE) else PlaySound(F.PING, "Master") end
 end
@@ -764,8 +765,14 @@ NS.Registry:Register({
   desc = "click a kill; skull auto-follows a free copy nearby",
   usage = "/bist farm [clear | add <name> | key <KEY>|none | sound first|always|off | spots [clear] | pins on|off|why | arrow on|off | guide on|off | radius <yd> | burst <sec> | prune <sec>|off]",
   defaults = { last = nil, custom = nil, shown = true, collapsed = false, pos = { "CENTER", 300, 0 },
-    active = nil, interval = 0.5, key = nil, sound = "first", finds = 0 },
+    active = nil, interval = 0.5, key = nil, sound = "off", finds = 0 },
   OnInit = function(self, db)
+    -- ONCE: the old default "first" was written into every saved table, so a new default alone changes nobody.
+    -- "first" becomes "off"; "always" (somebody chose it) stays. Back on: /bist farm sound first
+    if not db.soundOff1 then
+      if db.sound == "first" then db.sound = "off" end
+      db.soundOff1 = true
+    end
     F.db = db
     F.events = CreateFrame("Frame")
     F.events:SetScript("OnEvent", function(_, ev, ...) F.OnEvent(db, ev, ...) end)
@@ -794,7 +801,7 @@ NS.Registry:Register({
         if not on and NS.Recap then NS.Recap.ClearKind("farm") NS.Recap.ClearKind("guide") end
       end },
     { kind = "seg", label = "find sound", help = "The sound when a fresh copy of your mob turns up: first - only the first after a quiet spell; always - every time; off - silent.", values = F.SOUND_MODES,
-      get = function(db) return db.sound or "first" end, set = function(db, v) F.SetSound(db, v) end },
+      get = function(db) return db.sound or "off" end, set = function(db, v) F.SetSound(db, v) end },
     { kind = "step", label = "spot radius", help = "How close two kills must be to count as the same spawn spot. Bigger joins nearby spawns into one timer; smaller splits them.", min = 5, max = 60, step = 5, unit = "yd",
       get = function(db) return F.Spots and F.Spots.Radius(db) or 20 end,
       set = function(db, v) if F.Spots then F.Spots.SetRadius(db, v) end end,
@@ -862,7 +869,7 @@ NS.Registry:Register({
       if rest ~= "" and not F.SetSound(db, rest:lower()) then
         return NS.Print("sound first | always | off")
       end
-      return NS.Print("sound: %s", T.text("accent", db.sound or "first"))
+      return NS.Print("sound: %s", T.text("accent", db.sound or "off"))
     end
     if cmd == "add" and rest ~= "" then F.Toggle(db, true) return F.Search(db, rest) end
     if cmd == "key" then
