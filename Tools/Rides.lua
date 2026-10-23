@@ -253,7 +253,11 @@ end
 -- from here, docked or not) - the point is watching them come. The line's place comes from the lib's own schedule
 -- (docked, seconds left, the loop): it docks here, crosses in half a loop less a dwell, docks there, comes back.
 -- Open, it repaints RD.TRAK_EVERY seconds; closed, nothing of it ticks.
-RD.TRAK_H, RD.TRAK_IN, RD.TRAK_EVERY = 38, 30, 0.25
+RD.TRAK_H, RD.TRAK_IN, RD.TRAK_EVERY = 50, 30, 0.25
+-- FOUR LANES, NOTHING ON TOP OF ANYTHING (Arn, 23 Oct: "re arrange stuff so stuff does not get cut off" - his face at
+-- the far end sat on "Undercity"): your face above the line; the line and the ride RD.LINE_Y over the middle; "here"
+-- and where it goes UNDER the line's two ends; the words at the bottom
+RD.LINE_Y = 4
 
 --- Where a ride is on its line: 0 = here, 1 = its far end; and what it is doing ("here", "out", "there", "back")
 --- with the seconds until the next thing happens.
@@ -331,6 +335,16 @@ function RD.Mine(lib, list)
 end
 RD.CARRIED = 0.2                                            -- the lib's RIDE_CARRY: a zeppelin cruises at 0.5-0.6
 
+--- MAKE IT POP (Arn, 23 Oct, showing Forever's own map beside Classic's: "look how little map changes make the name
+--- pop out more" - the same names, heavier, with an edge round each letter). On our dark strip: an outline and a
+--- shadow, so a name stands off the line and the screen behind it.
+function RD.Pop(fs, size)
+  fs:SetFont(STANDARD_TEXT_FONT, size, "OUTLINE")
+  if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 1) end
+  if fs.SetShadowOffset then fs:SetShadowOffset(1, -1) end
+  return fs
+end
+
 --- One strip of the card's: built once, reused.
 function RD.Strip(f, i)
   f.strips = f.strips or {}
@@ -345,19 +359,19 @@ function RD.Strip(f, i)
   s.line = s:CreateTexture(nil, "BORDER")
   s.line:SetColorTexture(0.4, 1, 0.5, 0.6)
   s.line:SetHeight(2)
-  s.line:SetPoint("LEFT", s, "LEFT", RD.TRAK_IN, 2)
-  s.line:SetPoint("RIGHT", s, "RIGHT", -RD.TRAK_IN, 2)
-  s.here = F.fs(s, "here", 9, "ink")
-  s.here:SetPoint("BOTTOMLEFT", s, "LEFT", 4, 4)
-  s.there = F.fs(s, "", 9, "ink")
-  s.there:SetPoint("BOTTOMRIGHT", s, "RIGHT", -4, 4)
+  s.line:SetPoint("LEFT", s, "LEFT", RD.TRAK_IN, RD.LINE_Y)
+  s.line:SetPoint("RIGHT", s, "RIGHT", -RD.TRAK_IN, RD.LINE_Y)
+  s.here = RD.Pop(F.fs(s, "here", 9, "ink"), 9)
+  s.here:SetPoint("TOPLEFT", s, "LEFT", RD.TRAK_IN - 4, RD.LINE_Y - 4)
+  s.there = RD.Pop(F.fs(s, "", 9, "ink"), 9)
+  s.there:SetPoint("TOPRIGHT", s, "RIGHT", -RD.TRAK_IN + 4, RD.LINE_Y - 4)
   s.ride = s:CreateTexture(nil, "OVERLAY")
   s.ride:SetColorTexture(1, 0.82, 0.2, 1)
   s.ride:SetSize(12, 8)
   s.sweep = s:CreateTexture(nil, "OVERLAY")
   s.sweep:SetColorTexture(0.4, 1, 0.5, 0.9)
   s.sweep:SetSize(3, 16)
-  s.word = F.fs(s, "", 9, "dim")
+  s.word = RD.Pop(F.fs(s, "", 9, "dim"), 9)
   s.word:SetPoint("BOTTOM", s, "BOTTOM", 0, 3)
   -- YOU (RD.Mine): your own face, round, above the line where you are
   s.me = s:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -402,14 +416,14 @@ function RD.PaintTrak(list, t)
       -- SCANNING: nobody has timed it - the bar sweeps the line, a computer at work
       s.ride:Hide()
       s.sweep:ClearAllPoints()
-      s.sweep:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + (now * 0.5 % 1) * span, 2)
+      s.sweep:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + (now * 0.5 % 1) * span, RD.LINE_Y)
       s.sweep:Show()
       s.word:SetText("SCANNING - ride it once to lock on" .. string.rep(".", math.floor(now * 2) % 4))
       out[i] = "scanning"
     else
       s.sweep:Hide()
       s.ride:ClearAllPoints()
-      s.ride:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, 2)
+      s.ride:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, RD.LINE_Y)
       s.ride:Show()
       local clock = lib.RideClock(math.ceil(secs - 1e-6))      -- whole seconds up: the card's own count (Arn saw 0:22 under 0:23)
       local to = tostring(e.stop.toName or "?")
@@ -430,7 +444,7 @@ function RD.PaintTrak(list, t)
     if i == mi and x then
       if not s.me.face then s.me.face = pcall(SetPortraitTexture, s.me, "player") end
       s.me:ClearAllPoints()
-      s.me:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, 2 + RD.ME / 2 + 4)
+      s.me:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, RD.LINE_Y + RD.ME / 2 + 3)
       s.me:Show()
     else
       s.me:Hide()

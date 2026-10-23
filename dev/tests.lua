@@ -258,7 +258,7 @@ W.labels = {}
 local function FontString()
   local s = { shown = true }
   W.labels[#W.labels + 1] = s
-  function s:SetFont(_, size) self.size = size end
+  function s:SetFont(_, size, flags) self.size, self.flags = size, flags end
   function s:SetPoint(p, rel, rp, x, y)
     if type(rel) == "number" then self.x, self.y = rel, rp self.anchor = { p, nil, p, rel, rp }
     else self.x, self.y = x, y self.anchor = { p, rel, rp or p, x or 0, y or 0 } end
@@ -6541,6 +6541,17 @@ do
     ok(mine and mine == ucRow and f.strips[mine].me.portrait == "player" and RD.mine == "dock",
        "on the Undercity platform: your face on the Undercity line, at the dock end", tostring(mine) .. " vs " .. tostring(ucRow))
     ok(f.strips[mine].me.anchor and f.strips[mine].me.anchor[4] == RD.TRAK_IN, "at its 'here' end", f.strips[mine].me.anchor and f.strips[mine].me.anchor[4])
+    -- the lanes (Arn: "re arrange stuff so stuff does not get cut off" - his face sat on "Undercity"): face above the
+    -- line, the end names below it, all inside the strip
+    local sm = f.strips[mine]
+    local faceLow, faceHigh = sm.me.anchor[5] - RD.ME / 2, sm.me.anchor[5] + RD.ME / 2
+    ok(faceLow > RD.LINE_Y and faceHigh <= RD.TRAK_H / 2, "your face in its own lane: above the line, inside the strip",
+       faceLow .. ".." .. faceHigh)
+    ok(sm.here.anchor and sm.here.anchor[5] < RD.LINE_Y and sm.there.anchor and sm.there.anchor[5] < RD.LINE_Y,
+       "'here' and where it goes: under the line, never under your face")
+    -- THEY POP (Arn, 23 Oct, Forever's own map: "look how little map changes make the name pop out more")
+    ok(sm.here.flags == "OUTLINE" and sm.there.flags == "OUTLINE" and sm.word.flags == "OUTLINE",
+       "the names and words outlined, standing off the line", tostring(sm.here.flags))
     -- aboard: the lib saw you leave on it - your face rides the zeppelin's block
     W.px, W.py = 0.30, 0.30                            -- out over the zone, nowhere near a platform
     lib.riding = { from = lib.rideById["org_uc"], t0 = 0 }
