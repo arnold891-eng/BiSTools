@@ -56,6 +56,8 @@ end
 
 --- 0-100: how likely the countdown for this ride is still right, or nil with nothing to judge by.
 function RD.Confidence(sched, stop)
+  local lib = RD.Lib()
+  if lib and lib.RideSure then return lib:RideSure(sched, stop) end   -- lib 17: the lib's own, every addon the same
   if not (sched and type(sched.rtt) == "number" and sched.rtt > 0 and type(sched.age) == "number") then return nil end
   if sched.age > RD.RESTART_AFTER then return 0 end
   local lib = RD.Lib()
@@ -87,7 +89,7 @@ function RD.Map()
   return ok and plainNum(map) or nil
 end
 
-function RD.Inside()
+local function inInstance()
   if not IsInInstance then return false end
   local ok, inside = pcall(IsInInstance)
   if not ok then return true end
@@ -96,6 +98,14 @@ function RD.Inside()
     if not ok2 or yes then return true end
   end
   return inside and true or false
+end
+
+function RD.Inside()
+  if not inInstance() then return false end
+  -- the Deeprun Tram: an instance with rides (lib 17) - asked only inside one, so the open world pays nothing for it
+  local lib = RD.Lib()
+  if lib and lib.InTram and lib:InTram() then return false end
+  return true
 end
 
 --------------------------------------------------------------------
@@ -368,6 +378,10 @@ function RD.Strip(f, i)
   s.ride = s:CreateTexture(nil, "OVERLAY")
   s.ride:SetColorTexture(1, 0.82, 0.2, 1)
   s.ride:SetSize(12, 8)
+  s.ride2 = s:CreateTexture(nil, "OVERLAY")
+  s.ride2:SetColorTexture(1, 0.82, 0.2, 1)
+  s.ride2:SetSize(12, 8)
+  s.ride2:Hide()
   s.sweep = s:CreateTexture(nil, "OVERLAY")
   s.sweep:SetColorTexture(0.4, 1, 0.5, 0.9)
   s.sweep:SetSize(3, 16)
@@ -411,10 +425,11 @@ function RD.PaintTrak(list, t)
     local s = RD.Strip(f, i)
     s.there:SetText(tostring(e.stop.toName or "?"))
     local sched = lib:RideSched(e.stop, now)
-    local x, what, secs = RD.Where(sched, lib.RIDE_DWELL)
+    local x, what, secs = RD.Where(sched, sched and sched.dwell or lib.RIDE_DWELL)
     if not x then
       -- SCANNING: nobody has timed it - the bar sweeps the line, a computer at work
       s.ride:Hide()
+      s.ride2:Hide()
       s.sweep:ClearAllPoints()
       s.sweep:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + (now * 0.5 % 1) * span, RD.LINE_Y)
       s.sweep:Show()
@@ -425,6 +440,19 @@ function RD.PaintTrak(list, t)
       s.ride:ClearAllPoints()
       s.ride:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, RD.LINE_Y)
       s.ride:Show()
+      -- THE TRAM'S SECOND CAR (lib 17, sched.cars): its own block, half a loop behind
+      local other
+      for _, c in ipairs(sched.cars or {}) do
+        if c.docked ~= sched.docked or c.left ~= sched.left then other = c end
+      end
+      local x2 = other and RD.Where({ rtt = sched.rtt, docked = other.docked, left = other.left }, sched.dwell)
+      if x2 then
+        s.ride2:ClearAllPoints()
+        s.ride2:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x2 * span, RD.LINE_Y)
+        s.ride2:Show()
+      else
+        s.ride2:Hide()
+      end
       local clock = lib.RideClock(math.ceil(secs - 1e-6))      -- whole seconds up: the card's own count (Arn saw 0:22 under 0:23)
       local to = tostring(e.stop.toName or "?")
       s.word:SetText(what == "here" and ("Docked here - leaves in " .. clock)
@@ -441,6 +469,12 @@ function RD.PaintTrak(list, t)
   for i = 1, #list do
     local s = f.strips[i]
     local x = how == "dock" and 0 or (type(out[i]) == "number" and out[i]) or nil
+    -- in the tram you know exactly where you are on the line: your own spot along it, whichever car you are on
+    local e = list[i]
+    local far = how == "ride" and e and e.stop.kind == "tram" and lib.ridePartner and lib.ridePartner[e.stop.id]
+    if far and RD.seenX and far.x ~= e.stop.x then
+      x = math.max(0, math.min(1, (e.stop.x - RD.seenX) / (e.stop.x - far.x)))
+    end
     if i == mi and x then
       if not s.me.face then s.me.face = pcall(SetPortraitTexture, s.me, "player") end
       s.me:ClearAllPoints()
@@ -483,7 +517,7 @@ function RD.Cry(lib, e)
     return ("\"Next one for %s is here in %s.\""):format(to, lib.RideClock(e.sched.left))
   end
   return ("\"All aboard for %s - we %s in %s!\""):format(to,
-    e.stop.kind == "zeppelin" and "lift off" or "sail", lib.RideClock(e.sched.left))
+    e.stop.kind == "zeppelin" and "lift off" or e.stop.kind == "tram" and "roll" or "sail", lib.RideClock(e.sched.left))
 end
 
 --- A ride in the card's words. THE POP-UP (Arn, 21 Oct: "i want it to only pop out when it arrives and itll show up
@@ -491,7 +525,8 @@ end
 --- "Zeppelin to Grom'gol - leaves in 0:58". With "all rides" on: every ride from here, coming and going.
 function RD.Line(lib, e, all)
   if all then return lib:RideLine(e.stop, e.sched) end
-  return ("%s to %s - leaves in %s"):format(e.stop.kind == "zeppelin" and "Zeppelin" or "Boat", tostring(e.stop.toName),
+  return ("%s to %s - leaves in %s"):format(e.stop.kind == "zeppelin" and "Zeppelin" or e.stop.kind == "tram" and "Tram" or "Boat",
+    tostring(e.stop.toName),
     lib.RideClock(e.sched.left))
 end
 
@@ -520,6 +555,8 @@ function RD.Paint(now, quick)
       if okF and hidden ~= true and feet ~= nil then RD.seenFeet = feet and true or false end
     else
       RD.seenMap, RD.seenX, RD.seenY = RD.Map(), nil, nil
+      -- THE DEEPRUN TRAM has no map (lib 17): the lib's own spot there, along the track - which platform you are on
+      if not RD.seenMap and lib.TramSpot then RD.seenMap, RD.seenX, RD.seenY = lib:TramSpot() end
     end
   end
   if RD.seenInside then return RD.Hide() end
@@ -527,6 +564,20 @@ function RD.Paint(now, quick)
   local here = map and lib:RidesAt(map, now) or {}
   if #here == 0 then return RD.Hide() end
   RD.Watching(true)
+  if map == lib.TRAM_MAP then
+    -- ONE CARD (Arn, 23 Oct: "i can ship in both but dont want two cards floating"): BiS Shell's TRAM-TRAK up, ours
+    -- waits; the watch goes on, so it comes back the moment TRAM-TRAK goes
+    local api = rawget(_G, "BiSShellAPI")
+    if api and api.TramShown then
+      local okT, up = pcall(api.TramShown)
+      if okT and up == true then RD.HideCard() return {} end
+    end
+    -- the tram's two platforms are one place to the lib: only YOUR side's tram, by where you stand along the line
+    if RD.seenX and #here == 2 then
+      local a, b = here[1], here[2]
+      here = { math.abs(a.stop.x - RD.seenX) <= math.abs(b.stop.x - RD.seenX) and a or b }
+    end
+  end
   local all = db.all == true
   local trak = db.trak == true                  -- RIDE-TRAK open: every ride from here stays on the card
   local pick = {}

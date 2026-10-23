@@ -6657,6 +6657,71 @@ do
   W.map = keepMap
 end
 
+-- THE DEEPRUN TRAM ON THE CARD (LibBiSComm 17; Arn, 23 Oct: "go ahead with the tram in the library" - "i can ship in
+-- both but dont want two cards floating"). Against the CANONICAL lib, loaded on its own; skipped until it has the tram.
+do
+  local chunk = loadfile("../_bisdev/LibBiSComm-1.0/LibBiSComm-1.0.lua")
+  local env = setmetatable({}, { __index = function(_, k) if k == "LibBiSComm" then return nil end return _G[k] end })
+  env._G = env
+  local tlib
+  if chunk then
+    setfenv(chunk, env)
+    if pcall(chunk) then tlib = rawget(env, "LibBiSComm") end
+  end
+  if not (tlib and tlib.TRAM_MAP and tlib.RideSure) then
+    print("   (the tram on the ride card: skipped - the canonical lib has no tram yet)")
+  else
+    local RD = NS.Rides
+    local rdb = R:DBFor(R:Get("rides"))
+    local real = _G.LibBiSComm
+    local keep = { map = W.map, inst = _G.GetInstanceInfo, pos = _G.UnitPosition, ii = _G.IsInInstance, api = rawget(_G, "BiSShellAPI") }
+    _G.LibBiSComm = tlib
+    W.map = nil                                         -- no map in the tram: measured
+    _G.GetInstanceInfo = function() return "Deeprun Tram", "none", 0, "", 0, 0, false, 369 end
+    _G.IsInInstance = function() return true, "none" end
+    local along, across = 2471.3, -33.4                 -- Stormwind's platform
+    _G.UnitPosition = function(u) if u == "player" then return across, along, 0, 369 end end
+    rdb.card, rdb.all, rdb.trak = true, false, nil
+    local now = tlib.RideNow()
+    tlib:RideSet("tram_if~tram_sw", "tram_sw", now - 5, 143.2, now, "Arn", "BiSShell")   -- it docked 5 s ago
+    RD.seenAt = nil
+    RD.Paint()
+    local f = RD.frame
+    ok(f:IsShown() and f.lines[1].text:find("All aboard for Ironforge - we roll in 0:08", 1, true) and not (f.rows[2] and f.rows[2]:IsShown()),
+       "in the tram, on Stormwind's platform: the tram to Ironforge, waiting - only your side's", f.lines[1].text)
+    ok(f.foot.text:find("100% sure", 1, true), "how sure: the lib's own number", f.foot.text)
+    -- one card: TRAM-TRAK up, ours waits
+    _G.BiSShellAPI = { major = 1, version = 2, TramShown = function() return true end }
+    RD.seenAt = nil
+    RD.Paint()
+    ok(not f:IsShown() and RD.watch.scripts.OnUpdate ~= nil, "BiS Shell's TRAM-TRAK up: our card waits (the watch goes on)")
+    _G.BiSShellAPI = { major = 1, version = 2, TramShown = function() return false end }
+    RD.Paint()
+    ok(f:IsShown(), "TRAM-TRAK away: ours is back")
+    -- RIDE-TRAK: both cars on the line, and you at the dock
+    rdb.trak = true
+    RD.seenAt = nil
+    RD.Paint()
+    local s = f.strips[1]
+    ok(s.ride.shown and s.ride2.shown and s.ride.anchor[4] ~= s.ride2.anchor[4], "RIDE-TRAK: both cars, each its own block")
+    ok(s.me.shown and RD.mine == "dock", "and you at Stormwind's end")
+    -- aboard, half way: your face where you are on the line
+    tlib.riding = { from = tlib.rideById.tram_sw, t0 = 0 }
+    along, across = (2471.3 - 12) / 2, -45.6
+    RD.seenAt = nil
+    RD.Paint()
+    local mx = s.me.anchor[4]
+    ok(RD.mine == "ride" and math.abs(mx - (RD.TRAK_IN + 0.5 * (RD.STRIP_W - 2 * RD.TRAK_IN))) < 2,
+       "aboard, half way down the tunnel: your face half way along the line", mx)
+    tlib.riding = nil
+    rdb.trak = nil
+    _G.LibBiSComm = real
+    W.map, _G.GetInstanceInfo, _G.UnitPosition, _G.IsInInstance, _G.BiSShellAPI = keep.map, keep.inst, keep.pos, keep.ii, keep.api
+    RD.seenAt = nil
+    RD.Paint()
+  end
+end
+
 local allowed = { BiSTools = true, BiSToolsDB = true, SLASH_BISTOOLS1 = true, SLASH_BISTOOLS2 = true,
   SLASH_BISTOOLS3 = true,
   -- the embedded third-party libs' own globals (Libs/THIRD-PARTY.txt): LibStub, and the world-map
