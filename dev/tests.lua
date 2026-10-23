@@ -6526,8 +6526,16 @@ do
   tick()
   ok(f:IsShown() and st[1].word.text:find("On its way to Undercity", 1, true), "it left: still on the card, on its way",
      st[1].word.text)
-  ok(not f.rows[1].face:IsShown() and f.lines[1].text:find("^Zeppelin to Undercity"), "a ride on its way: a plain line, not the announcer",
-     f.lines[1].text)
+  ok(f.rows[1].face:IsShown() and f.lines[1].text:find("Next one for Undercity is here in", 1, true),
+     "RIDE-TRAK open: the announcer stays, and says when it's back (Arn: 'it should not close the cards')", f.lines[1].text)
+  ok(f.lines[2].text:find("Nobody's timed", 1, true), "and for the one nobody timed, he says so", f.lines[2].text)
+  -- his face, a little way out (Arn: "the goblins are cut off"), tried live with /bist rides zoom
+  ok(f.rows[1].face._zoom == RD.ZOOM and RD.ZOOM < 1, "his face at zoom " .. RD.ZOOM .. ", not 1", tostring(f.rows[1].face._zoom))
+  S("rides zoom 0.6")
+  ok(rdb.zoom == 0.6 and f.rows[1].face._zoom == 0.6, "/bist rides zoom 0.6: every face asked again at 0.6", tostring(f.rows[1].face._zoom))
+  S("rides zoom 9")
+  ok(rdb.zoom == 0.6, "a zoom out of range: ignored, the current one said")
+  rdb.zoom = nil
   RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.3)
   local Cost2 = dofile("../_bisdev/dev/cost.lua")
   local nt, tby = Cost2.Count(function() for _ = 1, 240 do W.now = W.now + 0.25 RD.trakWatch.scripts.OnUpdate(RD.trakWatch, 0.26) end end)

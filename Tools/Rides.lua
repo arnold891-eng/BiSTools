@@ -180,6 +180,16 @@ function RD.Row(f, i)
 end
 
 --- His face: the creature by npc id, close (a portrait), asked again once if the client had to fetch it.
+-- HOW CLOSE HIS FACE (Arn's Undercity screenshot, 23 Oct: "the goblins are cut off" - at zoom 1 Zapetta and Hin
+-- Denburg showed as thin slices; Snurk in Orgrimmar had looked fine). A little way out by default; `/bist rides zoom
+-- <0.3-1>` to try it live (db.zoom).
+RD.ZOOM = 0.75
+function RD.Zoom()
+  local z = RD.db and tonumber(RD.db.zoom)
+  if z and z >= 0.3 and z <= 1 then return z end
+  return RD.ZOOM
+end
+
 function RD.Face(row, npc)
   local m = row.face
   if not npc then m:Hide() row.npc = nil return nil end
@@ -188,14 +198,14 @@ function RD.Face(row, npc)
   m:Show()
   pcall(m.ClearModel, m)
   pcall(m.SetCreature, m, npc)
-  if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 1) end
+  if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, RD.Zoom()) end
   if C_Timer and C_Timer.After then
     C_Timer.After(0.6, function()
       if row.npc ~= npc then return end
       local ok, file = pcall(m.GetModelFileID, m)
       if ok and type(file) == "number" and file > 0 then return end
       pcall(m.SetCreature, m, npc)
-      if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, 1) end
+      if m.SetPortraitZoom then pcall(m.SetPortraitZoom, m, RD.Zoom()) end
     end)
   end
   return npc
@@ -362,7 +372,7 @@ function RD.PaintTrak(list)
       s.ride:ClearAllPoints()
       s.ride:SetPoint("CENTER", s, "LEFT", RD.TRAK_IN + x * span, 2)
       s.ride:Show()
-      local clock = lib.RideClock(secs)
+      local clock = lib.RideClock(math.ceil(secs - 1e-6))      -- whole seconds up: the card's own count (Arn saw 0:22 under 0:23)
       local to = tostring(e.stop.toName or "?")
       s.word:SetText(what == "here" and ("Docked here - leaves in " .. clock)
         or what == "out" and ("On its way to " .. to .. " - there in " .. clock)
@@ -399,7 +409,14 @@ end
 
 --- What the announcer says: "All aboard for Grom'gol - we lift off in 0:58!" (a ship sails).
 function RD.Cry(lib, e)
-  return ("\"All aboard for %s - we %s in %s!\""):format(tostring(e.stop.toName),
+  local to = tostring(e.stop.toName)
+  -- WITH RIDE-TRAK OPEN HE STAYS (Arn, 23 Oct: "if the trak window is open it should not close the cards"): gone or
+  -- not timed, he says so in his own voice
+  if not e.sched then return ("\"Nobody's timed the one for %s yet - ride it once!\""):format(to) end
+  if not e.sched.docked then
+    return ("\"Next one for %s is here in %s.\""):format(to, lib.RideClock(e.sched.left))
+  end
+  return ("\"All aboard for %s - we %s in %s!\""):format(to,
     e.stop.kind == "zeppelin" and "lift off" or "sail", lib.RideClock(e.sched.left))
 end
 
@@ -435,8 +452,9 @@ function RD.Paint(now)
   local y = RD.TOP
   for i, e in ipairs(pick) do
     local row = RD.Row(f, i)
-    -- the announcer for a ride that waits; with RIDE-TRAK open, one still on its way is a plain line
-    local plain = all or not (e.sched and e.sched.docked)
+    -- the announcer for a ride that waits - and, with RIDE-TRAK open, for every ride (he stays and says when it's back);
+    -- "all rides" alone keeps its plain list
+    local plain = not trak and (all or not (e.sched and e.sched.docked))
     local face = not plain and (RD.CRIER[e.stop.id] or e.stop.npc) or nil
     local who = (RD.CRIER[e.stop.id] and RD.CRIERNAME and RD.CRIERNAME[e.stop.id]) or e.stop.who
     row:ClearAllPoints()
@@ -558,6 +576,14 @@ R:Register({
       db.pos = nil
       RD.Place()
       return NS.Print("the ride card is back at the top left")
+    elseif args and args:match("^zoom") then
+      local z = tonumber(args:match("^zoom%s+([%d%.]+)"))
+      if not z or z < 0.3 or z > 1 then return NS.Print("his face: zoom %.2f - try |cff66ff80/bist rides zoom 0.6|r (0.3 far .. 1 close)", RD.Zoom()) end
+      db.zoom = z
+      local f = RD.frame
+      for _, row in ipairs(f and f.rows or {}) do row.npc = nil end   -- every face asked again at the new zoom
+      RD.Paint()
+      return NS.Print("his face: zoom %.2f", z)
     elseif args == "trak" then
       return NS.Print("RIDE-TRAK: %s", RD.ToggleTrak() and "open - every ride from here, on its line"
         or "closed (shift-click the card to open it)")
